@@ -48,7 +48,8 @@ def _token_row(user_id, *, ttl: timedelta | None = None, used: bool = False):
     row = PasswordResetToken(
         user_id=user_id,
         token_hash=_hash_token(raw),
-        expires_at=datetime.now(UTC) + (ttl if ttl is not None else PASSWORD_RESET_TOKEN_TTL),
+        expires_at=datetime.now(UTC)
+        + (ttl if ttl is not None else PASSWORD_RESET_TOKEN_TTL),
     )
     row.used_at = datetime.now(UTC) if used else None
     row.created_at = datetime.now(UTC)
@@ -58,7 +59,15 @@ def _token_row(user_id, *, ttl: timedelta | None = None, used: bool = False):
 # ── /auth/forgot-password ─────────────────────────────────────────────────────
 
 
-def test_forgot_password_known_email_sends_email_and_echoes_token_in_console_mode():
+def test_forgot_password_known_email_sends_email_and_echoes_token_in_console_mode(
+    monkeypatch,
+):
+    # Pin the email backend explicitly so this test stays deterministic across
+    # local .env files (a dev with SMTP_HOST set would otherwise flip the
+    # response to SMTP-mode and the token echo would be suppressed).
+    monkeypatch.setattr("app.api.v1.endpoints.auth.settings.EMAIL_BACKEND", "console")
+    monkeypatch.setattr("app.api.v1.endpoints.auth.settings.SMTP_HOST", "")
+
     user = make_user(email="known@example.com")
     db = _user_lookup_db(user)
 
@@ -184,9 +193,7 @@ def test_forgot_password_rate_limited_after_three_requests(monkeypatch):
     limiter so we exercise the actual 3/min enforcement.
     """
     limiter = InMemoryRateLimiter(max_requests=3, window_seconds=60)
-    monkeypatch.setattr(
-        "app.api.v1.endpoints.auth.forgot_password_limiter", limiter
-    )
+    monkeypatch.setattr("app.api.v1.endpoints.auth.forgot_password_limiter", limiter)
     db = _user_lookup_db(None)  # unknown email — cheapest path
 
     async def _get_db():

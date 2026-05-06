@@ -31,16 +31,12 @@ async def send_verification_email(user: User, raw_token: str) -> None:
     )
     try:
         await get_email_sender().send(
-            EmailMessage(
-                to=user.email, subject=subject, html=html_body, text=text_body
-            )
+            EmailMessage(to=user.email, subject=subject, html=html_body, text=text_body)
         )
     except Exception:
         # Belt-and-suspenders — backends already swallow, but a crash in a
         # template render or lookup should not break signup either.
-        logger.exception(
-            "send_verification_email failed user=%s", user.id
-        )
+        logger.exception("send_verification_email failed user=%s", user.id)
 
 
 async def send_password_reset_email(user: User, raw_token: str) -> None:
@@ -49,11 +45,7 @@ async def send_password_reset_email(user: User, raw_token: str) -> None:
     )
     try:
         await get_email_sender().send(
-            EmailMessage(
-                to=user.email, subject=subject, html=html_body, text=text_body
-            )
+            EmailMessage(to=user.email, subject=subject, html=html_body, text=text_body)
         )
     except Exception:
-        logger.exception(
-            "send_password_reset_email failed user=%s", user.id
-        )
+        logger.exception("send_password_reset_email failed user=%s", user.id)

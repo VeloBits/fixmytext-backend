@@ -45,7 +45,9 @@ class UserResponse(BaseModel):
 class VerifyEmailRequest(BaseModel):
     """Request schema for verifying an email via a one-time token."""
 
-    token: str = Field(..., min_length=1, description="Token from the verification email")
+    token: str = Field(
+        ..., min_length=1, description="Token from the verification email"
+    )
 
 
 class VerifyEmailResponse(BaseModel):
@@ -88,7 +90,9 @@ class ForgotPasswordResponse(BaseModel):
 class ResetPasswordRequest(BaseModel):
     """Request schema for completing a password reset."""
 
-    token: str = Field(..., min_length=1, description="Token issued by /forgot-password")
+    token: str = Field(
+        ..., min_length=1, description="Token issued by /forgot-password"
+    )
     new_password: str = Field(
         ..., min_length=8, max_length=128, description="New password (8-128 chars)"
     )

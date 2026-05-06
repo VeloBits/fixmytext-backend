@@ -2,7 +2,7 @@
 
 Introduces a per-user verification flag (defaulting to ``false`` for both new
 rows and backfill) and a short-lived token table whose raw tokens are never
-persisted — only their SHA-256 hashes.
+persisted — only the keyed HMAC digest.
 
 Revision ID: 0022
 Revises: 0021
@@ -17,6 +17,9 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 
 from alembic import op
 from app.core.config import settings
+
+# Read by Alembic via module introspection; static analyzers can't see that.
+__all__ = ["revision", "down_revision", "branch_labels", "depends_on"]
 
 revision: str = "0022"
 down_revision: Union[str, None] = "0021"

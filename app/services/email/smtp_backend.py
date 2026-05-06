@@ -54,6 +54,4 @@ class SmtpEmailSender:
                 message.subject,
             )
             return
-        logger.info(
-            "SMTP EMAIL sent to=%s subject=%s", message.to, message.subject
-        )
+        logger.info("SMTP EMAIL sent to=%s subject=%s", message.to, message.subject)

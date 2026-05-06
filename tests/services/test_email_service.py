@@ -17,7 +17,6 @@ from app.services.email.smtp_backend import SmtpEmailSender
 from app.services.email.templates import password_reset_email, verification_email
 from tests.conftest import make_user
 
-
 # ── get_email_sender selection ────────────────────────────────────────────────
 
 
@@ -110,13 +109,15 @@ async def test_smtp_backend_sends_via_aiosmtplib():
 async def test_smtp_backend_swallows_and_logs_failure(caplog):
     sender = SmtpEmailSender()
     msg = EmailMessage(to="x@y.z", subject="s", html="<p>h</p>", text="h")
-    with patch(
-        "app.services.email.smtp_backend.aiosmtplib.send",
-        new_callable=AsyncMock,
-        side_effect=ConnectionError("relay down"),
+    with (
+        patch(
+            "app.services.email.smtp_backend.aiosmtplib.send",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("relay down"),
+        ),
+        caplog.at_level(logging.ERROR, logger="app.services.email.smtp_backend"),
     ):
-        with caplog.at_level(logging.ERROR, logger="app.services.email.smtp_backend"):
-            await sender.send(msg)  # must not raise
+        await sender.send(msg)  # must not raise
     assert any("SMTP send failed" in r.getMessage() for r in caplog.records)
 
 
@@ -125,7 +126,7 @@ async def test_smtp_backend_swallows_and_logs_failure(caplog):
 
 def test_templates_escape_display_name_in_html():
     subject, html_body, text_body = verification_email(
-        display_name='<script>alert(1)</script>',
+        display_name="<script>alert(1)</script>",
         verify_url="https://app.example.com/verify-email?token=abc",
     )
     assert "Verify" in subject

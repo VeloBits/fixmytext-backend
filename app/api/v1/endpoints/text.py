@@ -200,9 +200,7 @@ async def _execute_tool(
             status_code=403,
             detail={
                 "code": "email_not_verified",
-                "message": (
-                    "Please verify your email address to use FixMyText tools."
-                ),
+                "message": ("Please verify your email address to use FixMyText tools."),
             },
         )
 

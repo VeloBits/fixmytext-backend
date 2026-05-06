@@ -139,7 +139,12 @@ def test_verify_email_missing_token_rejected_by_validation():
 # ── /auth/resend-verification ─────────────────────────────────────────────────
 
 
-def test_resend_verification_issues_new_token_when_no_prior():
+def test_resend_verification_issues_new_token_when_no_prior(monkeypatch):
+    # Pin console mode so the dev-echo assertion stays deterministic across
+    # local .env configurations.
+    monkeypatch.setattr("app.api.v1.endpoints.auth.settings.EMAIL_BACKEND", "console")
+    monkeypatch.setattr("app.api.v1.endpoints.auth.settings.SMTP_HOST", "")
+
     user = make_user(is_email_verified=False)
     db = _sequenced_execute_db(None)  # no prior token exists
 

@@ -1,8 +1,8 @@
 """Create auth.password_reset_tokens table.
 
-Stores SHA-256 hashes of password reset tokens with short-lived expiry.
-Raw tokens are never persisted — only the hash — so a DB compromise cannot
-be used to reset passwords.
+Stores HMAC-SHA256 digests of password reset tokens with short-lived expiry.
+Raw tokens are never persisted — only the keyed digest — so a DB compromise
+alone cannot be used to reset passwords.
 
 Revision ID: 0021
 Revises: 0020
@@ -17,6 +17,11 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 
 from alembic import op
 from app.core.config import settings
+
+# These names look unused to static analyzers but are read by Alembic at
+# runtime via module introspection. ``__all__`` documents that they are the
+# public surface of this migration module.
+__all__ = ["revision", "down_revision", "branch_labels", "depends_on"]
 
 revision: str = "0021"
 down_revision: Union[str, None] = "0020"

@@ -22,4 +22,5 @@ class EmailSender(Protocol):
     and a down mail provider must not break those.
     """
 
-    async def send(self, message: EmailMessage) -> None: ...
+    async def send(self, message: EmailMessage) -> None:
+        """Send *message* via the configured backend."""

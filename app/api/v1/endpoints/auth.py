@@ -238,12 +238,18 @@ async def forgot_password(
     is registered. Rate limited to 3 requests/minute per client IP.
     """
     await forgot_password_limiter.check(request)
-    logger.info("FORGOT_PASSWORD attempt email=%s", _s(req.email))
+    # We deliberately do not log the submitted email — it's user-controlled
+    # PII, and logging it complicates compliance + invites log-injection.
+    # The post-lookup branch logs the resolved user.id, which is enough to
+    # trace the request without persisting raw email addresses.
     issued = await create_password_reset_token(db, req.email)
     raw_token: str | None = None
     if issued is not None:
         user, raw_token = issued
+        logger.info("FORGOT_PASSWORD issued user=%s", user.id)
         await send_password_reset_email(user, raw_token)
+    else:
+        logger.info("FORGOT_PASSWORD ignored (unknown or inactive email)")
     # Echo the raw token only when the console backend is active (local dev,
     # no SMTP configured). Once a real relay is set up, the user retrieves
     # the token from their inbox, exercising the real flow end-to-end.

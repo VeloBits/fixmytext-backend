@@ -1,6 +1,6 @@
 """Business logic for authentication: register, login, password reset."""
 
-import hashlib
+import hmac
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -31,8 +31,17 @@ RESEND_VERIFICATION_COOLDOWN = timedelta(minutes=2)
 
 
 def _hash_token(raw_token: str) -> str:
-    """Return the SHA-256 hex digest used to look up tokens in the DB."""
-    return hashlib.sha256(raw_token.encode()).hexdigest()
+    """Return the keyed digest used to look up reset/verification tokens.
+
+    The input is a server-generated random string (``secrets.token_urlsafe(32)``
+    — 256 bits of entropy), **not** a user-chosen password. We use HMAC-SHA256
+    keyed by ``settings.SECRET_KEY`` rather than a bare hash so that a leaked
+    DB alone — without the secret — cannot be used to precompute matches or
+    perform offline token lookup attacks.
+    """
+    return hmac.new(
+        settings.SECRET_KEY.encode(), raw_token.encode(), digestmod="sha256"
+    ).hexdigest()
 
 
 async def register(
