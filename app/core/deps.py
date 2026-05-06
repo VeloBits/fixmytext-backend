@@ -54,6 +54,30 @@ async def get_current_user(
     return user
 
 
+async def get_verified_user(
+    user: User = Depends(get_current_user),
+) -> User:
+    """Strict auth + email-verification gate.
+
+    Use on endpoints that should be reachable only by fully-onboarded users
+    (AI tools, write endpoints that assume a trustworthy identity). Returns a
+    403 with a machine-readable ``code`` so the frontend can prompt the user
+    to verify without treating it as a generic auth failure.
+    """
+    if not user.is_email_verified:
+        logger.info("AUTH   user=%s blocked: email not verified", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "email_not_verified",
+                "message": (
+                    "Please verify your email address to use AI-powered tools."
+                ),
+            },
+        )
+    return user
+
+
 async def get_optional_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),

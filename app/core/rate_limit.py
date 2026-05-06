@@ -142,3 +142,16 @@ ai_limiter = create_limiter(prefix="rl:ai")
 
 # Stricter limiter for authentication endpoints (brute-force protection)
 auth_limiter = create_limiter(max_requests=10, window_seconds=60, prefix="rl:auth")
+
+# Very strict limiter for password reset initiation — costlier per request
+# (DB write + email) and a common abuse vector for user enumeration and spam.
+forgot_password_limiter = create_limiter(
+    max_requests=3, window_seconds=60, prefix="rl:forgot-pw"
+)
+
+# Per-user cooldown for /auth/resend-verification. Keyed by user_id (not IP),
+# so a single user can't request more than one verification email every two
+# minutes regardless of which client they hit the API from.
+verification_resend_limiter = create_limiter(
+    max_requests=1, window_seconds=120, prefix="rl:verify-resend"
+)

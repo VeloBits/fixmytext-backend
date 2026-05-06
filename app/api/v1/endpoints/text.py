@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_optional_user
+from app.core.deps import get_current_user, get_optional_user, get_verified_user
 from app.core.rate_limit import ai_limiter
 from app.core.sanitize import sanitize_log_value as _safe
 from app.core.tool_registry import ToolType, get_all_tools, get_tool
@@ -191,6 +191,19 @@ async def _execute_tool(
     if tool is None:
         raise HTTPException(status_code=404, detail=f"Tool '{tool_id}' not found")
 
+    # Authenticated users must verify their email before using any tool.
+    # Unauthenticated visitors keep their free-tier access — the rule is only
+    # meant to prevent a fresh, unverified signup from silently using tools
+    # while we still don't know they own the inbox they registered with.
+    if user is not None and not user.is_email_verified:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "email_not_verified",
+                "message": ("Please verify your email address to use FixMyText tools."),
+            },
+        )
+
     client_ip = request.client.host if request.client else "unknown"
     user_id = str(user.id) if user else "visitor"
     kind = "AI    " if tool.tool_type == ToolType.AI else "LOCAL "
@@ -292,7 +305,11 @@ def _register_routes() -> None:
 
 
 def _make_authed_route(tool_id: str, tool_def: Any, req_model: type) -> None:
-    """Create a route that requires authentication (all AI tools)."""
+    """Create a route that requires authentication (all AI tools).
+
+    Email-verification enforcement lives in ``_execute_tool`` so both
+    auth-required and optional-auth routes get the same treatment.
+    """
 
     async def handler(
         request: Request,
@@ -350,7 +367,7 @@ async def stream_tool(
     tool_id: str,
     req: TextRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Stream AI tool output via Server-Sent Events (token-by-token).

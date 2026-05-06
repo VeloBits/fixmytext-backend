@@ -9,25 +9,63 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import get_current_user
-from app.core.rate_limit import auth_limiter
+from app.core.rate_limit import (
+    auth_limiter,
+    forgot_password_limiter,
+    verification_resend_limiter,
+)
 from app.core.sanitize import sanitize_log_value as _s
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.auth import (
+    ForgotPasswordRequest,
+    ForgotPasswordResponse,
     LoginRequest,
     RegisterRequest,
+    ResendVerificationResponse,
+    ResetPasswordRequest,
+    ResetPasswordResponse,
     TokenResponse,
     UserResponse,
+    VerifyEmailRequest,
+    VerifyEmailResponse,
 )
-from app.services.auth_service import authenticate
+from app.services.auth_service import (
+    authenticate,
+    create_password_reset_token,
+    resend_verification,
+    verify_email,
+)
 from app.services.auth_service import register as do_register
+from app.services.auth_service import reset_password as do_reset_password
+from app.services.email.flows import (
+    send_password_reset_email,
+    send_verification_email,
+)
 
 logger = logging.getLogger(__name__)
 
 # Cookie configuration sourced from settings (with safe fallbacks)
 REFRESH_COOKIE = getattr(settings, "COOKIE_NAME", "refresh_token")
 REFRESH_COOKIE_PATH = getattr(settings, "COOKIE_PATH", "/api/v1/auth")
+
+
+def _echo_tokens_in_response() -> bool:
+    """Return True when raw tokens may be echoed back in API responses.
+
+    Only true when email is going to stdout (console backend) — i.e. the dev
+    workflow that grabs the token directly from the response. Once a real
+    SMTP relay is configured, the token must only be retrievable from the
+    inbox to exercise the real flow end-to-end.
+    """
+    backend = (settings.EMAIL_BACKEND or "auto").lower()
+    if backend == "console":
+        return True
+    if backend == "smtp":
+        return False
+    # auto: console if no SMTP host configured
+    return not settings.SMTP_HOST
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -88,7 +126,9 @@ async def register(
         "REGISTER attempt email=%s display_name=%s", _s(req.email), _s(req.display_name)
     )
     try:
-        user = await do_register(db, req.email, req.password, req.display_name)
+        user, verification_token = await do_register(
+            db, req.email, req.password, req.display_name
+        )
     except HTTPException:
         logger.warning(
             "REGISTER failed email=%s (duplicate or validation error)", _s(req.email)
@@ -97,6 +137,8 @@ async def register(
     except Exception:
         logger.exception("REGISTER unexpected error email=%s", _s(req.email))
         raise
+    # Send verification email (fire-and-forget semantics — flow swallows errors)
+    await send_verification_email(user, verification_token)
     # Detect region from IP
     await _set_user_region(user, request, db)
     access = create_access_token(user.id)
@@ -185,6 +227,97 @@ async def logout(response: Response, user: User = Depends(get_current_user)):
     return {"detail": "Logged out"}
 
 
+# ── Forgot password ─────────────────────────────
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(
+    req: ForgotPasswordRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Issue a time-limited password reset token for the given email.
+
+    Always returns a success response — never reveals whether the email
+    is registered. Rate limited to 3 requests/minute per client IP.
+    """
+    await forgot_password_limiter.check(request)
+    # We deliberately do not log the submitted email — it's user-controlled
+    # PII, and logging it complicates compliance + invites log-injection.
+    # The post-lookup branch logs the resolved user.id, which is enough to
+    # trace the request without persisting raw email addresses.
+    issued = await create_password_reset_token(db, req.email)
+    raw_token: str | None = None
+    if issued is not None:
+        user, raw_token = issued
+        logger.info("FORGOT_PASSWORD issued user=%s", user.id)
+        await send_password_reset_email(user, raw_token)
+    else:
+        logger.info("FORGOT_PASSWORD ignored (unknown or inactive email)")
+    # Echo the raw token only when the console backend is active (local dev,
+    # no SMTP configured). Once a real relay is set up, the user retrieves
+    # the token from their inbox, exercising the real flow end-to-end.
+    echoed = raw_token if _echo_tokens_in_response() else None
+    return ForgotPasswordResponse(reset_token=echoed)
+
+
+# ── Reset password ──────────────────────────────
+
+
+@router.post("/reset-password", response_model=ResetPasswordResponse)
+async def reset_password(
+    req: ResetPasswordRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Consume a password reset token and set the user's new password."""
+    await auth_limiter.check(request)
+    await do_reset_password(db, req.token, req.new_password)
+    return ResetPasswordResponse()
+
+
+# ── Verify email ────────────────────────────────
+
+
+@router.post("/verify-email", response_model=VerifyEmailResponse)
+async def verify_email_endpoint(
+    req: VerifyEmailRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Consume an email verification token and mark the account verified."""
+    await auth_limiter.check(request)
+    logger.info("VERIFY_EMAIL attempt")
+    await verify_email(db, req.token)
+    return VerifyEmailResponse()
+
+
+# ── Resend verification ─────────────────────────
+
+
+@router.post("/resend-verification", response_model=ResendVerificationResponse)
+async def resend_verification_endpoint(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Issue a fresh verification email.
+
+    Per-user cooldown (1 request / 2 minutes) is enforced via Redis-backed
+    rate limiter keyed on the user's ID, so it survives across IPs/clients.
+    """
+    await auth_limiter.check(request)
+    # Per-user cooldown lives in the rate limiter, not the service layer —
+    # makes the policy uniform with other auth-flow throttles and survives
+    # across machines (Redis-backed when REDIS_URL is set).
+    await verification_resend_limiter.check(request, user_id=str(user.id))
+    logger.info("RESEND_VERIFICATION user=%s", user.id)
+    raw_token = await resend_verification(user)
+    if raw_token is not None:
+        await send_verification_email(user, raw_token)
+    echoed = raw_token if _echo_tokens_in_response() else None
+    return ResendVerificationResponse(verification_token=echoed)
+
+
 # ── Me ─────────────────────────────────────────
 
 
@@ -200,4 +333,5 @@ async def me(
         email=user.email,
         display_name=user.display_name,
         subscription_tier=await get_subscription_tier(user.id, db),
+        is_email_verified=user.is_email_verified,
     )

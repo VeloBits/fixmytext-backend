@@ -12,7 +12,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.deps import get_current_user, get_optional_user
-from app.core.rate_limit import ai_limiter, auth_limiter
+from app.core.rate_limit import (
+    ai_limiter,
+    auth_limiter,
+    forgot_password_limiter,
+    verification_resend_limiter,
+)
 from app.core.security import hash_password
 from app.db.models import User
 from app.db.session import get_db
@@ -24,7 +29,12 @@ from main import app
 @pytest.fixture(autouse=True)
 def _reset_rate_limiters():
     """Clear in-memory rate-limiter state so tests don't trip each other's limits."""
-    for limiter in (auth_limiter, ai_limiter):
+    for limiter in (
+        auth_limiter,
+        ai_limiter,
+        forgot_password_limiter,
+        verification_resend_limiter,
+    ):
         hits = getattr(limiter, "_hits", None)
         if hits is not None:
             hits.clear()
@@ -44,6 +54,7 @@ def make_user(**kwargs) -> User:
     # Explicitly set all fields — SQLAlchemy defaults only apply on DB flush/insert
     user.id = kwargs.get("id", uuid.uuid4())
     user.is_active = kwargs.get("is_active", True)
+    user.is_email_verified = kwargs.get("is_email_verified", True)
     user.region = kwargs.get("region", "US")
     user.referral_code = kwargs.get("referral_code")
     user.referred_by = kwargs.get("referred_by")

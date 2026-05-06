@@ -55,6 +55,9 @@ def test_register_success(empty_db):
         patch(
             "app.services.region_service.resolve_user_region", new_callable=AsyncMock
         ),
+        patch(
+            "app.api.v1.endpoints.auth.send_verification_email", new_callable=AsyncMock
+        ) as mock_send,
     ):
         resp = TestClient(app, raise_server_exceptions=False).post(
             "/api/v1/auth/register",
@@ -66,6 +69,12 @@ def test_register_success(empty_db):
         )
     app.dependency_overrides.clear()
     assert resp.status_code in (200, 201, 500)
+    if resp.status_code in (200, 201):
+        # On a successful registration we must fire the verification email.
+        assert mock_send.await_count == 1
+        sent_user, sent_token = mock_send.await_args.args
+        assert sent_user.email == "new@example.com"
+        assert sent_token  # non-empty raw token string
 
 
 def test_register_missing_email(empty_db):
@@ -336,9 +345,15 @@ async def test_auth_service_register_new_user():
     result.scalar_one_or_none.return_value = None  # email not taken
     db.execute.return_value = result
 
-    user = await register(db, "new@test.com", "pass123", "New User")
+    user, verify_token = await register(db, "new@test.com", "pass123", "New User")
     assert user.email == "new@test.com"
     assert user.display_name == "New User"
+    # The raw verification token is a JWT — it must include two dots and
+    # decode-able sub claim. Detailed JWT validation lives in the
+    # transactional_tokens tests; here we just sanity-check the shape.
+    assert verify_token.count(".") == 2
+    # Only the user row is persisted now — verification tokens are stateless
+    # JWTs, no DB write required.
     db.add.assert_called_once()
     db.commit.assert_awaited_once()
 

@@ -70,8 +70,8 @@ services:
     restart: "no"
     command: ["alembic", "upgrade", "head"]
     volumes:
-      - .:/app      # Dockerfile.dev doesn't COPY source; mount it so alembic.ini is found
-      - /app/.venv  # keep the built venv from the image
+      - .:/app                  # Dockerfile.dev doesn't COPY source; mount it so alembic.ini is found
+      - fixmytext-dev-venv:/app/.venv  # named volume; dev-entrypoint.sh re-syncs to requirements.txt on start
     env_file:
       - .env
     environment:
@@ -130,8 +130,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - .:/app      # mount source — uvicorn --reload picks up changes
-      - /app/.venv          # anonymous volume keeps host .venv out of the container
+      - .:/app                              # mount source — uvicorn --reload picks up changes
+      - fixmytext-dev-venv:/app/.venv       # named venv; dev-entrypoint.sh re-syncs to requirements.txt on start
     env_file:
       - .env
     environment:
@@ -219,6 +219,12 @@ networks:
 # ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   fixmytext-pgdata:
+  # Dev-only: holds the python venv across container restarts. The
+  # dev-entrypoint.sh script re-syncs it to requirements.txt on every start
+  # via a sha256 hash check, so editing requirements.txt and re-running
+  # `docker compose --profile dev up` is enough — no manual volume nuke.
+  # If you ever need to reset it: `docker volume rm backend_fixmytext-dev-venv`
+  fixmytext-dev-venv:
 
 # ── Secrets (production) ─────────────────────────────────────────────────────
 # Create ./secrets/ directory and add one secret per file:
