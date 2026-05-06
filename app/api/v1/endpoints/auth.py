@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import get_current_user
-from app.core.rate_limit import auth_limiter, forgot_password_limiter
+from app.core.rate_limit import (
+    auth_limiter,
+    forgot_password_limiter,
+    verification_resend_limiter,
+)
 from app.core.sanitize import sanitize_log_value as _s
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.db.models import User
@@ -295,12 +299,19 @@ async def verify_email_endpoint(
 async def resend_verification_endpoint(
     request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Issue a fresh verification email (cooldown: 2 minutes per user)."""
+    """Issue a fresh verification email.
+
+    Per-user cooldown (1 request / 2 minutes) is enforced via Redis-backed
+    rate limiter keyed on the user's ID, so it survives across IPs/clients.
+    """
     await auth_limiter.check(request)
+    # Per-user cooldown lives in the rate limiter, not the service layer —
+    # makes the policy uniform with other auth-flow throttles and survives
+    # across machines (Redis-backed when REDIS_URL is set).
+    await verification_resend_limiter.check(request, user_id=str(user.id))
     logger.info("RESEND_VERIFICATION user=%s", user.id)
-    raw_token = await resend_verification(db, user)
+    raw_token = await resend_verification(user)
     if raw_token is not None:
         await send_verification_email(user, raw_token)
     echoed = raw_token if _echo_tokens_in_response() else None

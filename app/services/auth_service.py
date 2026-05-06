@@ -1,32 +1,31 @@
-"""Business logic for authentication: register, login, password reset."""
+"""Business logic for authentication: register, login, password reset,
+email verification.
+
+Transactional tokens (password reset, email verify) are stateless JWTs
+issued and verified by :mod:`app.core.transactional_tokens`. There is no
+DB table for them — the JWT signature provides integrity, the ``exp`` claim
+provides expiry, and per-flow custom claims provide single-use semantics.
+See that module's docstring for the rationale.
+"""
 
 import logging
-import secrets
-from datetime import UTC, datetime, timedelta
+import uuid
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password, verify_password
-from app.core.token_hash import hash_token
-from app.db.models import EmailVerificationToken, PasswordResetToken, User
+from app.core.transactional_tokens import (
+    InvalidTransactionalToken,
+    issue_email_verification_token,
+    issue_password_reset_token,
+    verify_email_verification_token,
+    verify_password_reset_token,
+)
+from app.db.models import User
 
 logger = logging.getLogger(__name__)
-
-# Reset tokens are short-lived by design — long-lived tokens broaden the blast
-# radius of a leaked email/DB dump.
-PASSWORD_RESET_TOKEN_TTL = timedelta(minutes=15)
-
-# Verification links commonly sit in inboxes longer than reset links, so we
-# allow a full day. Still short enough that a stolen DB dump from last week
-# cannot be used to verify accounts today.
-EMAIL_VERIFICATION_TOKEN_TTL = timedelta(hours=24)
-
-# Resend throttle — per-user, enforced at the service layer (not the HTTP
-# rate limiter) because it depends on the most-recent token's timestamp
-# rather than request volume.
-RESEND_VERIFICATION_COOLDOWN = timedelta(minutes=2)
 
 
 async def register(
@@ -34,8 +33,8 @@ async def register(
 ) -> tuple[User, str]:
     """Create a new local user and issue a verification token.
 
-    Returns the persisted user together with the raw verification token so
-    the caller can log/send the verification URL. Raises 409 if the email
+    Returns the persisted user together with the raw verification JWT so
+    the caller can deliver the verification URL. Raises 409 if the email
     is already taken.
     """
     existing = await db.execute(select(User).where(User.email == email))
@@ -53,30 +52,9 @@ async def register(
     await db.commit()
     await db.refresh(user)
 
-    raw_token = await _issue_email_verification_token(db, user)
-    return user, raw_token
-
-
-async def _issue_email_verification_token(db: AsyncSession, user: User) -> str:
-    """Persist a new verification token for ``user`` and return the raw value.
-
-    Only the keyed digest (see ``app.core.token_hash``) is stored. The caller
-    is responsible for delivering the raw token via
-    ``app.services.email.flows.send_verification_email``.
-    """
-    raw_token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(UTC) + EMAIL_VERIFICATION_TOKEN_TTL
-    db.add(
-        EmailVerificationToken(
-            user_id=user.id,
-            token_hash=hash_token(raw_token),
-            expires_at=expires_at,
-        )
-    )
-    await db.commit()
-
+    raw_token = issue_email_verification_token(user.id)
     logger.info("EMAIL VERIFY issued user=%s", user.id)
-    return raw_token
+    return user, raw_token
 
 
 async def authenticate(db: AsyncSession, email: str, password: str) -> User:
@@ -97,157 +75,125 @@ async def authenticate(db: AsyncSession, email: str, password: str) -> User:
     return user
 
 
+# ── Password reset ───────────────────────────────────────────────────────────
+
+
 async def create_password_reset_token(
     db: AsyncSession, email: str
 ) -> tuple[User, str] | None:
-    """Issue a password reset token for the given email.
+    """Issue a password reset JWT for the given email.
 
-    Returns ``(user, raw_token)`` if the email matches an active user,
+    Returns ``(user, raw_jwt)`` if the email matches an active user,
     otherwise ``None``. Callers must treat both outcomes identically at the
     HTTP layer to avoid leaking which emails are registered.
 
-    Only the keyed digest (see ``app.core.token_hash``) is persisted.
+    The JWT carries a prefix of the user's current bcrypt hash, so it is
+    automatically invalidated by any subsequent password change.
     """
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         return None
 
-    raw_token = secrets.token_urlsafe(32)
-    token_hash = hash_token(raw_token)
-    expires_at = datetime.now(UTC) + PASSWORD_RESET_TOKEN_TTL
-
-    db.add(
-        PasswordResetToken(
-            user_id=user.id,
-            token_hash=token_hash,
-            expires_at=expires_at,
-        )
-    )
-    await db.commit()
-
+    raw_jwt = issue_password_reset_token(user.id, user.hashed_password)
     logger.info("PASSWORD RESET issued user=%s", user.id)
-    return user, raw_token
+    return user, raw_jwt
 
 
-async def reset_password(db: AsyncSession, raw_token: str, new_password: str) -> User:
-    """Consume a reset token and set the user's new password.
+async def reset_password(db: AsyncSession, raw_jwt: str, new_password: str) -> User:
+    """Consume a reset JWT and set the user's new password.
 
-    Raises 400 if the token is unknown, already used, or expired.
+    Raises 400 if the token is unknown, malformed, expired, or no longer
+    matches the user's current password version (i.e. the password was
+    already changed since the token was issued).
     """
-    token_hash = hash_token(raw_token)
-    result = await db.execute(
-        select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
-    )
-    token = result.scalar_one_or_none()
-
-    # Normalize the failure modes — a single generic error message keeps the
-    # endpoint from hinting at which tokens exist.
     invalid = HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="Invalid or expired reset token",
     )
-    if token is None or token.used_at is not None:
-        raise invalid
 
-    expires_at = token.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at <= datetime.now(UTC):
-        raise invalid
+    # Loading the user up-front lets us validate the JWT's pwd_v claim
+    # against the current bcrypt hash without a second round-trip.
+    user_id_str: str
+    try:
+        # We must know which user to fetch before we can check pwd_v, so we
+        # do an "unsafe" decode first to extract sub. The full validation
+        # (signature, expiry, purpose, pwd_v) happens immediately after.
+        from jwt import decode as _jwt_decode_unverified
 
-    user = await db.get(User, token.user_id)
+        unverified = _jwt_decode_unverified(
+            raw_jwt, options={"verify_signature": False}
+        )
+        user_id_str = unverified.get("sub", "")
+    except Exception as exc:
+        raise invalid from exc
+
+    if not user_id_str:
+        raise invalid
+    try:
+        user_id = uuid.UUID(user_id_str)
+    except ValueError as exc:
+        raise invalid from exc
+
+    user = await db.get(User, user_id)
     if not user or not user.is_active:
         raise invalid
 
+    try:
+        verify_password_reset_token(raw_jwt, user.hashed_password)
+    except InvalidTransactionalToken as exc:
+        raise invalid from exc
+
     user.hashed_password = hash_password(new_password)
-    token.used_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(user)
     logger.info("PASSWORD RESET completed user=%s", user.id)
     return user
 
 
-async def verify_email(db: AsyncSession, raw_token: str) -> User:
-    """Consume a verification token and flip the user's ``is_email_verified``.
+# ── Email verification ───────────────────────────────────────────────────────
 
-    Raises 400 if the token is unknown, already used, or expired. Safe to
-    call on an already-verified account — the token is still consumed so it
-    cannot be replayed.
+
+async def verify_email(db: AsyncSession, raw_jwt: str) -> User:
+    """Consume a verification JWT and flip the user's ``is_email_verified``.
+
+    Raises 400 if the token is unknown, malformed, or expired. Idempotent:
+    calling it on an already-verified user just leaves the flag set.
     """
-    token_hash = hash_token(raw_token)
-    result = await db.execute(
-        select(EmailVerificationToken).where(
-            EmailVerificationToken.token_hash == token_hash
-        )
-    )
-    token = result.scalar_one_or_none()
-
     invalid = HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="Invalid or expired verification token",
     )
-    if token is None or token.used_at is not None:
-        raise invalid
+    try:
+        user_id_str = verify_email_verification_token(raw_jwt)
+    except InvalidTransactionalToken as exc:
+        raise invalid from exc
 
-    expires_at = token.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at <= datetime.now(UTC):
-        raise invalid
+    try:
+        user_id = uuid.UUID(user_id_str)
+    except ValueError as exc:
+        raise invalid from exc
 
-    user = await db.get(User, token.user_id)
+    user = await db.get(User, user_id)
     if not user or not user.is_active:
         raise invalid
 
     user.is_email_verified = True
-    token.used_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(user)
     logger.info("EMAIL VERIFY completed user=%s", user.id)
     return user
 
 
-async def resend_verification(db: AsyncSession, user: User) -> str | None:
-    """Issue a fresh verification token for ``user``.
+async def resend_verification(user: User) -> str | None:
+    """Issue a fresh verification JWT for ``user``.
 
-    Returns the raw token if a new one was issued, or ``None`` if the account
-    is already verified (idempotent success). Raises 429 if the user tried to
-    resend inside the per-user cooldown.
+    Returns the raw token if a new one was issued, or ``None`` if the
+    account is already verified (idempotent success). Per-user cooldown
+    enforcement happens at the endpoint layer via ``verification_resend_limiter``.
     """
     if user.is_email_verified:
         return None
-
-    # Look at the most recent token to enforce the cooldown. Issued-at uses
-    # created_at rather than expires_at so the window is anchored to the
-    # last request, not the token lifetime.
-    result = await db.execute(
-        select(EmailVerificationToken)
-        .where(EmailVerificationToken.user_id == user.id)
-        .order_by(EmailVerificationToken.created_at.desc())
-        .limit(1)
-    )
-    latest = result.scalar_one_or_none()
-    if latest is not None:
-        created_at = latest.created_at
-        if created_at is not None and created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
-        if (
-            created_at is not None
-            and datetime.now(UTC) - created_at < RESEND_VERIFICATION_COOLDOWN
-        ):
-            retry_after = int(
-                (
-                    RESEND_VERIFICATION_COOLDOWN - (datetime.now(UTC) - created_at)
-                ).total_seconds()
-            )
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=(
-                    f"Please wait {max(retry_after, 1)} seconds before "
-                    "requesting another verification email."
-                ),
-                headers={"Retry-After": str(max(retry_after, 1))},
-            )
-
-    return await _issue_email_verification_token(db, user)
+    raw_jwt = issue_email_verification_token(user.id)
+    logger.info("EMAIL VERIFY re-issued user=%s", user.id)
+    return raw_jwt

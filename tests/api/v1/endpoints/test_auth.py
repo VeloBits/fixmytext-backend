@@ -348,11 +348,14 @@ async def test_auth_service_register_new_user():
     user, verify_token = await register(db, "new@test.com", "pass123", "New User")
     assert user.email == "new@test.com"
     assert user.display_name == "New User"
-    assert verify_token  # a raw verification token is issued alongside the user
-    # db.add called twice: once for User, once for EmailVerificationToken
-    assert db.add.call_count == 2
-    # db.commit awaited twice: once for user insert, once for verification token
-    assert db.commit.await_count == 2
+    # The raw verification token is a JWT — it must include two dots and
+    # decode-able sub claim. Detailed JWT validation lives in the
+    # transactional_tokens tests; here we just sanity-check the shape.
+    assert verify_token.count(".") == 2
+    # Only the user row is persisted now — verification tokens are stateless
+    # JWTs, no DB write required.
+    db.add.assert_called_once()
+    db.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
