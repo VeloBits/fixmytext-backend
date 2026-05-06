@@ -8,11 +8,11 @@ from fastapi.testclient import TestClient
 
 from app.core.rate_limit import InMemoryRateLimiter
 from app.core.security import hash_password, verify_password
+from app.core.token_hash import hash_token
 from app.db.models import PasswordResetToken
 from app.db.session import get_db
 from app.services.auth_service import (
     PASSWORD_RESET_TOKEN_TTL,
-    _hash_token,
     create_password_reset_token,
     reset_password,
 )
@@ -47,7 +47,7 @@ def _token_row(user_id, *, ttl: timedelta | None = None, used: bool = False):
     raw = "raw-reset-token-for-testing"
     row = PasswordResetToken(
         user_id=user_id,
-        token_hash=_hash_token(raw),
+        token_hash=hash_token(raw),
         expires_at=datetime.now(UTC)
         + (ttl if ttl is not None else PASSWORD_RESET_TOKEN_TTL),
     )
@@ -322,7 +322,7 @@ async def test_create_password_reset_token_persists_hashed_token():
     db.add.assert_called_once()
     added = db.add.call_args.args[0]
     assert isinstance(added, PasswordResetToken)
-    assert added.token_hash == _hash_token(raw)
+    assert added.token_hash == hash_token(raw)
     assert added.token_hash != raw  # raw token never stored directly
     assert added.user_id == user.id
     assert added.expires_at > datetime.now(UTC)

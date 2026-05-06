@@ -1,6 +1,5 @@
 """Business logic for authentication: register, login, password reset."""
 
-import hmac
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -9,8 +8,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.security import hash_password, verify_password
+from app.core.token_hash import hash_token
 from app.db.models import EmailVerificationToken, PasswordResetToken, User
 
 logger = logging.getLogger(__name__)
@@ -28,20 +27,6 @@ EMAIL_VERIFICATION_TOKEN_TTL = timedelta(hours=24)
 # rate limiter) because it depends on the most-recent token's timestamp
 # rather than request volume.
 RESEND_VERIFICATION_COOLDOWN = timedelta(minutes=2)
-
-
-def _hash_token(raw_token: str) -> str:
-    """Return the keyed digest used to look up reset/verification tokens.
-
-    The input is a server-generated random string (``secrets.token_urlsafe(32)``
-    — 256 bits of entropy), **not** a user-chosen password. We use HMAC-SHA256
-    keyed by ``settings.SECRET_KEY`` rather than a bare hash so that a leaked
-    DB alone — without the secret — cannot be used to precompute matches or
-    perform offline token lookup attacks.
-    """
-    return hmac.new(
-        settings.SECRET_KEY.encode(), raw_token.encode(), digestmod="sha256"
-    ).hexdigest()
 
 
 async def register(
@@ -75,15 +60,16 @@ async def register(
 async def _issue_email_verification_token(db: AsyncSession, user: User) -> str:
     """Persist a new verification token for ``user`` and return the raw value.
 
-    Only a SHA-256 hash is stored. The caller is responsible for delivering
-    the raw token (via ``app.services.email.flows.send_verification_email``).
+    Only the keyed digest (see ``app.core.token_hash``) is stored. The caller
+    is responsible for delivering the raw token via
+    ``app.services.email.flows.send_verification_email``.
     """
     raw_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + EMAIL_VERIFICATION_TOKEN_TTL
     db.add(
         EmailVerificationToken(
             user_id=user.id,
-            token_hash=_hash_token(raw_token),
+            token_hash=hash_token(raw_token),
             expires_at=expires_at,
         )
     )
@@ -120,7 +106,7 @@ async def create_password_reset_token(
     otherwise ``None``. Callers must treat both outcomes identically at the
     HTTP layer to avoid leaking which emails are registered.
 
-    Only a SHA-256 hash of the token is persisted.
+    Only the keyed digest (see ``app.core.token_hash``) is persisted.
     """
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
@@ -128,7 +114,7 @@ async def create_password_reset_token(
         return None
 
     raw_token = secrets.token_urlsafe(32)
-    token_hash = _hash_token(raw_token)
+    token_hash = hash_token(raw_token)
     expires_at = datetime.now(UTC) + PASSWORD_RESET_TOKEN_TTL
 
     db.add(
@@ -149,7 +135,7 @@ async def reset_password(db: AsyncSession, raw_token: str, new_password: str) ->
 
     Raises 400 if the token is unknown, already used, or expired.
     """
-    token_hash = _hash_token(raw_token)
+    token_hash = hash_token(raw_token)
     result = await db.execute(
         select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
     )
@@ -189,7 +175,7 @@ async def verify_email(db: AsyncSession, raw_token: str) -> User:
     call on an already-verified account — the token is still consumed so it
     cannot be replayed.
     """
-    token_hash = _hash_token(raw_token)
+    token_hash = hash_token(raw_token)
     result = await db.execute(
         select(EmailVerificationToken).where(
             EmailVerificationToken.token_hash == token_hash

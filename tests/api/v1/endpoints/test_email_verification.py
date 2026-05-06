@@ -9,12 +9,12 @@ from fastapi.testclient import TestClient
 
 from app.core.deps import get_current_user
 from app.core.security import create_access_token
+from app.core.token_hash import hash_token
 from app.db.models import EmailVerificationToken
 from app.db.session import get_db
 from app.services.auth_service import (
     EMAIL_VERIFICATION_TOKEN_TTL,
     RESEND_VERIFICATION_COOLDOWN,
-    _hash_token,
     resend_verification,
     verify_email,
 )
@@ -46,7 +46,7 @@ def _verification_token(
     raw = "raw-verification-token-for-testing"
     row = EmailVerificationToken(
         user_id=user_id,
-        token_hash=_hash_token(raw),
+        token_hash=hash_token(raw),
         expires_at=datetime.now(UTC)
         + (ttl if ttl is not None else EMAIL_VERIFICATION_TOKEN_TTL),
     )
