@@ -29,6 +29,9 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true")
     )
+    is_email_verified: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()")
     )

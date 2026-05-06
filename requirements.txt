@@ -38,6 +38,9 @@ redis[hiredis]>=5.0
 # Structured logging
 python-json-logger==2.0.7
 
+# Email (async SMTP for dev; prod provider TBD)
+aiosmtplib>=3.0
+
 # Testing
 pytest==9.0.3
 pytest-asyncio>=1.0

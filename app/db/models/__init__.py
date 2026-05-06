@@ -11,10 +11,12 @@ from app.db.models.billing_catalog import (
 from app.db.models.billing_credit import BillingUserCredit
 from app.db.models.billing_pass import BillingUserPass, UserPassTool
 from app.db.models.billing_subscription import PaymentEvent, Subscription
+from app.db.models.email_verification_token import EmailVerificationToken
 
 # ── Activity models ───────────────────────────────────────────────────────────
 from app.db.models.gamification import UserGamification
 from app.db.models.operation_history import OperationHistory
+from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.preferences import UserPreferences
 from app.db.models.shared_result import SharedResult
 from app.db.models.template import UserTemplate
@@ -33,6 +35,8 @@ from app.db.models.visitor_usage import VisitorUsage
 __all__ = [
     # auth
     "User",
+    "PasswordResetToken",
+    "EmailVerificationToken",
     "UserPreferences",
     "UserUiSettings",
     "UserToolUsage",

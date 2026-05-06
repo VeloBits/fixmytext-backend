@@ -74,6 +74,19 @@ class Settings(BaseSettings):
     DB_SCHEMA_ACTIVITY: str = "activity"
     DB_SCHEMA_BILLING: str = "billing"
 
+    # ── Email ────────────────────────────────────────────────────────────────
+    # Backend selector — "auto" picks smtp when SMTP_HOST is set, else console.
+    # console just logs the message (URL + subject); smtp speaks to any SMTP
+    # relay (Mailtrap Sandbox, Mailpit, etc.) for inbox previews in dev.
+    EMAIL_BACKEND: str = "auto"  # "auto" | "console" | "smtp"
+    EMAIL_FROM: str = "FixMyText <dev@fixmytext.local>"
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True  # STARTTLS on 587; set False for plaintext dev relays
+    SMTP_TIMEOUT_SECONDS: int = 10
+
     # ── Redis (optional — for distributed rate limiting, caching, etc.) ──────
     REDIS_URL: str = ""
 
