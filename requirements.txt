@@ -32,8 +32,7 @@ bcrypt>=5.0.0
 python-multipart==0.0.28
 
 # Payments
-setuptools==78.1.1  # Required by razorpay (pkg_resources) — pinned until razorpay v2
-razorpay==1.4.2
+razorpay==2.0.1
 
 # Redis (optional — for distributed rate limiting)
 redis[hiredis]==7.4.0
