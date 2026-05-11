@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, Index, String, Text
 from sqlalchemy import text as sa_text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -14,7 +14,15 @@ from app.db.session import Base
 
 class UserTemplate(Base):
     __tablename__ = "user_templates"
-    __table_args__ = {"schema": settings.DB_SCHEMA_ACTIVITY}
+    __table_args__ = (
+        Index(
+            "ix_user_templates_user_active",
+            "user_id",
+            sa_text("created_at DESC"),
+            postgresql_where=sa_text("is_deleted = false"),
+        ),
+        {"schema": settings.DB_SCHEMA_ACTIVITY},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

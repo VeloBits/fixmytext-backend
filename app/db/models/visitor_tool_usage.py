@@ -3,7 +3,7 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, ForeignKey, SmallInteger, String, text
+from sqlalchemy import Date, ForeignKey, Index, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +13,10 @@ from app.db.session import Base
 
 class VisitorToolUsage(Base):
     __tablename__ = "visitor_tool_usage"
-    __table_args__ = {"schema": settings.DB_SCHEMA_AUTH}
+    __table_args__ = (
+        Index("ix_visitor_tool_usage_visitor_date", "visitor_id", "usage_date"),
+        {"schema": settings.DB_SCHEMA_AUTH},
+    )
 
     visitor_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

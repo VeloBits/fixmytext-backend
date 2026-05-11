@@ -3,7 +3,7 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, ForeignKey, text
+from sqlalchemy import Date, ForeignKey, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +13,10 @@ from app.db.session import Base
 
 class UserDailyLogin(Base):
     __tablename__ = "user_daily_logins"
-    __table_args__ = {"schema": settings.DB_SCHEMA_AUTH}
+    __table_args__ = (
+        Index("ix_user_daily_logins_user_id", "user_id"),
+        {"schema": settings.DB_SCHEMA_AUTH},
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

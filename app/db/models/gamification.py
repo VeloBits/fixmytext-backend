@@ -4,7 +4,16 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, Date, ForeignKey, Integer, String, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,7 +26,19 @@ if TYPE_CHECKING:
 
 class UserGamification(Base):
     __tablename__ = "user_gamification"
-    __table_args__ = {"schema": settings.DB_SCHEMA_ACTIVITY}
+    __table_args__ = (
+        Index(
+            "ix_gamification_achievements_gin",
+            "achievements",
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_gamification_completed_quests_gin",
+            "completed_quests",
+            postgresql_using="gin",
+        ),
+        {"schema": settings.DB_SCHEMA_ACTIVITY},
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

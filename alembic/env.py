@@ -117,6 +117,17 @@ def process_revision_directives(_context, _revision, directives):
 # ── Migration runners ─────────────────────────────────────────────────────────
 
 
+def include_object(obj, name, type_, reflected, compare_to):  # noqa: ARG001
+    # Alembic's own bookkeeping table; never include in autogenerate diffs.
+    if type_ == "table" and name == "alembic_version":
+        return False
+    # Postgres reflects unique indexes as unique constraints. We declare those
+    # objects as Index(unique=True) in the models (because that's what they
+    # actually are in pg_indexes — no pg_constraint row exists). Skip reflected
+    # unique constraints so autogenerate doesn't ping-pong between the two forms.
+    return not (type_ == "unique_constraint" and reflected)
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
@@ -127,6 +138,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         process_revision_directives=process_revision_directives,
         include_schemas=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -140,6 +152,7 @@ def do_run_migrations(connection: Connection) -> None:
         process_revision_directives=process_revision_directives,
         include_schemas=True,
         version_table_schema="public",
+        include_object=include_object,
     )
 
     with context.begin_transaction():

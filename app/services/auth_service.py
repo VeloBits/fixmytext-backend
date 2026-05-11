@@ -57,20 +57,38 @@ async def register(
     return user, raw_token
 
 
+# A precomputed bcrypt hash used only to equalize timing when the supplied
+# email doesn't exist. The plaintext is irrelevant — what matters is that we
+# spend roughly the same amount of CPU on bcrypt regardless of whether the
+# user was found, so response time can't be used to enumerate accounts.
+_DUMMY_BCRYPT_HASH = "$2b$12$3FSFccd5LXuscFZeRQFy.epo9pQqbhEpWEE2m90DjmP0mB7fdGIpG"
+
+
 async def authenticate(db: AsyncSession, email: str, password: str) -> User:
-    """Verify email + password. Raises 401 on failure."""
+    """Verify email + password. Raises 401 with a generic message on any failure.
+
+    Missing user, wrong password, and disabled account are all collapsed into
+    the same response to avoid leaking which case applies. When the user is
+    missing we still run a bcrypt verify against a dummy hash so the response
+    time doesn't reveal that the email is unregistered.
+    """
+    invalid = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+    )
+
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
-        )
+    if user is None:
+        # Equalize timing: do the bcrypt work we would have done.
+        verify_password(password, _DUMMY_BCRYPT_HASH)
+        raise invalid
+
+    if not verify_password(password, user.hashed_password):
+        raise invalid
 
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled"
-        )
+        raise invalid
 
     return user
 

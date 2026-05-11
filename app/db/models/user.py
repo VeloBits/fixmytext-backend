@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, String, text
+from sqlalchemy import Boolean, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,7 +13,12 @@ from app.db.session import Base
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = {"schema": settings.DB_SCHEMA_AUTH}
+    __table_args__ = (
+        Index("uq_users_email", "email", unique=True),
+        Index("uq_users_referral_code", "referral_code", unique=True),
+        Index("ix_auth_users_email", "email"),
+        {"schema": settings.DB_SCHEMA_AUTH},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -21,9 +26,7 @@ class User(Base):
         default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
-    email: Mapped[str] = mapped_column(
-        String(255), unique=True, index=True, nullable=False
-    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     is_active: Mapped[bool] = mapped_column(
@@ -43,9 +46,7 @@ class User(Base):
     )
 
     # ── Referral ───────────────────────────────────────────────────────────────
-    referral_code: Mapped[str | None] = mapped_column(
-        String(20), unique=True, nullable=True
-    )
+    referral_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     referred_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="SET NULL"),

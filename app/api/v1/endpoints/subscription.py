@@ -35,6 +35,7 @@ from app.services.razorpay_service import (
     PRO_PLAN_PRICES,
     create_order,
     fetch_order,
+    payments_configured,
     verify_payment_signature,
     verify_webhook_signature,
 )
@@ -91,7 +92,7 @@ async def create_pro_checkout(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a Razorpay order for upgrading to Pro (one-time monthly payment)."""
-    if not settings.RAZORPAY_KEY_ID:
+    if not payments_configured():
         raise HTTPException(503, "Payments not configured")
 
     if await get_subscription_tier(user.id, db) == "pro":

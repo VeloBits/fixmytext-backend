@@ -5,11 +5,11 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.5.0
     hooks:
-      # Linter
+      # Formatter (ruff format)
+      - id: ruff-format
+      # Linter (ruff check)
       - id: ruff
         args: [--fix]
-      # Formatter
-      - id: ruff-format
 
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
@@ -27,3 +27,13 @@ repos:
       - id: check-added-large-files
         args: ['--maxkb=500']
       - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      - id: pytest-core-smoke
+        name: pytest tests/core smoke
+        entry: pytest -q tests/core
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]

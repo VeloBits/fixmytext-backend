@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, text
+from sqlalchemy import Index, String, text
 from sqlalchemy.dialects.postgresql import INET, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +13,17 @@ from app.db.session import Base
 
 class VisitorUsage(Base):
     __tablename__ = "visitor_usage"
-    __table_args__ = {"schema": settings.DB_SCHEMA_AUTH}
+    __table_args__ = (
+        Index("ix_visitor_usage_fingerprint", "fingerprint"),
+        Index(
+            "ix_visitor_usage_ip_inet",
+            "ip_address",
+            postgresql_using="gist",
+            postgresql_ops={"ip_address": "inet_ops"},
+            postgresql_where=text("ip_address IS NOT NULL"),
+        ),
+        {"schema": settings.DB_SCHEMA_AUTH},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -21,7 +31,7 @@ class VisitorUsage(Base):
         default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
-    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
 
     ip_address: Mapped[str | None] = mapped_column(INET, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

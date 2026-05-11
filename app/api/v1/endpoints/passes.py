@@ -47,7 +47,7 @@ from app.services.pass_service import (
     spin_wheel,
 )
 from app.services.payment_service import verify_razorpay_payment
-from app.services.razorpay_service import create_order
+from app.services.razorpay_service import create_order, payments_configured
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,7 @@ async def create_pass_order(
     Resolves the user's region (from explicit param, stored value, or IP),
     then creates a Razorpay order with the correct regional pricing.
     """
-    if not settings.RAZORPAY_KEY_ID:
+    if not payments_configured():
         raise HTTPException(503, "Payments not configured")
 
     pass_def = get_pass(req.pass_id)
@@ -214,7 +214,7 @@ async def create_credit_order(
     Resolves the user's region and returns a Razorpay order with pricing
     in the correct currency.
     """
-    if not settings.RAZORPAY_KEY_ID:
+    if not payments_configured():
         raise HTTPException(503, "Payments not configured")
 
     pack = get_credit_pack(req.pack_id)

@@ -127,6 +127,156 @@ class TestCaseTransformations:
         assert result == "HELLO-WORLD"
 
 
+class TestCaseTransformsPerLine:
+    """Identifier-style case transforms must process each line independently.
+
+    The previous implementation collapsed multi-line input into a single
+    line because the `[^a-zA-Z0-9]+` regex matched newlines. Each test here
+    is a regression guard for one tool from the bug report.
+    """
+
+    def test_snake_case_keeps_lines_separate(self):
+        result = ts.to_snake_case("hi Hello\ni am fine")
+        assert result == "hi_hello\ni_am_fine"
+
+    def test_kebab_case_keeps_lines_separate(self):
+        result = ts.to_kebab_case("hello\nhello hi")
+        assert result == "hello\nhello-hi"
+
+    def test_dot_case_keeps_lines_separate(self):
+        result = ts.to_dot_case("hi i am nensi\nwhat which.who")
+        assert result == "hi.i.am.nensi\nwhat.which.who"
+
+    def test_constant_case_keeps_lines_separate(self):
+        result = ts.to_constant_case("hi hello\nmay i help you")
+        assert result == "HI_HELLO\nMAY_I_HELP_YOU"
+
+    def test_cobol_case_keeps_lines_separate(self):
+        result = ts.to_cobol_case("hello\nhello hi")
+        assert result == "HELLO\nHELLO-HI"
+
+    def test_path_case_keeps_lines_separate(self):
+        result = ts.to_path_case("hi hello\ni am nensi")
+        assert result == "hi/hello\ni/am/nensi"
+
+    def test_train_case_keeps_lines_separate(self):
+        result = ts.to_train_case("hello world\nfoo bar")
+        assert result == "Hello-World\nFoo-Bar"
+
+    def test_flat_case_keeps_lines_separate(self):
+        result = ts.to_flat_case("Hello World\nFoo Bar")
+        assert result == "helloworld\nfoobar"
+
+    def test_upper_camel_case_keeps_lines_separate(self):
+        result = ts.to_upper_camel_case("one two\nfoo bar")
+        assert result == "OneTwo\nFooBar"
+
+    def test_lower_camel_case_keeps_lines_separate(self):
+        result = ts.to_lower_camel_case("one two\nfoo bar")
+        assert result == "oneTwo\nfooBar"
+
+    def test_blank_lines_are_preserved(self):
+        """Blank line in the middle stays a blank line — output line count
+        matches input line count, not just for content lines."""
+        result = ts.to_snake_case("hi\n\nworld")
+        assert result == "hi\n\nworld"
+
+    def test_single_line_input_unchanged_behaviour(self):
+        """The new wrapper is a no-op on single-line input — ensure the
+        existing single-line semantics are exactly preserved."""
+        assert ts.to_snake_case("Hello World") == "hello_world"
+        assert ts.to_kebab_case("Hello World") == "hello-world"
+        assert ts.to_upper_camel_case("hello world") == "HelloWorld"
+
+    # ── Word-style case transforms (do NOT collapse separators) ────────────
+
+    def test_title_case_keeps_lines_separate(self):
+        """User-reported regression: Title Case used to collapse newlines
+        because text.split() splits on any whitespace including '\\n'."""
+        result = ts.to_title_case("ajhdajhdjka asdjasdj\nadlkjllj; jjljl;k;lk")
+        assert result == "Ajhdajhdjka Asdjasdj\nAdlkjllj; Jjljl;k;lk"
+
+    def test_sentence_case_keeps_lines_separate(self):
+        """Each line gets its own sentence-case treatment — joining lines
+        with '. ' (the previous bug) erased line structure."""
+        result = ts.to_sentence_case("hello world. how are you\ni am fine")
+        assert result == "Hello world. How are you.\nI am fine."
+
+    def test_capitalize_words_keeps_lines_separate(self):
+        result = ts.to_capitalize_words("hello world\nfoo bar")
+        assert result == "Hello World\nFoo Bar"
+
+    def test_inverse_word_case_keeps_lines_separate(self):
+        result = ts.to_inverse_word_case("hello world\nfoo bar")
+        # Each word: all-but-last-char lower, last char upper
+        assert result == "hellO worlD\nfoO baR"
+
+    def test_ap_title_case_keeps_lines_separate(self):
+        """Per-line AP rules: small words lowercased *except* first/last of
+        each line."""
+        result = ts.to_ap_title_case("the quick brown fox\nthe lazy dog")
+        assert result == "The Quick Brown Fox\nThe Lazy Dog"
+
+    def test_swap_word_case_keeps_lines_separate(self):
+        """The alternating UPPER/lower parity should restart on each line —
+        previously it bled across line breaks."""
+        result = ts.to_swap_word_case("hi hello world\nfoo bar baz")
+        # i=0 UPPER, i=1 lower, i=2 UPPER per line
+        assert result == "HI hello WORLD\nFOO bar BAZ"
+
+    def test_wide_text_keeps_lines_separate(self):
+        """Wide text spaces every char within a line, but lines stay on
+        their own lines — no ' \\n ' artefacts at the boundary."""
+        result = ts.to_wide_text("ab\ncd")
+        assert result == "a b\nc d"
+
+    # ── Acronym handling for identifier-style transforms ──────────────────
+    # `ChatGPT`, `XMLHttpRequest` etc. should split on acronym boundaries
+    # AND preserve runs of all-uppercase letters in train-case / camel /
+    # PascalCase. The plain lower/upper-cased variants (snake/kebab/...)
+    # don't show acronym text but DO need the acronym boundary so words
+    # like `XMLHttp` aren't fused into `xmlhttp`.
+
+    def test_train_case_preserves_acronym(self):
+        """User-reported regression: ``ChatGPT`` was producing ``Chat-Gpt``
+        because ``str.capitalize()`` lowercased the trailing acronym."""
+        assert ts.to_train_case("ChatGPT") == "Chat-GPT"
+
+    def test_train_case_splits_acronym_then_word(self):
+        assert ts.to_train_case("XMLHttpRequest") == "XML-Http-Request"
+
+    def test_train_case_preserves_legacy_two_word_input(self):
+        """Trailing assertion that the existing simple case is unchanged."""
+        assert ts.to_train_case("hello world") == "Hello-World"
+
+    def test_pascal_case_preserves_acronym(self):
+        assert ts.to_upper_camel_case("ChatGPT") == "ChatGPT"
+        assert ts.to_upper_camel_case("XMLHttpRequest") == "XMLHttpRequest"
+
+    def test_camel_case_lowercases_first_word_only(self):
+        assert ts.to_lower_camel_case("ChatGPT") == "chatGPT"
+        assert ts.to_lower_camel_case("XMLHttpRequest") == "xmlHttpRequest"
+
+    def test_snake_case_splits_on_acronym_boundary(self):
+        assert ts.to_snake_case("ChatGPT") == "chat_gpt"
+        assert ts.to_snake_case("XMLHttpRequest") == "xml_http_request"
+
+    def test_kebab_case_splits_on_acronym_boundary(self):
+        assert ts.to_kebab_case("XMLHttpRequest") == "xml-http-request"
+
+    def test_constant_case_splits_on_acronym_boundary(self):
+        assert ts.to_constant_case("XMLHttpRequest") == "XML_HTTP_REQUEST"
+
+    def test_dot_case_splits_on_acronym_boundary(self):
+        assert ts.to_dot_case("XMLHttpRequest") == "xml.http.request"
+
+    def test_path_case_splits_on_acronym_boundary(self):
+        assert ts.to_path_case("XMLHttpRequest") == "xml/http/request"
+
+    def test_cobol_case_splits_on_acronym_boundary(self):
+        assert ts.to_cobol_case("XMLHttpRequest") == "XML-HTTP-REQUEST"
+
+
 # ── Text cleanup edge cases ──────────────────────────────────────────────────
 
 
@@ -341,8 +491,27 @@ class TestCipherEdgeCases:
     def test_bacon_cipher_decode(self):
         """Bacon-encoded text decodes back."""
         encoded = ts.bacon_cipher("AB")
-        # The encoded form should be decodable
-        assert isinstance(encoded, str)
+        # Round-trip must recover the original. Previously a bug routed any
+        # A/B-only string straight to the decoder, so encode("AB") returned
+        # the empty string and the round-trip silently lost data.
+        assert encoded == "AAAAA AAAAB"
+        assert ts.bacon_cipher(encoded) == "AB"
+
+    def test_bacon_cipher_does_not_mistake_ab_plaintext_for_ciphertext(self):
+        """Regression: short A/B-only plaintext like 'AB', 'A', 'BABA' must
+        be treated as plaintext and encoded — not auto-detected as Bacon
+        ciphertext (whose length must be a positive multiple of 5)."""
+        assert ts.bacon_cipher("A") == "AAAAA"
+        assert ts.bacon_cipher("AB") == "AAAAA AAAAB"
+        assert ts.bacon_cipher("BABA") == "AAAAB AAAAA AAAAB AAAAA"
+
+    def test_bacon_cipher_decodes_only_proper_codeword_groups(self):
+        """An A/B-only string whose length is a multiple of 5 IS a valid
+        Bacon decode candidate; otherwise it's plaintext."""
+        # 5 * 2 = 10 chars, valid Bacon ciphertext: HE
+        assert ts.bacon_cipher("AABBBAABAA") == "HE"
+        # 9 chars, not a multiple of 5 — must be treated as plaintext
+        assert ts.bacon_cipher("AAAAAAAAA") != ""
 
     def test_nato_phonetic_reverse(self):
         """NATO phonetic words decode back to letters."""
@@ -482,9 +651,9 @@ class TestDevTools:
         assert "key:" in result
 
     def test_json_escape_newline(self):
-        """Newlines are escaped to \\n."""
+        """Newlines separate independently-escaped lines so each input line maps to its own output line."""
         result = ts.json_escape("hello\nworld")
-        assert "\\n" in result
+        assert result == "hello\nworld"
 
     def test_json_unescape_roundtrip(self):
         """json_unescape(json_escape(x)) == x."""

@@ -29,6 +29,19 @@ logger = logging.getLogger(__name__)
 
 _client: razorpay.Client | None = None
 
+# In-memory store for fake orders when PAYMENTS_BACKEND=fake (E2E tests).
+_fake_orders: dict[str, dict] = {}
+
+
+def _payments_fake() -> bool:
+    return settings.PAYMENTS_BACKEND.lower() == "fake"
+
+
+def payments_configured() -> bool:
+    """True when payment endpoints can serve requests (real key set OR fake mode)."""
+    return _payments_fake() or bool(settings.RAZORPAY_KEY_ID)
+
+
 # Pro pricing per region (used by checkout endpoint)
 PRO_PLAN_PRICES = {
     "IN": {"amount": 39900, "currency": "INR"},  # ₹399/mo
@@ -41,6 +54,8 @@ PRO_PLAN_PRICES = {
 def init_razorpay():
     """Initialize Razorpay client."""
     global _client
+    if _payments_fake():
+        return
     if not settings.RAZORPAY_KEY_ID:
         return
     _client = razorpay.Client(
@@ -72,6 +87,21 @@ def create_order(
         the same receipt to avoid creating duplicates on retries.
     Returns order dict with 'id', 'amount', 'currency'.
     """
+    if _payments_fake():
+        order_id = (
+            f"order_fake_{abs(hash((idempotency_key or receipt, amount, currency))):x}"
+        )
+        order = {
+            "id": order_id,
+            "amount": amount,
+            "currency": currency.upper(),
+            "receipt": idempotency_key or receipt,
+            "notes": notes,
+            "status": "created",
+        }
+        _fake_orders[order_id] = order
+        return order
+
     client = get_client()
 
     # Check for an existing unpaid order with the same receipt to avoid
@@ -106,11 +136,23 @@ def create_order(
 
 def fetch_order(order_id: str) -> dict:
     """Fetch order details from Razorpay to validate notes."""
+    if _payments_fake():
+        order = _fake_orders.get(order_id)
+        if not order:
+            raise RuntimeError(f"Fake order {order_id} not found")
+        return order
     return get_client().order.fetch(order_id)
 
 
 def verify_payment_signature(order_id: str, payment_id: str, signature: str) -> bool:
     """Verify Razorpay payment signature. Returns True if valid."""
+    if _payments_fake():
+        expected = hmac.new(
+            settings.RAZORPAY_KEY_SECRET.encode(),
+            f"{order_id}|{payment_id}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, signature)
     try:
         get_client().utility.verify_payment_signature(
             {

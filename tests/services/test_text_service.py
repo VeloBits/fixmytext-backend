@@ -18,13 +18,14 @@ def test_to_inverse_case():
 
 
 def test_to_sentence_case_basic():
-    result = ts.to_sentence_case("hello world")
-    assert result[0].isupper()
+    # Documented behavior: capitalises the first letter AND appends a period
+    # when the input lacks one. Tooltip ("Sentence Case") flags the period
+    # behaviour explicitly so users aren't surprised.
+    assert ts.to_sentence_case("hello world") == "Hello world."
 
 
 def test_to_sentence_case_with_period():
-    result = ts.to_sentence_case("hello world.")
-    assert result.endswith(".")
+    assert ts.to_sentence_case("hello world.") == "Hello world."
 
 
 def test_to_title_case():
@@ -430,8 +431,9 @@ def test_columnar_transposition():
 
 
 def test_bacon_cipher():
-    result = ts.bacon_cipher("AB")
-    assert isinstance(result, str)
+    # 'AB' is plaintext (length not a multiple of 5) → must encode, not
+    # auto-decode. Prior bug returned ''.
+    assert ts.bacon_cipher("AB") == "AAAAA AAAAB"
 
 
 def test_caesar_brute_force():

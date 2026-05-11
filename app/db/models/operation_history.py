@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy import text as sa_text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -18,7 +18,30 @@ if TYPE_CHECKING:
 
 class OperationHistory(Base):
     __tablename__ = "operation_history"
-    __table_args__ = {"schema": settings.DB_SCHEMA_ACTIVITY}
+    __table_args__ = (
+        Index("ix_operation_history_user_id", "user_id"),
+        Index("ix_operation_history_tool_id", "tool_id"),
+        Index("ix_operation_history_created_at", "created_at"),
+        Index(
+            "ix_op_history_user_date",
+            "user_id",
+            sa_text("created_at DESC"),
+            postgresql_where=sa_text("is_deleted = false"),
+        ),
+        Index(
+            "ix_op_history_user_tool_date",
+            "user_id",
+            "tool_id",
+            sa_text("created_at DESC"),
+            postgresql_where=sa_text("is_deleted = false"),
+        ),
+        Index(
+            "ix_operation_history_user_created",
+            "user_id",
+            "created_at",
+        ),
+        {"schema": settings.DB_SCHEMA_ACTIVITY},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -29,11 +52,10 @@ class OperationHistory(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="CASCADE"),
-        index=True,
     )
 
     # Tool identification
-    tool_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    tool_id: Mapped[str] = mapped_column(String(100), nullable=False)
     tool_label: Mapped[str] = mapped_column(String(200), nullable=False)
     tool_type: Mapped[str] = mapped_column(
         String(20), nullable=False
@@ -54,7 +76,7 @@ class OperationHistory(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=sa_text("now()"), index=True
+        TIMESTAMP(timezone=True), server_default=sa_text("now()")
     )
 
     user: Mapped["User"] = relationship(back_populates="operation_history")
