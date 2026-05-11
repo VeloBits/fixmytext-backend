@@ -206,4 +206,4 @@ pytest --cov=app
 - [ ] Endpoint tested via curl or Swagger UI
 - [ ] No hardcoded secrets or API keys
 - [ ] Tests written for service function
-- [ ] Code formatted with `black .`
+- [ ] Code formatted and linted with `ruff format . && ruff check .`
