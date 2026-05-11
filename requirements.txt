@@ -29,7 +29,7 @@ alembic==1.13.0
 # Authentication
 PyJWT[crypto]==2.12.0
 bcrypt>=4.0
-python-multipart==0.0.26
+python-multipart==0.0.27
 
 # Payments
 setuptools==78.1.1  # Required by razorpay (pkg_resources)
