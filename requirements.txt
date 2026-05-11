@@ -2,29 +2,29 @@
 PyYAML==6.0.3  # PyYAML: used by app/services/text_service.py
 
 # Regex with timeout support — ReDoS protection for user-supplied patterns
-regex>=2024.5.15
+regex>=2026.5.9
 
 # FastAPI + ASGI server
 fastapi==0.136.1
-uvicorn[standard]==0.34.0
+uvicorn[standard]==0.46.0
 
 # Settings management
-pydantic-settings==2.2.0
+pydantic-settings==2.14.1
 
 # Email validation (used by Pydantic EmailStr)
-email-validator==2.1.1
+email-validator==2.3.0
 
 # AI / keyword extraction
 groq==0.13.1
-yake==0.4.8
+yake==0.7.3
 
 # Emoji handling
-emoji==2.12.0
+emoji==2.15.0
 
 # Database (async SQLAlchemy + PostgreSQL)
 sqlalchemy[asyncio]==2.0.49
-asyncpg==0.29.0
-alembic==1.13.0
+asyncpg==0.31.0
+alembic==1.18.4
 
 # Authentication
 PyJWT[crypto]==2.12.1
@@ -32,7 +32,7 @@ bcrypt>=4.0
 python-multipart==0.0.28
 
 # Payments
-setuptools==78.1.1  # Required by razorpay (pkg_resources)
+setuptools==78.1.1  # Required by razorpay (pkg_resources) — pinned until razorpay v2
 razorpay==1.4.2
 
 # Redis (optional — for distributed rate limiting)
@@ -46,7 +46,7 @@ aiosmtplib>=3.0
 
 # Testing
 pytest==9.0.3
-pytest-asyncio>=1.0
+pytest-asyncio>=1.3.0
 httpx==0.28.1
 pytest-cov==6.1.1
-aiosqlite>=0.20  # in-memory async DB for query-count regression tests
+aiosqlite>=0.22.1  # in-memory async DB for query-count regression tests
