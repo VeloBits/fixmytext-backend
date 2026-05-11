@@ -19,7 +19,39 @@ from urllib.parse import quote, unquote
 
 import yaml
 
+# Hard wall-clock cap for a single user-supplied regex search. Patterns that
+# blow past this are assumed to be ReDoS (intentional or accidental) and the
+# request is rejected.
+USER_REGEX_TIMEOUT_S = 0.2
+
+
+class RegexTimeoutError(Exception):
+    """Raised when a user-supplied regex exceeds USER_REGEX_TIMEOUT_S."""
+
+
 # ── Case transformations ──────────────────────────────────────────────────
+#
+# Many of these tools collapse internal whitespace/punctuation into a
+# tool-specific separator (e.g. snake_case turns spaces into '_'). When
+# applied naively to multi-line input they collapse `\n` into the same
+# separator, fusing all lines into one. That's almost never what users
+# want — each line should be transformed as its own independent string.
+#
+# `_per_line` enforces that uniformly: split on '\n' (NOT generic
+# whitespace, which is what `text.split()` would do), run the inner
+# single-line transform on each line, rejoin with '\n'. Empty lines stay
+# empty so user-authored blank lines are preserved.
+
+
+def _per_line(transform):
+    """Wrap a single-line transform so it processes each line independently."""
+
+    def wrapped(text: str) -> str:
+        if "\n" not in text:
+            return transform(text)
+        return "\n".join(transform(line) for line in text.split("\n"))
+
+    return wrapped
 
 
 def to_uppercase(text: str) -> str:
@@ -34,7 +66,7 @@ def to_inverse_case(text: str) -> str:
     return "".join(c.lower() if c.isupper() else c.upper() for c in text)
 
 
-def to_sentence_case(text: str) -> str:
+def _sentence_case_line(text: str) -> str:
     text = text.strip()
     if not text:
         return text
@@ -42,38 +74,87 @@ def to_sentence_case(text: str) -> str:
     trailing = text[-1] if text[-1] in ".?!" else ""
     if text.endswith((".", "?", "!")):
         text = text[:-1]
-    sentences = re.split(r"[.?!]\s*(?=\S|$)|\n", text)
+    sentences = re.split(r"[.?!]\s*(?=\S|$)", text)
     result = ". ".join(s.strip().capitalize() for s in sentences if s.strip())
     return result + (trailing or ".")
 
 
-def to_title_case(text: str) -> str:
+def _title_case_line(text: str) -> str:
     return " ".join(w.capitalize() for w in text.split())
 
 
-def to_upper_camel_case(text: str) -> str:
-    return "".join(w.capitalize() for w in text.split())
+to_sentence_case = _per_line(_sentence_case_line)
+to_title_case = _per_line(_title_case_line)
 
 
-def to_lower_camel_case(text: str) -> str:
-    pascal = to_upper_camel_case(text)
-    return pascal[0].lower() + pascal[1:] if pascal else pascal
+def _split_identifier_words(text: str) -> list[str]:
+    """Split a single line into identifier words.
+
+    Recognises three boundary kinds, in order:
+
+    1. Any non-alphanumeric run (``hello world``, ``foo_bar``, ``a-b.c``).
+    2. lowercase/digit → uppercase (``camelCase`` → ``camel`` + ``Case``).
+    3. Acronym boundary: uppercase followed by uppercase-then-lowercase
+       (``XMLHttp`` → ``XML`` + ``Http``, ``ChatGPT`` → ``Chat`` + ``GPT``).
+
+    The acronym rule is what makes ``ChatGPT`` come out as ``[Chat, GPT]``
+    instead of ``[ChatGPT]`` — without it, train-case / snake-case can't
+    distinguish ``GPT`` as its own word.
+    """
+    # Insert a sentinel `\x00` at every word boundary, then split on it +
+    # any other non-alphanumeric run. Using a sentinel keeps the two
+    # boundary regexes simple and order-independent.
+    s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "\x00", text)
+    s = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "\x00", s)
+    return [w for w in re.split(r"[^a-zA-Z0-9]+|\x00", s) if w]
 
 
-def to_snake_case(text: str) -> str:
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", text)
-    s = re.sub(r"[^a-zA-Z0-9]+", "_", s)
-    return s.strip("_").lower()
+def _smart_capitalize(word: str) -> str:
+    """Capitalize a word, preserving runs of all-uppercase letters as-is.
+
+    ``GPT`` → ``GPT`` (acronym preserved). ``hello`` → ``Hello``.
+    ``HELLO`` → ``HELLO`` (already an acronym). ``hELLO`` → ``Hello``
+    (mixed case is normalised since the caller likely typed garbage).
+    """
+    if not word:
+        return word
+    if word.isupper():
+        return word
+    return word[0].upper() + word[1:].lower()
 
 
-def to_kebab_case(text: str) -> str:
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", text)
-    s = re.sub(r"[^a-zA-Z0-9]+", "-", s)
-    return s.strip("-").lower()
+def _upper_camel_case_line(text: str) -> str:
+    return "".join(_smart_capitalize(w) for w in _split_identifier_words(text))
 
 
-def to_capitalize_words(text: str) -> str:
+def _lower_camel_case_line(text: str) -> str:
+    words = _split_identifier_words(text)
+    if not words:
+        return ""
+    # First word is fully lowercase; the rest follow PascalCase rules
+    # (preserving acronyms via _smart_capitalize).
+    return words[0].lower() + "".join(_smart_capitalize(w) for w in words[1:])
+
+
+def _snake_case_line(text: str) -> str:
+    return "_".join(w.lower() for w in _split_identifier_words(text))
+
+
+def _kebab_case_line(text: str) -> str:
+    return "-".join(w.lower() for w in _split_identifier_words(text))
+
+
+to_upper_camel_case = _per_line(_upper_camel_case_line)
+to_lower_camel_case = _per_line(_lower_camel_case_line)
+to_snake_case = _per_line(_snake_case_line)
+to_kebab_case = _per_line(_kebab_case_line)
+
+
+def _capitalize_words_line(text: str) -> str:
     return " ".join(w[0].upper() + w[1:] if w else w for w in text.split(" "))
+
+
+to_capitalize_words = _per_line(_capitalize_words_line)
 
 
 def to_alternating_case(text: str) -> str:
@@ -88,7 +169,7 @@ def to_alternating_case(text: str) -> str:
     return "".join(result)
 
 
-def to_inverse_word_case(text: str) -> str:
+def _inverse_word_case_line(text: str) -> str:
     result = []
     for word in text.split(" "):
         if word:
@@ -100,8 +181,12 @@ def to_inverse_word_case(text: str) -> str:
     return " ".join(result)
 
 
-def to_wide_text(text: str) -> str:
+def _wide_text_line(text: str) -> str:
     return " ".join(text)
+
+
+to_inverse_word_case = _per_line(_inverse_word_case_line)
+to_wide_text = _per_line(_wide_text_line)
 
 
 _SMALL_CAPS_MAP = str.maketrans(
@@ -159,7 +244,7 @@ _AP_SMALL_WORDS = {
 }
 
 
-def to_ap_title_case(text: str) -> str:
+def _ap_title_case_line(text: str) -> str:
     words = text.split()
     result = []
     for i, w in enumerate(words):
@@ -170,7 +255,7 @@ def to_ap_title_case(text: str) -> str:
     return " ".join(result)
 
 
-def to_swap_word_case(text: str) -> str:
+def _swap_word_case_line(text: str) -> str:
     words = text.split(" ")
     result = []
     for i, w in enumerate(words):
@@ -178,51 +263,52 @@ def to_swap_word_case(text: str) -> str:
     return " ".join(result)
 
 
-def to_dot_case(text: str) -> str:
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1.\2", text)
-    s = re.sub(r"[^a-zA-Z0-9]+", ".", s)
-    return s.strip(".").lower()
+to_ap_title_case = _per_line(_ap_title_case_line)
+to_swap_word_case = _per_line(_swap_word_case_line)
 
 
-def to_constant_case(text: str) -> str:
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", text)
-    s = re.sub(r"[^a-zA-Z0-9]+", "_", s)
-    return s.strip("_").upper()
+def _dot_case_line(text: str) -> str:
+    return ".".join(w.lower() for w in _split_identifier_words(text))
 
 
-def to_train_case(text: str) -> str:
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", text)
-    words = re.split(r"[^a-zA-Z0-9]+", s)
-    return "-".join(w.capitalize() for w in words if w)
+def _constant_case_line(text: str) -> str:
+    return "_".join(w.upper() for w in _split_identifier_words(text))
 
 
-def to_path_case(text: str) -> str:
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1/\2", text)
-    s = re.sub(r"[^a-zA-Z0-9]+", "/", s)
-    return s.strip("/").lower()
+def _train_case_line(text: str) -> str:
+    # Train-Case = HTTP-Header-Case: each word capitalised (or preserved as
+    # acronym), joined with '-'. ``ChatGPT`` → ``Chat-GPT`` because GPT is
+    # detected as an acronym word and kept as-is.
+    return "-".join(_smart_capitalize(w) for w in _split_identifier_words(text))
 
 
-def to_flat_case(text: str) -> str:
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1\2", text)
-    s = re.sub(r"[^a-zA-Z0-9]+", "", s)
-    return s.lower()
+def _path_case_line(text: str) -> str:
+    return "/".join(w.lower() for w in _split_identifier_words(text))
 
 
-def to_cobol_case(text: str) -> str:
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", text)
-    s = re.sub(r"[^a-zA-Z0-9]+", "-", s)
-    return s.strip("-").upper()
+def _flat_case_line(text: str) -> str:
+    # All collapsed into a single lowercase token — no acronym preservation
+    # because the convention IS to be flat (e.g. ``chatgpt``).
+    return "".join(w.lower() for w in _split_identifier_words(text))
+
+
+def _cobol_case_line(text: str) -> str:
+    return "-".join(w.upper() for w in _split_identifier_words(text))
+
+
+to_dot_case = _per_line(_dot_case_line)
+to_constant_case = _per_line(_constant_case_line)
+to_train_case = _per_line(_train_case_line)
+to_path_case = _per_line(_path_case_line)
+to_flat_case = _per_line(_flat_case_line)
+to_cobol_case = _per_line(_cobol_case_line)
 
 
 # ── Text Cleanup ──────────────────────────────────────────────────────────
 
 
-def remove_extra_spaces(text: str) -> str:
-    return " ".join(text.split())
-
-
-def remove_all_spaces(text: str) -> str:
-    return re.sub(r"\s+", "", text)
+remove_extra_spaces = _per_line(lambda s: " ".join(s.split()))
+remove_all_spaces = _per_line(lambda s: re.sub(r"[ \t\f\v]+", "", s))
 
 
 def remove_line_breaks(text: str) -> str:
@@ -410,28 +496,14 @@ def strip_numbers(text: str) -> str:
 # ── Encoding ──────────────────────────────────────────────────────────────
 
 
-def base64_encode(text: str) -> str:
-    return base64.b64encode(text.encode("utf-8")).decode("utf-8")
+base64_encode = _per_line(lambda s: base64.b64encode(s.encode("utf-8")).decode("utf-8"))
+base64_decode = _per_line(lambda s: base64.b64decode(s.encode("utf-8")).decode("utf-8"))
 
+url_encode = _per_line(lambda s: quote(s, safe=""))
+url_decode = _per_line(unquote)
 
-def base64_decode(text: str) -> str:
-    return base64.b64decode(text.encode("utf-8")).decode("utf-8")
-
-
-def url_encode(text: str) -> str:
-    return quote(text, safe="")
-
-
-def url_decode(text: str) -> str:
-    return unquote(text)
-
-
-def hex_encode(text: str) -> str:
-    return text.encode("utf-8").hex()
-
-
-def hex_decode(text: str) -> str:
-    return bytes.fromhex(text.strip()).decode("utf-8")
+hex_encode = _per_line(lambda s: s.encode("utf-8").hex())
+hex_decode = _per_line(lambda s: bytes.fromhex(s.strip()).decode("utf-8"))
 
 
 # ── Morse Code ─────────────────────────────────────────────────────────────
@@ -495,7 +567,7 @@ _MORSE_MAP = {
 _MORSE_REVERSE = {v: k for k, v in _MORSE_MAP.items()}
 
 
-def morse_encode(text: str) -> str:
+def _morse_encode_line(text: str) -> str:
     result = []
     for ch in text.upper():
         if ch == " ":
@@ -505,13 +577,17 @@ def morse_encode(text: str) -> str:
     return " ".join(result)
 
 
-def morse_decode(text: str) -> str:
+def _morse_decode_line(text: str) -> str:
     words = text.strip().split(" / ")
     decoded = []
     for word in words:
         letters = word.strip().split()
         decoded.append("".join(_MORSE_REVERSE.get(c, "") for c in letters))
     return " ".join(decoded)
+
+
+morse_encode = _per_line(_morse_encode_line)
+morse_decode = _per_line(_morse_decode_line)
 
 
 # ── Text Tools ────────────────────────────────────────────────────────────
@@ -544,38 +620,31 @@ def rot13(text: str) -> str:
 # ── Binary / Octal / Decimal Encoding ───────────────────────────────────
 
 
-def binary_encode(text: str) -> str:
-    return " ".join(format(b, "08b") for b in text.encode("utf-8"))
+binary_encode = _per_line(
+    lambda s: " ".join(format(b, "08b") for b in s.encode("utf-8"))
+)
+binary_decode = _per_line(
+    lambda s: bytes(int(b, 2) for b in s.strip().split()).decode("utf-8")
+)
 
+octal_encode = _per_line(
+    lambda s: " ".join(format(b, "03o") for b in s.encode("utf-8"))
+)
+octal_decode = _per_line(
+    lambda s: bytes(int(o, 8) for o in s.strip().split()).decode("utf-8")
+)
 
-def binary_decode(text: str) -> str:
-    chunks = text.strip().split()
-    return bytes(int(b, 2) for b in chunks).decode("utf-8")
-
-
-def octal_encode(text: str) -> str:
-    return " ".join(format(b, "03o") for b in text.encode("utf-8"))
-
-
-def octal_decode(text: str) -> str:
-    chunks = text.strip().split()
-    return bytes(int(o, 8) for o in chunks).decode("utf-8")
-
-
-def decimal_encode(text: str) -> str:
-    return " ".join(str(b) for b in text.encode("utf-8"))
-
-
-def decimal_decode(text: str) -> str:
-    chunks = text.strip().split()
-    return bytes(int(d) for d in chunks).decode("utf-8")
+decimal_encode = _per_line(lambda s: " ".join(str(b) for b in s.encode("utf-8")))
+decimal_decode = _per_line(
+    lambda s: bytes(int(d) for d in s.strip().split()).decode("utf-8")
+)
 
 
 # ── Brainfuck Encoding ──────────────────────────────────────────────────
 
 
-def brainfuck_encode(text: str) -> str:
-    """Convert text to a Brainfuck program that prints it."""
+def _brainfuck_encode_line(text: str) -> str:
+    """Convert a single line to a Brainfuck program that prints it."""
     result = []
     prev = 0
     for ch in text:
@@ -588,6 +657,9 @@ def brainfuck_encode(text: str) -> str:
         result.append(".")
         prev = val
     return "".join(result)
+
+
+brainfuck_encode = _per_line(_brainfuck_encode_line)
 
 
 def brainfuck_decode(code: str) -> str:
@@ -649,14 +721,20 @@ def brainfuck_decode(code: str) -> str:
 # ── Unicode Escape / Unescape ───────────────────────────────────────────
 
 
-def unicode_escape(text: str) -> str:
+def _unicode_escape_line(line: str) -> str:
     return "".join(
-        f"\\u{ord(ch):04x}" if ord(ch) <= 0xFFFF else f"\\U{ord(ch):08x}" for ch in text
+        f"\\u{ord(ch):04x}" if ord(ch) <= 0xFFFF else f"\\U{ord(ch):08x}" for ch in line
     )
 
 
+def unicode_escape(text: str) -> str:
+    return "\n".join(_unicode_escape_line(line) for line in text.split("\n"))
+
+
 def unicode_unescape(text: str) -> str:
-    return text.encode("utf-8").decode("unicode_escape")
+    return "\n".join(
+        line.encode("utf-8").decode("unicode_escape") for line in text.split("\n")
+    )
 
 
 # ── Ciphers ─────────────────────────────────────────────────────────────
@@ -753,7 +831,22 @@ def _line_matches(
             return False
         # Cap line length to limit worst-case backtracking on large inputs.
         search_text = line if len(line) <= 2_000 else line[:2_000]
-        return bool(compiled.search(search_text))
+        # Per-call wall-clock cap. Patterns produced by FilterRequest are
+        # `regex.Pattern` objects whose .search() accepts a `timeout=`
+        # argument — this is the ReDoS guard. Stdlib `re.Pattern` objects
+        # (used by older internal callers and some tests) don't accept
+        # `timeout=`, so we fall back to plain .search() for those.
+        try:
+            return bool(compiled.search(search_text, timeout=USER_REGEX_TIMEOUT_S))
+        except TypeError:
+            # stdlib re.Pattern — no timeout support; trust the 200-char
+            # pattern cap + 2000-char line cap to bound runtime.
+            return bool(compiled.search(search_text))
+        except TimeoutError as exc:
+            raise RegexTimeoutError(
+                f"Pattern execution exceeded {int(USER_REGEX_TIMEOUT_S * 1000)}ms "
+                "budget — try simplifying or removing nested quantifiers."
+            ) from exc
     if case_sensitive:
         return pattern in line
     return pattern.lower() in line.lower()
@@ -817,11 +910,11 @@ def json_to_yaml(text: str) -> str:
 
 
 def json_escape(text: str) -> str:
-    return json.dumps(text)[1:-1]
+    return "\n".join(json.dumps(line)[1:-1] for line in text.split("\n"))
 
 
 def json_unescape(text: str) -> str:
-    return json.loads('"' + text + '"')
+    return "\n".join(json.loads('"' + line + '"') for line in text.split("\n"))
 
 
 def html_escape_text(text: str) -> str:
@@ -866,12 +959,20 @@ def caesar_cipher(text: str, shift: int = 3) -> str:
     return "".join(result)
 
 
-def caesar_brute_force(text: str) -> str:
+def _caesar_brute_force_line(text: str) -> str:
     lines = []
     for shift in range(1, 26):
         decrypted = caesar_cipher(text, -shift)
         lines.append(f"Shift {shift:2d}: {decrypted}")
     return "\n".join(lines)
+
+
+def caesar_brute_force(text: str) -> str:
+    if "\n" not in text:
+        return _caesar_brute_force_line(text)
+    # Separate each input line's brute-force block with a blank line so the 25
+    # shift rows for line N don't visually run into line N+1's rows.
+    return "\n\n".join(_caesar_brute_force_line(line) for line in text.split("\n"))
 
 
 def vigenere_encrypt(text: str, key: str) -> str:
@@ -908,7 +1009,7 @@ def vigenere_decrypt(text: str, key: str) -> str:
     return "".join(result)
 
 
-def rail_fence_encrypt(text: str, rails: int = 3) -> str:
+def _rail_fence_encrypt_line(text: str, rails: int = 3) -> str:
     if rails < 2:
         raise ValueError("Rails must be at least 2")
     fence = [[] for _ in range(rails)]
@@ -923,7 +1024,13 @@ def rail_fence_encrypt(text: str, rails: int = 3) -> str:
     return "".join("".join(row) for row in fence)
 
 
-def rail_fence_decrypt(text: str, rails: int = 3) -> str:
+def rail_fence_encrypt(text: str, rails: int = 3) -> str:
+    if "\n" not in text:
+        return _rail_fence_encrypt_line(text, rails)
+    return "\n".join(_rail_fence_encrypt_line(line, rails) for line in text.split("\n"))
+
+
+def _rail_fence_decrypt_line(text: str, rails: int = 3) -> str:
     if rails < 2:
         raise ValueError("Rails must be at least 2")
     n = len(text)
@@ -943,7 +1050,13 @@ def rail_fence_decrypt(text: str, rails: int = 3) -> str:
     return "".join(result)
 
 
-def playfair_encrypt(text: str, key: str) -> str:
+def rail_fence_decrypt(text: str, rails: int = 3) -> str:
+    if "\n" not in text:
+        return _rail_fence_decrypt_line(text, rails)
+    return "\n".join(_rail_fence_decrypt_line(line, rails) for line in text.split("\n"))
+
+
+def _playfair_encrypt_line(text: str, key: str) -> str:
     if not key:
         raise ValueError("Key must be non-empty")
     key = key.upper().replace("J", "I")
@@ -988,6 +1101,12 @@ def playfair_encrypt(text: str, key: str) -> str:
     return "".join(result)
 
 
+def playfair_encrypt(text: str, key: str) -> str:
+    if "\n" not in text:
+        return _playfair_encrypt_line(text, key)
+    return "\n".join(_playfair_encrypt_line(line, key) for line in text.split("\n"))
+
+
 def substitution_cipher(text: str, mapping: str) -> str:
     if len(mapping) != 26:
         raise ValueError("Mapping must be exactly 26 characters (A-Z substitution)")
@@ -1003,7 +1122,7 @@ def substitution_cipher(text: str, mapping: str) -> str:
     return "".join(result)
 
 
-def columnar_transposition(text: str, key: str) -> str:
+def _columnar_transposition_line(text: str, key: str) -> str:
     if not key:
         raise ValueError("Key must be non-empty")
     key = key.upper()
@@ -1022,7 +1141,15 @@ def columnar_transposition(text: str, key: str) -> str:
     return "".join(result)
 
 
-def nato_phonetic(text: str) -> str:
+def columnar_transposition(text: str, key: str) -> str:
+    if "\n" not in text:
+        return _columnar_transposition_line(text, key)
+    return "\n".join(
+        _columnar_transposition_line(line, key) for line in text.split("\n")
+    )
+
+
+def _nato_phonetic_line(text: str) -> str:
     NATO = {
         "A": "Alpha",
         "B": "Bravo",
@@ -1078,7 +1205,13 @@ def nato_phonetic(text: str) -> str:
     return " ".join(result)
 
 
-def bacon_cipher(text: str) -> str:
+def nato_phonetic(text: str) -> str:
+    if "\n" not in text:
+        return _nato_phonetic_line(text)
+    return "\n".join(_nato_phonetic_line(line) for line in text.split("\n"))
+
+
+def _bacon_cipher_line(text: str) -> str:
     BACON = {
         "A": "AAAAA",
         "B": "AAAAB",
@@ -1107,13 +1240,22 @@ def bacon_cipher(text: str) -> str:
         "Y": "BABBA",
         "Z": "BABBB",
     }
-    # Check if input is Bacon-encoded (all A's and B's with spaces)
+    # Auto-detect: treat input as ciphertext only when the cleaned text is
+    # *exclusively* A/B and its length is a positive multiple of 5 (a Bacon
+    # codeword is always 5 letters). Without the length check, any plaintext
+    # that happens to use only A/B (e.g. "AB", "BABA", "abba") is mistakenly
+    # routed through the decoder and returns garbage / an empty string.
     cleaned = text.strip().replace(" ", "")
-    if cleaned and all(c in "AaBb" for c in cleaned):
+    is_ciphertext = (
+        len(cleaned) >= 5
+        and len(cleaned) % 5 == 0
+        and all(c in "AaBb" for c in cleaned)
+    )
+    if is_ciphertext:
         REVERSE = {v: k for k, v in BACON.items()}
         upper = cleaned.upper()
         result = []
-        for i in range(0, len(upper) - 4, 5):
+        for i in range(0, len(upper), 5):
             chunk = upper[i : i + 5]
             if chunk in REVERSE:
                 result.append(REVERSE[chunk])
@@ -1128,36 +1270,88 @@ def bacon_cipher(text: str) -> str:
     return " ".join(result) if " " not in "".join(result) else "".join(result)
 
 
+def bacon_cipher(text: str) -> str:
+    if "\n" not in text:
+        return _bacon_cipher_line(text)
+    return "\n".join(_bacon_cipher_line(line) for line in text.split("\n"))
+
+
 # ── Encoding Extensions (new) ──────────────────────────────────────────
 
 
-def base32_encode(text: str) -> str:
-    return base64.b32encode(text.encode("utf-8")).decode("ascii")
-
-
-def base32_decode(text: str) -> str:
-    # Add padding if needed
+def _base32_decode_line(text: str) -> str:
     padded = text.strip()
     padded += "=" * ((8 - len(padded) % 8) % 8)
     return base64.b32decode(padded).decode("utf-8")
 
 
-def ascii85_encode(text: str) -> str:
-    return base64.a85encode(text.encode("utf-8")).decode("ascii")
+base32_encode = _per_line(lambda s: base64.b32encode(s.encode("utf-8")).decode("ascii"))
+base32_decode = _per_line(_base32_decode_line)
 
-
-def ascii85_decode(text: str) -> str:
-    return base64.a85decode(text.strip()).decode("utf-8")
+ascii85_encode = _per_line(
+    lambda s: base64.a85encode(s.encode("utf-8")).decode("ascii")
+)
+ascii85_decode = _per_line(lambda s: base64.a85decode(s.strip()).decode("utf-8"))
 
 
 # ── Developer Tool Functions (new) ─────────────────────────────────────
 
 
 def xml_to_json(text: str) -> str:
-    import xmltodict
+    """Convert an XML document to JSON using stdlib ElementTree.
 
-    parsed = xmltodict.parse(text)
-    return json.dumps(parsed, indent=2, ensure_ascii=False)
+    Mirrors xmltodict's structure: a single-key dict with the root tag, where
+    each element becomes a dict of its children (or a string if it's a leaf
+    with text). Repeated child tags become a list. Attributes are stored
+    under ``@name`` keys; element text under ``#text`` when attributes/children
+    are also present.
+    """
+    import xml.etree.ElementTree as ET
+
+    def node_to_obj(elem):
+        children = list(elem)
+        attrs = {f"@{k}": v for k, v in elem.attrib.items()}
+        text = (elem.text or "").strip()
+
+        if not children and not attrs:
+            return text or None
+        if not children:
+            return {**attrs, "#text": text} if text else attrs
+
+        # Group children by tag — repeated tags collapse to a list.
+        grouped: dict = {}
+        for child in children:
+            value = node_to_obj(child)
+            if child.tag in grouped:
+                if not isinstance(grouped[child.tag], list):
+                    grouped[child.tag] = [grouped[child.tag]]
+                grouped[child.tag].append(value)
+            else:
+                grouped[child.tag] = value
+
+        result = {**attrs, **grouped}
+        if text:
+            result["#text"] = text
+        return result
+
+    stripped = text.strip()
+    try:
+        root = ET.fromstring(stripped)
+        return json.dumps({root.tag: node_to_obj(root)}, indent=2, ensure_ascii=False)
+    except ET.ParseError:
+        # XML requires a single root, but users often paste several sibling
+        # documents in one go. Wrap them in a synthetic root, parse, then
+        # emit each top-level child as its own JSON object separated by a
+        # blank line — preserving the "one document per input" mental model
+        # rather than merging them into a single combined object.
+        try:
+            wrapper = ET.fromstring(f"<root>{stripped}</root>")
+        except ET.ParseError as e:
+            raise ValueError(f"Invalid XML: {e}") from e
+        return "\n\n".join(
+            json.dumps({child.tag: node_to_obj(child)}, indent=2, ensure_ascii=False)
+            for child in wrapper
+        )
 
 
 def csv_to_table(text: str) -> str:

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy import text as sa_text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -18,7 +18,12 @@ if TYPE_CHECKING:
 
 class SharedResult(Base):
     __tablename__ = "shared_results"
-    __table_args__ = {"schema": settings.DB_SCHEMA_ACTIVITY}
+    __table_args__ = (
+        Index("ix_shared_results_user_id", "user_id"),
+        Index("ix_shared_results_created_at", "created_at"),
+        Index("ix_shared_results_expires_at", "expires_at"),
+        {"schema": settings.DB_SCHEMA_ACTIVITY},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -30,7 +35,6 @@ class SharedResult(Base):
         UUID(as_uuid=True),
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="SET NULL"),
         nullable=True,
-        index=True,
     )
 
     tool_id: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -50,7 +54,7 @@ class SharedResult(Base):
         server_default=sa_text("now() + INTERVAL '30 days'"),
     )
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=sa_text("now()"), index=True
+        TIMESTAMP(timezone=True), server_default=sa_text("now()")
     )
 
     user: Mapped[Optional["User"]] = relationship()

@@ -188,6 +188,8 @@ def test_login_user_not_found(empty_db):
 
 
 def test_login_inactive_user(empty_db):
+    """Disabled accounts must return the same generic 401 as bad-password and
+    missing-user, so login can't be used to confirm an account exists."""
     inactive = make_user(is_active=False, hashed_password=hash_password("pass123"))
     db = make_mock_db()
     result = MagicMock()
@@ -203,7 +205,52 @@ def test_login_inactive_user(empty_db):
         json={"email": inactive.email, "password": "pass123"},
     )
     app.dependency_overrides.clear()
-    assert resp.status_code == 403
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid credentials"
+
+
+def test_login_responses_identical_across_failure_modes(user_in_db):
+    """Anti-enumeration: missing user, wrong password, and disabled account
+    must all produce byte-identical 401 responses."""
+    # Missing-user db
+    empty = make_mock_db()
+    empty_result = MagicMock()
+    empty_result.scalar_one_or_none.return_value = None
+    empty.execute.return_value = empty_result
+
+    # Wrong-password db (active user exists)
+    active = make_mock_db()
+    active_result = MagicMock()
+    active_result.scalar_one_or_none.return_value = user_in_db
+    active.execute.return_value = active_result
+
+    # Disabled-user db
+    inactive_user = make_user(
+        is_active=False, hashed_password=hash_password("right_pass")
+    )
+    disabled = make_mock_db()
+    disabled_result = MagicMock()
+    disabled_result.scalar_one_or_none.return_value = inactive_user
+    disabled.execute.return_value = disabled_result
+
+    responses = []
+    for db in (empty, active, disabled):
+
+        async def _get_db(_db=db):
+            yield _db
+
+        app.dependency_overrides[get_db] = _get_db
+        r = TestClient(app, raise_server_exceptions=False).post(
+            "/api/v1/auth/login",
+            json={"email": "anything@example.com", "password": "definitely_wrong"},
+        )
+        app.dependency_overrides.clear()
+        responses.append((r.status_code, r.json()))
+
+    assert all(r[0] == 401 for r in responses)
+    # All response bodies must be identical — no field distinguishing the case
+    assert responses[0][1] == responses[1][1] == responses[2][1]
+    assert responses[0][1]["detail"] == "Invalid credentials"
 
 
 def test_login_missing_fields():
@@ -436,4 +483,7 @@ async def test_auth_service_authenticate_inactive_user():
 
     with pytest.raises(HTTPException) as exc_info:
         await authenticate(db, user.email, "correct")
-    assert exc_info.value.status_code == 403
+    # Collapsed into the same generic 401 as other failure modes to prevent
+    # account enumeration via the response code/detail.
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid credentials"

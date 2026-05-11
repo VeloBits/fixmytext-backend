@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, SmallInteger, String, text
+from sqlalchemy import ForeignKey, Index, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +13,10 @@ from app.db.session import Base
 
 class UserFavoriteTool(Base):
     __tablename__ = "user_favorite_tools"
-    __table_args__ = {"schema": settings.DB_SCHEMA_ACTIVITY}
+    __table_args__ = (
+        Index("ix_user_favorite_tools_user_id", "user_id"),
+        {"schema": settings.DB_SCHEMA_ACTIVITY},
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

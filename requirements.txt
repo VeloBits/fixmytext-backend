@@ -1,6 +1,9 @@
 # YAML support
 PyYAML==6.0.1  # PyYAML: used by app/services/text_service.py
 
+# Regex with timeout support — ReDoS protection for user-supplied patterns
+regex>=2024.5.15
+
 # FastAPI + ASGI server
 fastapi==0.135.3
 uvicorn[standard]==0.34.0
@@ -46,3 +49,4 @@ pytest==9.0.3
 pytest-asyncio>=1.0
 httpx==0.28.1
 pytest-cov==6.1.1
+aiosqlite>=0.20  # in-memory async DB for query-count regression tests

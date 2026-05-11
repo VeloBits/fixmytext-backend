@@ -45,6 +45,7 @@ from app.services.pass_service import (
     check_visitor_access,
     record_tool_discovery,
 )
+from app.services.text_service import RegexTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +260,13 @@ async def _execute_tool(
     except HTTPException:
         # Re-raise FastAPI HTTP exceptions untouched.
         raise
+
+    except RegexTimeoutError as exc:
+        # User-supplied pattern blew the wall-clock budget — almost certainly
+        # ReDoS (catastrophic backtracking). 400 rather than 422 because the
+        # pattern is syntactically valid; it just won't run in the time we
+        # allow on this tier.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     except Exception as exc:
         # Check if this exception matches one of the tool's known

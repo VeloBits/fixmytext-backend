@@ -3,7 +3,14 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+)
 from jwt.exceptions import PyJWTError as JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -234,6 +241,7 @@ async def logout(response: Response, user: User = Depends(get_current_user)):
 async def forgot_password(
     req: ForgotPasswordRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Issue a time-limited password reset token for the given email.
@@ -251,7 +259,10 @@ async def forgot_password(
     if issued is not None:
         user, raw_token = issued
         logger.info("FORGOT_PASSWORD issued user=%s", user.id)
-        await send_password_reset_email(user, raw_token)
+        # Defer SMTP I/O to a background task so the HTTP response time
+        # doesn't depend on whether the email was found — closing the timing
+        # side-channel that would otherwise let an attacker enumerate users.
+        background_tasks.add_task(send_password_reset_email, user, raw_token)
     else:
         logger.info("FORGOT_PASSWORD ignored (unknown or inactive email)")
     # Echo the raw token only when the console backend is active (local dev,

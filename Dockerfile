@@ -26,6 +26,10 @@ RUN python -m venv .venv && \
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim AS runtime
 
+# curl is used by the docker healthcheck against /health/ready
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root user for security
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 

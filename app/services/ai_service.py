@@ -91,6 +91,12 @@ async def _groq_chat_stream(
             yield delta.content
 
 
+def _fake_ai_response(system_prompt: str, text: str) -> str:
+    """Deterministic stand-in for Groq, used when AI_BACKEND=fake (E2E tests)."""
+    snippet = (text or "").strip().splitlines()[0][:80] if text else ""
+    return f"[fake-ai] {snippet}".strip()
+
+
 async def _ai_transform(
     system_prompt: str,
     text: str,
@@ -100,6 +106,8 @@ async def _ai_transform(
     max_tokens: int = 200,
 ) -> str:
     """Unified AI transform: try Groq first, fall back to a local function."""
+    if settings.AI_BACKEND.lower() == "fake":
+        return _fake_ai_response(system_prompt, text)
     if settings.GROQ_API_KEY:
         try:
             async with asyncio.timeout(35):

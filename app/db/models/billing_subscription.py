@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String, text
+from sqlalchemy import ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,7 +13,16 @@ from app.db.session import Base
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
-    __table_args__ = {"schema": settings.DB_SCHEMA_BILLING}
+    __table_args__ = (
+        Index("ix_subscriptions_user_id", "user_id"),
+        Index(
+            "uq_subscriptions_one_active_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+        {"schema": settings.DB_SCHEMA_BILLING},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -25,7 +34,6 @@ class Subscription(Base):
         UUID(as_uuid=True),
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     tier: Mapped[str] = mapped_column(
         String(20), nullable=False, default="free", server_default=text("'free'")
@@ -56,7 +64,21 @@ class Subscription(Base):
 
 class PaymentEvent(Base):
     __tablename__ = "payment_events"
-    __table_args__ = {"schema": settings.DB_SCHEMA_BILLING}
+    __table_args__ = (
+        Index("ix_payment_events_user_id", "user_id"),
+        Index(
+            "ix_payment_events_payment_id",
+            "razorpay_payment_id",
+            postgresql_where=text("razorpay_payment_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_payment_events_razorpay_event_id",
+            "razorpay_event_id",
+            unique=True,
+            postgresql_where=text("razorpay_event_id IS NOT NULL"),
+        ),
+        {"schema": settings.DB_SCHEMA_BILLING},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -72,7 +94,6 @@ class PaymentEvent(Base):
         UUID(as_uuid=True),
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="SET NULL"),
         nullable=True,
-        index=True,
     )
     item_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     item_id: Mapped[str | None] = mapped_column(String(50), nullable=True)

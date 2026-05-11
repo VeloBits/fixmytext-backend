@@ -119,6 +119,25 @@ async def lifespan(app: FastAPI):
             )
         logger.warning("SECRET_KEY is shorter than 32 characters - this is insecure")
 
+    # Fake backends are E2E-test seams. Refuse to start in production — they
+    # disable Groq and Razorpay signature/order checks and would silently
+    # mint passes for free if left on.
+    fake_flags = []
+    if settings.AI_BACKEND.lower() == "fake":
+        fake_flags.append("AI_BACKEND")
+    if settings.PAYMENTS_BACKEND.lower() == "fake":
+        fake_flags.append("PAYMENTS_BACKEND")
+    if fake_flags:
+        if settings.ENVIRONMENT == "production":
+            raise RuntimeError(
+                f"Refusing to start: {', '.join(fake_flags)}=fake is for E2E tests only "
+                "and must not be set in production."
+            )
+        logger.warning(
+            "Fake backend(s) active: %s — E2E test mode, never deploy to prod",
+            ", ".join(fake_flags),
+        )
+
     logger.info("Running database migrations …")
     loop = asyncio.get_running_loop()
     with ThreadPoolExecutor(max_workers=1) as pool:

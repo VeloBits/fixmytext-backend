@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, SmallInteger, String, text
+from sqlalchemy import ForeignKey, Index, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,7 +13,21 @@ from app.db.session import Base
 
 class BillingUserCredit(Base):
     __tablename__ = "user_credits"
-    __table_args__ = {"schema": settings.DB_SCHEMA_BILLING}
+    __table_args__ = (
+        Index(
+            "ix_billing_user_credits_active",
+            "user_id",
+            "created_at",
+            postgresql_where=text("credits_remaining > 0"),
+        ),
+        Index(
+            "ix_user_credits_active_lookup",
+            "user_id",
+            "credits_remaining",
+            postgresql_where=text("credits_remaining > 0"),
+        ),
+        {"schema": settings.DB_SCHEMA_BILLING},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

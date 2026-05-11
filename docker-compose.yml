@@ -191,6 +191,7 @@ services:
           fi
           exec "$$@"
       - --
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     secrets:
       - db_password
       - secret_key
@@ -201,15 +202,15 @@ services:
         condition: service_healthy
       migrate-prod:
         condition: service_completed_successfully
+        required: true
     networks:
       - fixmytext-net
     healthcheck:
-      test: ["CMD", "python", "-c",
-            "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 60s
 
 # ── Shared network ────────────────────────────────────────────────────────────
 networks:

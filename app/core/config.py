@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # ── AI / Groq ─────────────────────────────────────────────────────────────
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"  # Default Groq model for AI endpoints
+    AI_BACKEND: str = (
+        "auto"  # "auto" | "fake" — "fake" short-circuits Groq calls for E2E tests
+    )
+    PAYMENTS_BACKEND: str = "razorpay"  # "razorpay" | "fake" — "fake" stubs order create/fetch for E2E tests
 
     # ── Rate limiting ────────────────────────────────────────────────────────
     RATE_LIMIT_MAX_REQUESTS: int = 25  # Max requests per window (default)

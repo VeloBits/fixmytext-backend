@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, ForeignKey, SmallInteger, String, text
+from sqlalchemy import Boolean, Date, ForeignKey, Index, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,7 +13,22 @@ from app.db.session import Base
 
 class BillingUserPass(Base):
     __tablename__ = "user_passes"
-    __table_args__ = {"schema": settings.DB_SCHEMA_BILLING}
+    __table_args__ = (
+        Index("ix_billing_user_passes_user_id", "user_id"),
+        Index(
+            "ix_billing_user_passes_active",
+            "user_id",
+            "expires_at",
+            postgresql_where=text("is_active = true"),
+        ),
+        Index(
+            "ix_user_passes_active_lookup",
+            "user_id",
+            "expires_at",
+            postgresql_where=text("is_active = true"),
+        ),
+        {"schema": settings.DB_SCHEMA_BILLING},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -59,7 +74,10 @@ class BillingUserPass(Base):
 
 class UserPassTool(Base):
     __tablename__ = "user_pass_tools"
-    __table_args__ = {"schema": settings.DB_SCHEMA_BILLING}
+    __table_args__ = (
+        Index("ix_user_pass_tools_coverage", "pass_instance_id", "tool_id"),
+        {"schema": settings.DB_SCHEMA_BILLING},
+    )
 
     pass_instance_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

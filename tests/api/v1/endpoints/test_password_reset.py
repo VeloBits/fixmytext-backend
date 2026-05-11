@@ -99,6 +99,51 @@ def test_forgot_password_unknown_email_same_response_shape():
     mock_send.assert_not_awaited()
 
 
+def test_forgot_password_responses_identical_existing_vs_nonexistent(monkeypatch):
+    """Anti-enumeration: in production mode (SMTP), the forgot-password
+    response body and status code must be byte-identical whether the email is
+    registered, unregistered, or belongs to a disabled account."""
+    # Force production mode so the dev-only reset_token echo is suppressed.
+    monkeypatch.setattr("app.api.v1.endpoints.auth.settings.EMAIL_BACKEND", "smtp")
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.auth.settings.SMTP_HOST", "smtp.example.com"
+    )
+
+    existing = make_user(email="real@example.com")
+    inactive = make_user(email="disabled@example.com", is_active=False)
+
+    cases = [
+        ("real@example.com", _user_lookup_db(existing)),
+        ("ghost@example.com", _user_lookup_db(None)),
+        ("disabled@example.com", _user_lookup_db(inactive)),
+    ]
+
+    responses = []
+    for email, db in cases:
+
+        async def _get_db(_db=db):
+            yield _db
+
+        app.dependency_overrides[get_db] = _get_db
+        with patch(
+            "app.api.v1.endpoints.auth.send_password_reset_email",
+            new_callable=AsyncMock,
+        ):
+            r = TestClient(app, raise_server_exceptions=True).post(
+                "/api/v1/auth/forgot-password", json={"email": email}
+            )
+        app.dependency_overrides.clear()
+        responses.append((r.status_code, r.json()))
+
+    statuses = {r[0] for r in responses}
+    bodies = [r[1] for r in responses]
+    assert statuses == {200}
+    # Every body must be identical — no field (including reset_token) may
+    # distinguish the registered case from the unknown/disabled cases.
+    assert bodies[0] == bodies[1] == bodies[2]
+    assert bodies[0]["reset_token"] is None
+
+
 def test_forgot_password_inactive_user_no_token_issued():
     inactive = make_user(email="inactive@example.com", is_active=False)
     db = _user_lookup_db(inactive)

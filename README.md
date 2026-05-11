@@ -268,3 +268,18 @@ pytest tests/test_text_service.py -v
 # Only failing tests
 pytest --lf
 ```
+
+## Pre-commit Hooks
+
+Run `ruff format`, `ruff check --fix`, a `pytest -q tests/core` smoke, plus
+detect-secrets and standard hygiene checks before each commit.
+
+```bash
+pip install pre-commit         # one-time
+pre-commit install             # installs the git hook into .git/hooks/pre-commit
+pre-commit run --all-files     # optional: run against the whole tree once
+```
+
+`pytest` must resolve to the project venv (so `tests/core` imports work) —
+activate `.venv` before committing, or run commits from a shell where it's on
+PATH. The frontend's Husky hook lives in `frontend/.git` and is unaffected.

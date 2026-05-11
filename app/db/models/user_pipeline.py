@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, SmallInteger, String, text
+from sqlalchemy import Boolean, ForeignKey, Index, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,7 +17,14 @@ if TYPE_CHECKING:
 
 class UserPipeline(Base):
     __tablename__ = "user_pipelines"
-    __table_args__ = {"schema": settings.DB_SCHEMA_ACTIVITY}
+    __table_args__ = (
+        Index(
+            "ix_user_pipelines_user_active",
+            "user_id",
+            postgresql_where=text("is_active = true"),
+        ),
+        {"schema": settings.DB_SCHEMA_ACTIVITY},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -29,7 +36,6 @@ class UserPipeline(Base):
         UUID(as_uuid=True),
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -53,7 +59,16 @@ class UserPipeline(Base):
 
 class UserPipelineStep(Base):
     __tablename__ = "user_pipeline_steps"
-    __table_args__ = {"schema": settings.DB_SCHEMA_ACTIVITY}
+    __table_args__ = (
+        Index("ix_user_pipeline_steps_pipeline", "pipeline_id", "step_order"),
+        Index(
+            "uq_pipeline_step_order",
+            "pipeline_id",
+            "step_order",
+            unique=True,
+        ),
+        {"schema": settings.DB_SCHEMA_ACTIVITY},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -67,7 +82,6 @@ class UserPipelineStep(Base):
             f"{settings.DB_SCHEMA_ACTIVITY}.user_pipelines.id", ondelete="CASCADE"
         ),
         nullable=False,
-        index=True,
     )
     step_order: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     tool_id: Mapped[str] = mapped_column(String(100), nullable=False)
