@@ -38,9 +38,9 @@ LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
 # Try to use structured JSON logging; fall back to plain text if unavailable
 _use_json_logging = False
 try:
-    from pythonjsonlogger import jsonlogger
+    from pythonjsonlogger.json import JsonFormatter
 
-    class CustomJsonFormatter(jsonlogger.JsonFormatter):
+    class CustomJsonFormatter(JsonFormatter):
         """JSON log formatter with request context fields."""
 
         def add_fields(self, log_record, record, message_dict):
