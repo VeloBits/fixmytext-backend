@@ -15,7 +15,7 @@ pydantic-settings==2.14.1
 email-validator==2.3.0
 
 # AI / keyword extraction
-groq==0.13.1
+groq==1.2.0
 yake==0.7.3
 
 # Emoji handling
