@@ -55,9 +55,17 @@ Content-Type: application/json
 |--------|-------------|---------|
 | `CaesarRequest` | `shift` (int, 1-25, default 3) | Caesar cipher |
 | `ToneRequest` | `tone` (formal/casual/friendly) | Tone change |
-| `FormatRequest` | `format` (paragraph/bullets/numbered/qna/table/tldr/headings) | Content formatting |
-| `RailFenceRequest` | `rails` (int) | Rail fence cipher |
-| `KeyedCipherRequest` | `key` (str) | Vigenere, Playfair |
+| `FormatRequest` | `format` (paragraph/bullets/paragraph-bullets/numbered/qna/table/tldr/headings) | Content formatting |
+| `RailFenceRequest` | `rails` (int, 2-10, default 3) | Rail fence cipher |
+| `KeyedCipherRequest` | `key` (str, 1-100 chars) | Vigenere, Playfair |
+| `SubstitutionRequest` | `mapping` (str, exactly 26 chars — A-Z substitution alphabet) | Substitution cipher |
+| `NthLineRequest` | `n` (int, 2-100, default 2), `offset` (int ≥ 0, default 0) | Every-Nth-line extraction |
+| `PadRequest` | `align` (left/right/center, default left) | Pad lines |
+| `TruncateRequest` | `max_length` (int, 5-1000, default 80) | Truncate lines |
+| `WrapRequest` | `prefix` (str, max 100 chars), `suffix` (str, max 100 chars) | Wrap lines |
+| `SplitJoinRequest` | `delimiter` (str, max 20 chars, default `,`) | Split to lines, Join lines |
+| `FilterRequest` | `pattern` (str, 1-200 chars), `case_sensitive` (bool, default false), `use_regex` (bool, default false) | Filter lines, Remove lines |
+| `TranslateRequest` | `target_language` (str, default "English") | Translate |
 
 ### Error Response
 
@@ -216,8 +224,8 @@ All endpoints: `POST /api/v1/text/{slug}` — accept `TextRequest`, return `Text
 | 200 | Success |
 | 400 | Bad request (invalid input) |
 | 401 | Unauthorized (missing or expired token) |
-| 403 | Forbidden (trial limit reached) |
+| 403 | Forbidden (insufficient permissions) |
 | 404 | Not found |
 | 422 | Validation error (wrong request format) |
-| 429 | Too many requests (rate limited) |
+| 429 | Too many requests — trial limit exceeded or rate limited |
 | 500 | Internal server error |

@@ -82,7 +82,7 @@ Keep the subject line under 72 characters. Use the body for additional context w
 
 ### Formatting and linting
 
-- **Ruff** for both formatting and linting with a line length of **88** characters.
+- **Ruff** for both formatting and linting with a line length of **120** characters.
 - Run before committing:
   ```bash
   ruff format app/ tests/
@@ -169,28 +169,56 @@ Also verify it appears and works correctly in the Swagger UI at `http://localhos
 
 ### AI tool
 
-**Step 1 -- Add a service class to `app/services/ai_service.py`:**
+AI tools are dispatched through the `_AI_HANDLERS` registry in `app/services/ai_service.py`. Adding a new AI tool is a single dict entry — no new class required.
+
+**Step 1 -- Add an entry to `_AI_HANDLERS` in `app/services/ai_service.py`:**
 
 ```python
-class YourToolService:
-    def __init__(self, groq_client):
-        self.client = groq_client
-
-    async def process(self, text: str) -> str:
-        response = await self.client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": f"Prompt:\n\n{text}"}],
-            temperature=0.3,
-            max_tokens=2048
-        )
-        return response.choices[0].message.content.strip()
+_AI_HANDLERS: dict[
+    str,
+    tuple[str | None, Callable[..., str], tuple[Any, ...], dict[str, Any]],
+] = {
+    # tool_id: (prompt_key, fallback_fn, extra_fallback_args, ai_kwargs)
+    ...
+    "your-tool-slug": (
+        "your_prompt_key",      # key in PROMPTS dict (app/services/ai_prompts.py)
+        _passthrough_fallback,  # called when Groq is unavailable
+        (),                     # extra positional args for the fallback (usually empty)
+        {"temperature": 0.7, "max_tokens": 500},  # overrides for _ai_transform
+    ),
+}
 ```
 
-All AI service classes must follow this interface -- a constructor accepting the Groq client and an `async def process(self, text: str) -> str` method.
+Then add the matching prompt string to `PROMPTS` in `app/services/ai_prompts.py`:
+
+```python
+PROMPTS = {
+    ...
+    "your_prompt_key": "You are a ... Return ONLY the result, nothing else.",
+}
+```
+
+For tools that need no meaningful offline fallback, use `_ai_unavailable_fallback` instead of `_passthrough_fallback`. That raises HTTP 503 when Groq is not configured.
 
 **Step 2 -- Add the endpoint using the `_ai_endpoint()` helper:**
 
-Wire it up in `app/api/v1/endpoints/text.py` the same way as a regular tool, but use `_ai_endpoint()` instead of `_local_endpoint()`. The `_ai_endpoint()` helper handles everything `_local_endpoint()` does, plus AI rate limiting and Groq client initialization.
+Wire it up in `app/api/v1/endpoints/text.py` the same way as a regular tool, but use `_ai_endpoint()` instead of `_local_endpoint()`. The `_ai_endpoint()` helper handles AI rate limiting, `run_ai_tool()` dispatch, access control, and history recording.
+
+```python
+@router.post("/your-tool-slug")
+async def your_tool_endpoint(
+    request: TextRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """Your tool description."""
+    return await _ai_endpoint(
+        request, db, current_user,
+        tool_id="your-tool-slug",
+    )
+```
+
+The `tool_id` passed to `_ai_endpoint()` must exactly match the key in `_AI_HANDLERS`.
 
 > **Note:** A new tool also requires a matching definition in the frontend repository. The `tool_id` must be identical in both repos. See the frontend CONTRIBUTING.md for details.
 
