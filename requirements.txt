@@ -36,7 +36,7 @@ setuptools==78.1.1  # Required by razorpay (pkg_resources) — pinned until razo
 razorpay==1.4.2
 
 # Redis (optional — for distributed rate limiting)
-redis[hiredis]>=5.0
+redis[hiredis]==7.4.0
 
 # Structured logging
 python-json-logger==4.1.0
