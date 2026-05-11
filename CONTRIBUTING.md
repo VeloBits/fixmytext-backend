@@ -82,7 +82,7 @@ Keep the subject line under 72 characters. Use the body for additional context w
 
 ### Formatting and linting
 
-- **Ruff** for both formatting and linting with a line length of **88** characters.
+- **Ruff** for both formatting and linting with a line length of **120** characters.
 - Run before committing:
   ```bash
   ruff format app/ tests/
