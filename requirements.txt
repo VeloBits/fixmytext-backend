@@ -1,11 +1,11 @@
 # YAML support
-PyYAML==6.0.1  # PyYAML: used by app/services/text_service.py
+PyYAML==6.0.3  # PyYAML: used by app/services/text_service.py
 
 # Regex with timeout support — ReDoS protection for user-supplied patterns
 regex>=2024.5.15
 
 # FastAPI + ASGI server
-fastapi==0.135.3
+fastapi==0.136.1
 uvicorn[standard]==0.34.0
 
 # Settings management
@@ -22,14 +22,14 @@ yake==0.4.8
 emoji==2.12.0
 
 # Database (async SQLAlchemy + PostgreSQL)
-sqlalchemy[asyncio]==2.0.30
+sqlalchemy[asyncio]==2.0.49
 asyncpg==0.29.0
 alembic==1.13.0
 
 # Authentication
-PyJWT[crypto]==2.12.0
+PyJWT[crypto]==2.12.1
 bcrypt>=4.0
-python-multipart==0.0.27
+python-multipart==0.0.28
 
 # Payments
 setuptools==78.1.1  # Required by razorpay (pkg_resources)
