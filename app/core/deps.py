@@ -3,6 +3,7 @@
 import logging
 import uuid
 
+import sentry_sdk
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import PyJWTError as JWTError
@@ -51,6 +52,7 @@ async def get_current_user(
         logger.warning("AUTH   user not found or inactive: %s", user_id)
         raise HTTPException(status_code=401, detail="User not found or inactive")
     logger.debug("AUTH   authenticated user=%s", user_id)
+    sentry_sdk.set_user({"id": str(user.id)})
     return user
 
 

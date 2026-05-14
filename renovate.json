@@ -1,6 +1,45 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
-  ]
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "schedule": ["before 9am on Monday"],
+  "timezone": "Asia/Kolkata",
+  "branchPrefix": "ns/chore/renovate/",
+  "commitMessagePrefix": "chore(deps): ",
+  "labels": ["dependencies", "renovate"],
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 8,
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "groupName": "minor + patch (production)",
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchDepTypes": ["dependencies"],
+      "matchManagers": ["pip_requirements", "pip_setup", "pyproject"]
+    },
+    {
+      "groupName": "minor + patch (dev)",
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchDepTypes": ["devDependencies"],
+      "matchManagers": ["pip_requirements", "pip_setup", "pyproject"]
+    },
+    {
+      "groupName": "major (review individually)",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security", "renovate"],
+    "schedule": ["at any time"]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on Monday"]
+  }
 }
