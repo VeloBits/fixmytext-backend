@@ -94,6 +94,17 @@ class Settings(BaseSettings):
     # ── Redis (optional — for distributed rate limiting, caching, etc.) ──────
     REDIS_URL: str = ""
 
+    # ── Sentry ────────────────────────────────────────────────────────────────
+    SENTRY_DSN: str = ""
+    SENTRY_ENVIRONMENT: str = ""  # falls back to ENVIRONMENT if empty
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+    SENTRY_RELEASE: str = ""
+
+    # ── OpenTelemetry / Grafana Cloud ─────────────────────────────────────────
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
+    OTEL_EXPORTER_OTLP_HEADERS: str = ""  # comma-separated key=value pairs
+    OTEL_SERVICE_NAME: str = "fixmytext-backend"
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     # Accepts JSON array or comma-separated string in .env
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"

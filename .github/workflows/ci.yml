@@ -117,3 +117,22 @@ jobs:
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
+
+  create-release:
+    name: Create Sentry Release
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [docker]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Install sentry-cli
+        run: curl -sL https://sentry.io/get-cli/ | bash
+      - name: Create Sentry release
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: fixmytext-backend
+        run: |
+          sentry-cli releases new "${{ github.sha }}"
+          sentry-cli releases set-commits "${{ github.sha }}" --auto
+          sentry-cli releases finalize "${{ github.sha }}"

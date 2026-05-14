@@ -14,6 +14,13 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
+# Observability — must init before framework imports so SDK can patch httpx/asyncpg
+import sentry_sdk
+from app.core.sentry import init_sentry
+from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
+
+init_sentry()
+
 import uvicorn
 from alembic.config import Config as AlembicConfig
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -143,6 +150,7 @@ async def lifespan(app: FastAPI):
     with ThreadPoolExecutor(max_workers=1) as pool:
         await loop.run_in_executor(pool, _run_migrations)
     _configure_logging()  # alembic fileConfig resets root logger — reclaim it
+    init_logs_otel()
     logger.info("Migrations complete")
     init_groq_client()
     logger.info("Groq client initialized")
@@ -153,6 +161,8 @@ async def lifespan(app: FastAPI):
     logger.info("Razorpay client initialized — app ready")
     yield
     logger.info("Shutting down …")
+    sentry_sdk.flush(timeout=2.0)
+    shutdown_logs_otel(timeout_millis=5000)
     await close_redis()
     await close_groq_client()
     await engine.dispose()
