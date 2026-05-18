@@ -6,7 +6,7 @@ regex>=2026.5.9
 
 # FastAPI + ASGI server
 fastapi==0.136.1
-uvicorn[standard]==0.46.0
+uvicorn[standard]==0.47.0
 
 # Settings management
 pydantic-settings==2.14.1
