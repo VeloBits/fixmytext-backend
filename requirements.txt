@@ -54,7 +54,7 @@ aiosqlite>=0.22.1  # in-memory async DB for query-count regression tests
 sentry-sdk[fastapi]==2.18.0
 
 # Observability — OpenTelemetry log shipping (Grafana Cloud / OTLP HTTP)
-opentelemetry-api==1.34.1
-opentelemetry-sdk==1.34.1
-opentelemetry-exporter-otlp-proto-http==1.34.1
+opentelemetry-api==1.41.1
+opentelemetry-sdk==1.41.1
+opentelemetry-exporter-otlp-proto-http==1.41.1
 opentelemetry-instrumentation-logging==0.55b1
