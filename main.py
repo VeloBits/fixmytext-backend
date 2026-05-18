@@ -9,8 +9,6 @@ Run locally:
 
 import asyncio
 import logging
-import time
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
@@ -23,11 +21,15 @@ init_sentry()
 
 import uvicorn
 from alembic.config import Config as AlembicConfig
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fixmytext_shared.middleware import (
+    CorrelationIdMiddleware,
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from alembic import command
 from app.api.v1.router import api_router
@@ -179,105 +181,17 @@ app = FastAPI(
 )
 
 
-# ── Correlation ID Middleware ────────────────────────────────────────────────
-
-
-class CorrelationIdMiddleware(BaseHTTPMiddleware):
-    """Injects X-Request-ID into request state and response headers.
-
-    If the incoming request already carries an ``X-Request-ID`` header the
-    value is reused; otherwise a new UUID4 is generated.
-    """
-
-    async def dispatch(self, request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        request.state.request_id = request_id
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
-
-
+# ── Cross-cutting middleware (lifted into fixmytext_shared.middleware) ──────
+# Order matters: starlette runs middleware in REVERSE registration order, so
+# the LAST add_middleware call wraps the request first. Keep this order
+# stable to preserve the existing request-flow:
+#   request → CorrelationId → SecurityHeaders → RequestLogging → app
 app.add_middleware(CorrelationIdMiddleware)
-
-
-# ── Security Headers Middleware ─────────────────────────────────────────────
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Add standard security headers to every response."""
-
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=()"
-        )
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; frame-ancestors 'none'"
-        )
-        if settings.ENVIRONMENT == "production":
-            response.headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains; preload"
-            )
-        return response
-
-
-app.add_middleware(SecurityHeadersMiddleware)
-
-
-# ── Request Logging Middleware ───────────────────────────────────────────────
-
-
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Log every request with method, path, status code, duration, and request ID."""
-
-    async def dispatch(self, request: Request, call_next):
-        start = time.perf_counter()
-        client_ip = request.client.host if request.client else "unknown"
-        method = request.method
-        path = request.url.path
-        query = str(request.url.query)
-        # Retrieve correlation ID set by CorrelationIdMiddleware
-        request_id = getattr(request.state, "request_id", "N/A")
-
-        logger.info(
-            "%s %s%s from %s [req_id=%s]",
-            method,
-            path,
-            f"?{query}" if query else "",
-            client_ip,
-            request_id,
-        )
-
-        try:
-            response = await call_next(request)
-        except Exception as exc:
-            duration_ms = (time.perf_counter() - start) * 1000
-            logger.error(
-                "%s %s -> 500 (%.1fms) [req_id=%s] ERROR: %s",
-                method,
-                path,
-                duration_ms,
-                request_id,
-                exc,
-            )
-            raise
-
-        duration_ms = (time.perf_counter() - start) * 1000
-        logger.info(
-            "%s %s -> %s (%.1fms) [req_id=%s]",
-            method,
-            path,
-            response.status_code,
-            duration_ms,
-            request_id,
-        )
-        return response
-
-
-app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    is_production=settings.ENVIRONMENT == "production",
+)
+app.add_middleware(RequestLoggingMiddleware, logger_name="fixmytext")
 
 
 # ── CORS ─────────────────────────────────────────────────────────────────────

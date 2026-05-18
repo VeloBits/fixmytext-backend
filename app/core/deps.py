@@ -9,9 +9,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import PyJWTError as JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import decode_token
+from app.core.config import settings
 from app.db.models import User
 from app.db.session import get_db
+from fixmytext_shared.security.jwt import verify_jwt_raw
 
 logger = logging.getLogger(__name__)
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -30,7 +31,13 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
-        payload = decode_token(credentials.credentials)
+        payload = verify_jwt_raw(
+            credentials.credentials,
+            algorithm=settings.JWT_ALGORITHM,
+            secret=settings.SECRET_KEY,
+            jwks_url=settings.KEYCLOAK_JWKS_URL or None,
+            audience=settings.KEYCLOAK_AUDIENCE or None,
+        )
         if payload.get("type") != "access":
             logger.warning("AUTH   invalid token type: %s", payload.get("type"))
             raise HTTPException(status_code=401, detail="Invalid token type")
@@ -88,7 +95,13 @@ async def get_optional_user(
     if not credentials:
         return None
     try:
-        payload = decode_token(credentials.credentials)
+        payload = verify_jwt_raw(
+            credentials.credentials,
+            algorithm=settings.JWT_ALGORITHM,
+            secret=settings.SECRET_KEY,
+            jwks_url=settings.KEYCLOAK_JWKS_URL or None,
+            audience=settings.KEYCLOAK_AUDIENCE or None,
+        )
         if payload.get("type") != "access":
             return None
         user_id_str: str = payload.get("sub")

@@ -15,6 +15,11 @@ WORKDIR /app
 # the named volume's first attach (or rebuild it on a fresh volume).
 RUN python -m venv .venv
 COPY requirements.txt .
+# shared/ must be present at image-build time so `pip install -e ./shared`
+# (from requirements.txt) can resolve. On container start, the bind-mounted
+# /app/shared/ replaces it, and dev-entrypoint.sh re-runs pip install if
+# requirements.txt changed.
+COPY shared/ ./shared/
 RUN .venv/bin/pip install --upgrade pip --quiet && \
     .venv/bin/pip install --no-cache-dir -r requirements.txt && \
     sha256sum requirements.txt | awk '{print $1}' > /app/.venv/.requirements.hash

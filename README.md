@@ -2,6 +2,25 @@
 
 > FastAPI backend powering 200+ text transformation tools, AI writing assistance, and premium billing.
 
+## Repository layout
+
+Foundation for an incremental strangler-fig migration from the FastAPI
+monolith into microservices
+([docs/adr/0002-strangler-fig-microservices-migration.md](docs/adr/0002-strangler-fig-microservices-migration.md)):
+
+```
+backend/
+├── main.py + app/              ← FastAPI monolith (intact)
+├── shared/                     ← fixmytext-shared (cross-cutting utilities,
+│                                  installed editable; see docs/adr/0003-shared-python-package.md)
+├── gateway/kong/               ← Kong dbless config (docs/adr/0004-kong-api-gateway.md)
+├── infrastructure/keycloak/    ← Keycloak realm + bootstrap (docs/adr/0001-keycloak-as-identity-provider.md)
+├── services/                   ← Reserved for extracted services
+└── docs/adr/                   ← Architecture Decision Records
+```
+
+Read the ADRs in numeric order for the full picture.
+
 ## Prerequisites
 
 - Python 3.12+
@@ -18,7 +37,17 @@ cp .env.example .env       # Fill in SECRET_KEY and optional GROQ_API_KEY
 docker compose --profile dev up --build
 ```
 
-This starts PostgreSQL 16, runs Alembic migrations automatically, and launches the API with hot reload.
+Starts PostgreSQL, Redis, runs Alembic migrations, launches the API with hot
+reload, and brings up Kong (gateway on `:8000`) + Keycloak (identity at
+`:8080`, currently idle — no users provisioned). Frontend keeps using
+`VITE_API_URL=http://localhost:8000` — Kong proxies transparently.
+
+To skip Kong/Keycloak and hit the monolith directly (legacy dev loop):
+
+```bash
+docker compose --profile dev up backend-dev db-service redis-service migrate-dev
+# Then add a temporary `ports: ["8000:8000"]` to backend-dev locally.
+```
 
 **Manual:**
 ```bash
