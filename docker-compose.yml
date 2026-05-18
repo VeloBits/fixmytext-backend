@@ -127,8 +127,13 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: fixmytext-backend-dev
-    ports:
-      - "8000:8000"
+    # Kong owns host :8000 and proxies all /api/v1/* and /health traffic
+    # here. Monolith is reachable only inside the compose network.
+    # To bypass Kong for direct debugging, run `docker compose --profile
+    # dev up backend-dev db-service redis-service migrate-dev` and add a
+    # temporary `ports: ["8000:8000"]` override locally.
+    expose:
+      - "8000"
     volumes:
       - .:/app                              # mount source — uvicorn --reload picks up changes
       - fixmytext-dev-venv:/app/.venv       # named venv; dev-entrypoint.sh re-syncs to requirements.txt on start
@@ -145,6 +150,94 @@ services:
         condition: service_healthy
       migrate-dev:
         condition: service_completed_successfully
+    networks:
+      - fixmytext-net
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # KONG  —  API gateway (dev profile only for now)
+  # Routes /api/v1/* and /health to backend-dev. Placeholders for the
+  # planned per-service routes are commented in gateway/kong/kong.yml.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  kong:
+    profiles: ["dev"]
+    image: kong:3.8-ubuntu
+    container_name: fixmytext-kong
+    restart: unless-stopped
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+      KONG_ADMIN_LISTEN: "127.0.0.1:8001"
+    volumes:
+      - ./gateway/kong/kong.yml:/etc/kong/kong.yml:ro
+    ports:
+      - "8000:8000"
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      backend-dev:
+        condition: service_started
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # KEYCLOAK  —  identity provider (currently running but IDLE)
+  # Realm import is idempotent (see infrastructure/keycloak/realm-export.json).
+  # No users are provisioned. Frontend OIDC integration is TODO.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  keycloak-db:
+    profiles: ["dev"]
+    image: postgres:16-alpine
+    container_name: fixmytext-keycloak-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak-pgdata:/var/lib/postgresql/data
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  keycloak:
+    profiles: ["dev"]
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: fixmytext-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_HOSTNAME: localhost
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+    volumes:
+      - ./infrastructure/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
     networks:
       - fixmytext-net
 
@@ -226,6 +319,8 @@ volumes:
   # `docker compose --profile dev up` is enough — no manual volume nuke.
   # If you ever need to reset it: `docker volume rm backend_fixmytext-dev-venv`
   fixmytext-dev-venv:
+  # Keycloak's own Postgres data (separate from the monolith's db-service)
+  keycloak-pgdata:
 
 # ── Secrets (production) ─────────────────────────────────────────────────────
 # Create ./secrets/ directory and add one secret per file:

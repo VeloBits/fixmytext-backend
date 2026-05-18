@@ -15,8 +15,19 @@ env:
 
 jobs:
   lint:
-    name: Lint & Format Check
+    name: Lint & Format (${{ matrix.service }})
     runs-on: ubuntu-latest
+    # Matrix scaffolding for the strangler-fig split. Today only `monolith`
+    # is populated; each future service extraction adds a matrix entry so
+    # adding ai-svc / text-svc / etc. is a mechanical YAML change.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: monolith
+            ruff_target: "app/ tests/ shared/"
+          # - service: ai-svc           # TODO: add when ai-svc is extracted
+          #   ruff_target: "services/ai-svc/"
     steps:
       - uses: actions/checkout@v6
 
@@ -29,10 +40,29 @@ jobs:
         run: pip install ruff
 
       - name: Check formatting
-        run: ruff format --check app/ tests/
+        run: ruff format --check ${{ matrix.ruff_target }}
 
       - name: Lint
-        run: ruff check app/ tests/
+        run: ruff check ${{ matrix.ruff_target }}
+
+  shared-tests:
+    name: Shared Package Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install shared package + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e './shared[test]'
+
+      - name: Run shared package tests
+        run: pytest shared/tests -v
 
   test:
     name: Tests & Coverage

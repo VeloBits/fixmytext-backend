@@ -14,8 +14,11 @@ LABEL org.opencontainers.image.description="FastAPI text transformation service"
 
 WORKDIR /app
 
-# Create venv and install dependencies into it
+# Create venv and install dependencies into it. `shared/` must be COPY'd
+# BEFORE the pip install — requirements.txt has `-e ./shared` which needs the
+# directory present at build time.
 COPY requirements.txt .
+COPY shared/ ./shared/
 RUN python -m venv .venv && \
     .venv/bin/pip install --upgrade pip --quiet && \
     .venv/bin/pip install --no-cache-dir -r requirements.txt

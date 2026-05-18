@@ -19,16 +19,18 @@ ignore = [
 "app/db/models/*.py" = ["F821"]
 # Test files: allow assert statements and magic values
 "tests/**/*.py" = ["S101", "S105", "S106"]
+"shared/tests/**/*.py" = ["S101", "S105", "S106"]
 # Alembic migrations: allow unused imports (SA types imported for column definitions)
 "alembic/versions/*.py" = ["F401"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+# Cross-cutting infra package; treat as first-party so isort groups it with `app`.
+known-first-party = ["app", "fixmytext_shared"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 
 [tool.bandit]
-exclude_dirs = ["tests", ".venv"]
+exclude_dirs = ["tests", "shared/tests", ".venv"]
 skips = ["B101", "B601"]

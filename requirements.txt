@@ -58,3 +58,11 @@ opentelemetry-api==1.34.1
 opentelemetry-sdk==1.34.1
 opentelemetry-exporter-otlp-proto-http==1.34.1
 opentelemetry-instrumentation-logging==0.55b1
+
+# JWKS cache (used by fixmytext_shared.security.jwks)
+cachetools>=5.5
+
+# Shared internal package — cross-cutting utilities (config, observability,
+# middleware, rate-limit, JWT verification). Installed editable so changes
+# in ./shared/ are picked up without reinstall.
+-e ./shared
