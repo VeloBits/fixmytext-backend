@@ -64,13 +64,13 @@ services:
   migrate-dev:
     profiles: ["dev"]
     build:
-      context: .
+      context: ./services/monolith
       dockerfile: Dockerfile.dev
     container_name: fixmytext-migrate-dev
     restart: "no"
     command: ["alembic", "upgrade", "head"]
     volumes:
-      - .:/app                  # Dockerfile.dev doesn't COPY source; mount it so alembic.ini is found
+      - ./services/monolith:/app  # Dockerfile.dev doesn't COPY source; mount it so alembic.ini is found
       - fixmytext-dev-venv:/app/.venv  # named volume; dev-entrypoint.sh re-syncs to requirements.txt on start
     env_file:
       - .env
@@ -85,7 +85,7 @@ services:
   migrate-prod:
     profiles: ["prod"]
     build:
-      context: .
+      context: ./services/monolith
       dockerfile: Dockerfile
       target: runtime
     container_name: fixmytext-migrate-prod
@@ -124,7 +124,7 @@ services:
   backend-dev:
     profiles: ["dev"]
     build:
-      context: .
+      context: ./services/monolith
       dockerfile: Dockerfile.dev
     container_name: fixmytext-backend-dev
     # Kong owns host :8000 and proxies all /api/v1/* and /health traffic
@@ -135,7 +135,7 @@ services:
     expose:
       - "8000"
     volumes:
-      - .:/app                              # mount source — uvicorn --reload picks up changes
+      - ./services/monolith:/app            # mount source — uvicorn --reload picks up changes
       - fixmytext-dev-venv:/app/.venv       # named venv; dev-entrypoint.sh re-syncs to requirements.txt on start
     env_file:
       - .env
@@ -248,7 +248,7 @@ services:
   backend-prod:
     profiles: ["prod"]
     build:
-      context: .
+      context: ./services/monolith
       dockerfile: Dockerfile
       target: runtime
     container_name: fixmytext-backend-prod

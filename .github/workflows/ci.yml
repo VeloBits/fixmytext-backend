@@ -25,7 +25,7 @@ jobs:
       matrix:
         include:
           - service: monolith
-            ruff_target: "app/ tests/ shared/"
+            ruff_target: "services/monolith/app/ services/monolith/tests/ shared/"
           # - service: ai-svc           # TODO: add when ai-svc is extracted
           #   ruff_target: "services/ai-svc/"
     steps:
@@ -82,11 +82,13 @@ jobs:
           cache: pip
 
       - name: Install dependencies
+        working-directory: services/monolith
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run tests with coverage
+        working-directory: services/monolith
         run: |
           pytest \
             --cov=app \
@@ -116,7 +118,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r services/monolith/requirements.txt
           pip install pip-audit
 
       - name: Audit dependencies for known vulnerabilities
@@ -131,7 +133,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Build Docker image
-        run: docker build -t backend:${{ github.sha }} .
+        run: docker build -t backend:${{ github.sha }} ./services/monolith/
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
