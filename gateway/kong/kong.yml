@@ -60,15 +60,22 @@ services:
         config:
           allowed_payload_size: 1
 
-  # ── TODO: payments-svc (Razorpay subscriptions, passes) ───────────────────
-  # - name: payments-svc
-  #   url: http://payments-svc:8000
-  #   routes:
-  #     - name: payments-routes
-  #       paths:
-  #         - /api/v1/subscription
-  #         - /api/v1/passes
-  #       strip_path: false
+  # ── payments-svc (Razorpay subscriptions, passes) ─────────────────────────
+  - name: payments-svc
+    url: http://payments-svc:8000
+    routes:
+      - name: passes-routes
+        paths:
+          - /api/v1/passes
+        strip_path: false
+      - name: subscription-routes
+        paths:
+          - /api/v1/subscription
+        strip_path: false
+    plugins:
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 1
 
   # ── TODO: account-svc (user data, history, share) ─────────────────────────
   # - name: account-svc

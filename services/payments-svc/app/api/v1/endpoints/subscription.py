@@ -12,9 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.pass_catalog import get_credit_pack, get_pass, get_price
-from app.core.sanitize import sanitize_log_value as _s
-from app.db.models import User
 from app.db.models.billing_subscription import PaymentEvent, Subscription
+from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.subscription import (
     RazorpayProOrderResponse,
@@ -42,6 +41,13 @@ from app.services.razorpay_service import (
 from app.services.region_service import resolve_user_region
 
 logger = logging.getLogger(__name__)
+
+
+def _s(value: str | None) -> str:
+    """Sanitize a string value for safe logging."""
+    if value is None:
+        return ""
+    return str(value).replace("\n", "").replace("\r", "")
 
 
 router = APIRouter(prefix="/subscription", tags=["Subscription"])
@@ -226,7 +232,7 @@ async def cancel_pro(
 
 
 @router.post("/webhook")
-async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db)):  # noqa: C901
     """Handle Razorpay webhook events for payments.
 
     Supports: payment.captured, payment.authorized, payment.failed,
@@ -521,7 +527,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     return {"status": "ok"}
 
 
-def _validate_payment_amount(
+def _validate_payment_amount(  # noqa: C901
     item_type: str | None,
     item_id: str | None,
     amount: int | None,

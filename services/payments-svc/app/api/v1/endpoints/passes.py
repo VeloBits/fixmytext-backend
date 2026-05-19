@@ -19,7 +19,8 @@ from app.core.pass_catalog import (
     get_price,
     get_symbol,
 )
-from app.db.models import BillingUserCredit, User
+from app.db.models.billing_credit import BillingUserCredit
+from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.passes import (
     ActiveCredit,
