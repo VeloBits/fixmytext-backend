@@ -26,6 +26,12 @@ RUN python -m venv .venv && \
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim AS runtime
 
+# Release version injected by the CD pipeline; defaults to a dev marker for
+# local builds so settings.VERSION (read from env VERSION) never lies.
+ARG APP_VERSION=0.0.0-dev
+ENV VERSION=${APP_VERSION}
+LABEL org.opencontainers.image.version=${APP_VERSION}
+
 # curl is used by the docker healthcheck against /health/ready
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*

@@ -1,8 +1,8 @@
-# Backend CI Pipeline
+# Test & Build
 # Runs on all PRs and pushes to main.
 # Enforces lint, type safety, tests with coverage, security scanning,
 # and Docker build validation.
-name: Backend CI
+name: Backend Test & Build
 
 on:
   push:
