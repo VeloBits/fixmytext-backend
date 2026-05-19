@@ -26,8 +26,9 @@ jobs:
         include:
           - service: monolith
             ruff_target: "services/monolith/app/ services/monolith/tests/ shared/"
-          # - service: ai-svc           # TODO: add when ai-svc is extracted
-          #   ruff_target: "services/ai-svc/"
+          - service: ai-svc
+            path: services/ai-svc
+            ruff_target: "services/ai-svc/app/ services/ai-svc/tests/"
     steps:
       - uses: actions/checkout@v6
 
@@ -132,8 +133,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Build Docker image
-        run: docker build -t backend:${{ github.sha }} ./services/monolith/
+      - name: Build monolith Docker image
+        run: docker build -t backend:${{ github.sha }} -f services/monolith/Dockerfile .
+
+      - name: Build ai-svc Docker image
+        run: docker build -t ai-svc:${{ github.sha }} -f services/ai-svc/Dockerfile .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
