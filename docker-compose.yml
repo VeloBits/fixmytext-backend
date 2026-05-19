@@ -233,6 +233,7 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
     volumes:
       - ./infrastructure/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro
+      - ./infrastructure/keycloak/themes/fixmytext:/opt/keycloak/themes/fixmytext:ro
     ports:
       - "8080:8080"
     depends_on:

@@ -15,11 +15,13 @@ from app.api.v1.endpoints import (
     text,
     user_data,
 )
+from app.api.v1.endpoints.auth_register import router as auth_register_router
 
 api_router = APIRouter()
 
 api_router.include_router(text.router)
 api_router.include_router(auth.router)
+api_router.include_router(auth_register_router, prefix="/auth", tags=["auth"])
 api_router.include_router(user_data.router)
 api_router.include_router(subscription.router)
 api_router.include_router(passes.router)

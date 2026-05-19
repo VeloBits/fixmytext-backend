@@ -50,6 +50,7 @@ class Settings(BaseSharedSettings):
     KEYCLOAK_REALM: str = ""
     KEYCLOAK_AUDIENCE: str = ""
     KEYCLOAK_JWKS_URL: str = ""
+    KEYCLOAK_ADMIN: str = "admin"
 
     # ── Auth / Cookies ───────────────────────────────────────────────────────
     COOKIE_SECURE: bool = True
