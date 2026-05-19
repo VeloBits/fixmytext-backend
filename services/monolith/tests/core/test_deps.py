@@ -164,9 +164,13 @@ async def test_get_optional_user_invalid_token_returns_none():
 
 
 def test_get_optional_user_no_auth_on_public_endpoint():
-    """No token for optional-auth endpoint → anonymous access (200)."""
-    from unittest.mock import patch
+    """No token for optional-auth endpoint → anonymous access is accepted.
 
+    Uses /api/v1/share/{id} which also uses get_optional_user and is still
+    served by the monolith (text endpoints moved to text-svc in Sprint 4e).
+    A non-existent share ID returns 404, which is acceptable — the important
+    assertion is that a missing auth header does not produce a 401/403.
+    """
     mock_db = make_mock_db()
 
     async def _get_db():
@@ -174,19 +178,8 @@ def test_get_optional_user_no_auth_on_public_endpoint():
 
     app.dependency_overrides[get_db] = _get_db
 
-    _ALLOW = {"allowed": True, "reason": "free"}
-    with (
-        patch(
-            "app.api.v1.endpoints.text.check_visitor_access",
-            AsyncMock(return_value=_ALLOW),
-        ),
-        patch(
-            "app.api.v1.endpoints.text.check_tool_access",
-            AsyncMock(return_value=_ALLOW),
-        ),
-        patch("app.api.v1.endpoints.text.record_tool_discovery", AsyncMock()),
-    ):
-        client = TestClient(app, raise_server_exceptions=False)
-        resp = client.post("/api/v1/text/uppercase", json={"text": "hello"})
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/share/nonexistent-id")
     app.dependency_overrides.clear()
-    assert resp.status_code == 200
+    # 404 (share not found) is fine — what matters is we did NOT get 401/403
+    assert resp.status_code not in (401, 403)

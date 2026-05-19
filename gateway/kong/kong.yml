@@ -47,14 +47,18 @@ services:
         config:
           allowed_payload_size: 1
 
-  # ── TODO: text-svc (local text-transform tools) ───────────────────────────
-  # - name: text-svc
-  #   url: http://text-svc:8000
-  #   routes:
-  #     - name: text-routes
-  #       paths:
-  #         - /api/v1/text
-  #       strip_path: false
+  # ── text-svc (local text-transform tools) ────────────────────────────────
+  - name: text-svc
+    url: http://text-svc:8000
+    routes:
+      - name: text-routes
+        paths:
+          - /api/v1/text
+        strip_path: false
+    plugins:
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 1
 
   # ── TODO: payments-svc (Razorpay subscriptions, passes) ───────────────────
   # - name: payments-svc
