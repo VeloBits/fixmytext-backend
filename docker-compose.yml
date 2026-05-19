@@ -64,13 +64,14 @@ services:
   migrate-dev:
     profiles: ["dev"]
     build:
-      context: ./services/monolith
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: services/monolith/Dockerfile.dev
     container_name: fixmytext-migrate-dev
     restart: "no"
     command: ["alembic", "upgrade", "head"]
     volumes:
       - ./services/monolith:/app  # Dockerfile.dev doesn't COPY source; mount it so alembic.ini is found
+      - ./shared:/app/shared               # shared package mounted so -e ./shared resolves at runtime
       - fixmytext-dev-venv:/app/.venv  # named volume; dev-entrypoint.sh re-syncs to requirements.txt on start
     env_file:
       - .env
@@ -85,8 +86,8 @@ services:
   migrate-prod:
     profiles: ["prod"]
     build:
-      context: ./services/monolith
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/monolith/Dockerfile
       target: runtime
     container_name: fixmytext-migrate-prod
     restart: "no"
@@ -124,8 +125,8 @@ services:
   backend-dev:
     profiles: ["dev"]
     build:
-      context: ./services/monolith
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: services/monolith/Dockerfile.dev
     container_name: fixmytext-backend-dev
     # Kong owns host :8000 and proxies all /api/v1/* and /health traffic
     # here. Monolith is reachable only inside the compose network.
@@ -136,6 +137,7 @@ services:
       - "8000"
     volumes:
       - ./services/monolith:/app            # mount source — uvicorn --reload picks up changes
+      - ./shared:/app/shared               # shared package mounted so -e ./shared resolves at runtime
       - fixmytext-dev-venv:/app/.venv       # named venv; dev-entrypoint.sh re-syncs to requirements.txt on start
     env_file:
       - .env
@@ -249,8 +251,8 @@ services:
   backend-prod:
     profiles: ["prod"]
     build:
-      context: ./services/monolith
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/monolith/Dockerfile
       target: runtime
     container_name: fixmytext-backend-prod
     restart: unless-stopped

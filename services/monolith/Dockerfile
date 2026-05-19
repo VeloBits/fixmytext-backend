@@ -14,10 +14,9 @@ LABEL org.opencontainers.image.description="FastAPI text transformation service"
 
 WORKDIR /app
 
-# Create venv and install dependencies into it. `shared/` must be COPY'd
-# BEFORE the pip install — requirements.txt has `-e ./shared` which needs the
-# directory present at build time.
-COPY requirements.txt .
+# Build context is backend root so both shared/ and services/monolith/ are accessible.
+# shared/ must be COPY'd BEFORE pip install — requirements.txt has `-e ./shared`.
+COPY services/monolith/requirements.txt .
 COPY shared/ ./shared/
 RUN python -m venv .venv && \
     .venv/bin/pip install --upgrade pip --quiet && \
@@ -41,8 +40,8 @@ WORKDIR /app
 # Copy venv from builder stage
 COPY --from=builder /app/.venv .venv
 
-# Copy application source
-COPY . .
+# Copy monolith application source (not the whole backend root)
+COPY services/monolith/ .
 
 # Add venv to PATH so all commands use it
 ENV PATH="/app/.venv/bin:$PATH"

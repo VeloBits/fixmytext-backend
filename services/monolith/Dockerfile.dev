@@ -14,11 +14,8 @@ WORKDIR /app
 # the entrypoint's hash check runs. The entrypoint will reuse this venv on
 # the named volume's first attach (or rebuild it on a fresh volume).
 RUN python -m venv .venv
-COPY requirements.txt .
-# shared/ must be present at image-build time so `pip install -e ./shared`
-# (from requirements.txt) can resolve. On container start, the bind-mounted
-# /app/shared/ replaces it, and dev-entrypoint.sh re-runs pip install if
-# requirements.txt changed.
+# Build context is backend root so both shared/ and services/monolith/ are accessible.
+COPY services/monolith/requirements.txt .
 COPY shared/ ./shared/
 RUN .venv/bin/pip install --upgrade pip --quiet && \
     .venv/bin/pip install --no-cache-dir -r requirements.txt && \
@@ -28,7 +25,7 @@ RUN .venv/bin/pip install --upgrade pip --quiet && \
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Sync deps on every start, then exec whatever was passed (uvicorn or alembic).
-COPY dev-entrypoint.sh /usr/local/bin/dev-entrypoint.sh
+COPY services/monolith/dev-entrypoint.sh /usr/local/bin/dev-entrypoint.sh
 RUN chmod +x /usr/local/bin/dev-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/dev-entrypoint.sh"]
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

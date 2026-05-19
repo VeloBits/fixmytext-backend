@@ -63,4 +63,4 @@ cachetools>=5.5
 # Shared internal package — cross-cutting utilities (config, observability,
 # middleware, rate-limit, JWT verification). Installed editable so changes
 # in ./shared/ are picked up without reinstall.
--e ../../shared
+-e ./shared
