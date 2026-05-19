@@ -156,9 +156,41 @@ services:
       - fixmytext-net
 
   # ══════════════════════════════════════════════════════════════════════════
+  # AI-SVC  —  Groq-backed AI text transformation service (dev profile)
+  # Kong routes /api/v1/ai/* here.  Service is reachable only inside the
+  # compose network; Kong owns the external :8000 port.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  ai-svc:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: services/ai-svc/Dockerfile
+    container_name: fixmytext-ai-svc
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=true
+      - OTEL_SERVICE_NAME=fixmytext-ai-svc
+    depends_on:
+      redis-service:
+        condition: service_started
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ══════════════════════════════════════════════════════════════════════════
   # KONG  —  API gateway (dev profile only for now)
-  # Routes /api/v1/* and /health to backend-dev. Placeholders for the
-  # planned per-service routes are commented in gateway/kong/kong.yml.
+  # Routes /api/v1/* and /health to backend-dev. /api/v1/ai/* to ai-svc.
   # ══════════════════════════════════════════════════════════════════════════
 
   kong:
@@ -182,6 +214,8 @@ services:
       - "127.0.0.1:8001:8001"
     depends_on:
       backend-dev:
+        condition: service_started
+      ai-svc:
         condition: service_started
     networks:
       - fixmytext-net
