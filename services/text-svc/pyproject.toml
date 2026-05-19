@@ -1,0 +1,28 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "S",   # flake8-bandit (security)
+    "PLW", # pylint warnings
+    "C90", # mccabe complexity
+]
+ignore = [
+    "S101",  # assert statements ok in tests
+    "S603",  # subprocess without shell=True
+    "B008",  # function calls in default args (FastAPI Depends pattern)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "PLW"]
+# text_service.py is a verbatim copy from the monolith; existing violations
+# are tracked there and suppressed here to avoid drift.
+"app/services/text_service.py" = ["S", "PLW", "C901"]

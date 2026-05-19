@@ -29,6 +29,9 @@ jobs:
           - service: ai-svc
             path: services/ai-svc
             ruff_target: "services/ai-svc/app/ services/ai-svc/tests/"
+          - service: text-svc
+            path: services/text-svc
+            ruff_target: "services/text-svc/app/ services/text-svc/tests/"
     steps:
       - uses: actions/checkout@v6
 
@@ -138,6 +141,9 @@ jobs:
 
       - name: Build ai-svc Docker image
         run: docker build -t ai-svc:${{ github.sha }} -f services/ai-svc/Dockerfile .
+
+      - name: Build text-svc Docker image
+        run: docker build -t text-svc:${{ github.sha }} -f services/text-svc/Dockerfile .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0

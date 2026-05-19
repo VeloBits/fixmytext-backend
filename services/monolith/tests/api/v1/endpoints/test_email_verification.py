@@ -1,7 +1,11 @@
 """Tests for the ``get_verified_user`` dependency that gates AI endpoints.
 
 Email verification (verify-email, resend-verification) is now handled by Keycloak.
-These tests verify the email-verification gate behaviour on tool endpoints.
+These tests verify the email-verification gate behaviour on the AI service endpoints.
+
+Note: Local text tool endpoints have moved to text-svc (Sprint 4e). The
+corresponding tests for those endpoints now live in
+``services/text-svc/tests/test_text_endpoints.py``.
 """
 
 from fastapi.testclient import TestClient
@@ -33,36 +37,3 @@ def _post_tool(path: str, user, body: dict):
         )
     finally:
         app.dependency_overrides.clear()
-
-
-def test_ai_endpoint_blocks_unverified_user():
-    unverified = make_user(is_email_verified=False)
-    resp = _post_tool(
-        "/api/v1/text/translate",
-        unverified,
-        {"text": "hi", "target_language": "french"},
-    )
-    assert resp.status_code == 403
-    detail = resp.json()["detail"]
-    assert isinstance(detail, dict) and detail.get("code") == "email_not_verified"
-
-
-def test_local_tool_also_blocks_unverified_user():
-    unverified = make_user(is_email_verified=False)
-    resp = _post_tool("/api/v1/text/uppercase", unverified, {"text": "hello"})
-    assert resp.status_code == 403
-    detail = resp.json()["detail"]
-    assert isinstance(detail, dict) and detail.get("code") == "email_not_verified"
-
-
-def test_local_tool_allows_visitors():
-    """Anonymous visitors keep free-tier access; only authed-but-unverified
-    users are blocked."""
-    resp = _post_tool("/api/v1/text/uppercase", None, {"text": "hello"})
-    assert resp.status_code != 403
-
-
-def test_verified_user_can_access_tool():
-    verified = make_user(is_email_verified=True)
-    resp = _post_tool("/api/v1/text/uppercase", verified, {"text": "hello"})
-    assert resp.status_code in (200, 201)

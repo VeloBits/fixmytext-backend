@@ -189,6 +189,35 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════
+  # TEXT-SVC  —  local text transformation service (dev profile)
+  # Kong routes /api/v1/text/* here.  Service is reachable only inside the
+  # compose network; Kong owns the external :8000 port.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  text-svc:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: services/text-svc/Dockerfile
+    container_name: fixmytext-text-svc
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - OTEL_SERVICE_NAME=fixmytext-text-svc
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ══════════════════════════════════════════════════════════════════════════
   # KONG  —  API gateway (dev profile only for now)
   # Routes /api/v1/* and /health to backend-dev. /api/v1/ai/* to ai-svc.
   # ══════════════════════════════════════════════════════════════════════════
@@ -216,6 +245,8 @@ services:
       backend-dev:
         condition: service_started
       ai-svc:
+        condition: service_started
+      text-svc:
         condition: service_started
     networks:
       - fixmytext-net
