@@ -32,6 +32,9 @@ jobs:
           - service: text-svc
             path: services/text-svc
             ruff_target: "services/text-svc/app/ services/text-svc/tests/"
+          - service: payments-svc
+            path: services/payments-svc
+            ruff_target: "services/payments-svc/app/ services/payments-svc/tests/"
     steps:
       - uses: actions/checkout@v6
 

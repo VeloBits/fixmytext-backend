@@ -218,6 +218,41 @@ services:
       start_period: 20s
 
   # ══════════════════════════════════════════════════════════════════════════
+  # PAYMENTS-SVC  —  billing: passes, credits, subscriptions, Razorpay (dev)
+  # Kong routes /api/v1/passes/* and /api/v1/subscription/* here.
+  # Service is reachable only inside the compose network.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  payments-svc:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: services/payments-svc/Dockerfile
+    container_name: fixmytext-payments-svc
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - OTEL_SERVICE_NAME=fixmytext-payments-svc
+      - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
+    depends_on:
+      db-service:
+        condition: service_healthy
+      redis-service:
+        condition: service_started
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ══════════════════════════════════════════════════════════════════════════
   # KONG  —  API gateway (dev profile only for now)
   # Routes /api/v1/* and /health to backend-dev. /api/v1/ai/* to ai-svc.
   # ══════════════════════════════════════════════════════════════════════════
@@ -247,6 +282,8 @@ services:
       ai-svc:
         condition: service_started
       text-svc:
+        condition: service_started
+      payments-svc:
         condition: service_started
     networks:
       - fixmytext-net
