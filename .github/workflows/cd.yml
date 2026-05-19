@@ -107,7 +107,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE_NAME }}
           short-description: "FastAPI backend for FixMyText — 200+ text transformation tools with AI writing assistance."
-          readme-filepath: ./DOCKERHUB_README.md
+          readme-filepath: ./README.md
 
       - name: Write run summary
         run: |
