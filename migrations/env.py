@@ -28,6 +28,9 @@ if _SHARED_PKG not in sys.path:
 
 # Provide a fallback DATABASE_URL so settings can be instantiated when
 # alembic is invoked without a full .env (e.g. during CI offline checks).
+# Development-only fallback so `alembic check` / `alembic history` work
+# without a full .env present (e.g. local offline runs, pre-commit hooks).
+# The real DATABASE_URL is always supplied by .env / CI secrets at runtime.
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+asyncpg://fixmytext:fixmytext_dev@localhost:5432/fixmytext",

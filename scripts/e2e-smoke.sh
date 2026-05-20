@@ -82,10 +82,16 @@ if [ -z "$TEST_USER" ] || [ -z "$TEST_PW" ]; then
   echo "  Set TEST_USER=you@example.com TEST_PW=yourpass to test auth-gated endpoints."
   TOKEN=""
 else
+  # Use --data-urlencode so credentials with special characters are safely
+  # percent-encoded (prevents word-splitting / form injection).
   TOKEN=$(curl -sS -X POST \
     "${KEYCLOAK}/realms/${REALM}/protocol/openid-connect/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "grant_type=password&client_id=${CLIENT_ID}&username=${TEST_USER}&password=${TEST_PW}&scope=openid email profile" \
+    --data-urlencode "grant_type=password" \
+    --data-urlencode "client_id=${CLIENT_ID}" \
+    --data-urlencode "username=${TEST_USER}" \
+    --data-urlencode "password=${TEST_PW}" \
+    --data-urlencode "scope=openid email profile" \
     2>/dev/null | jq -r '.access_token // empty' 2>/dev/null || echo "")
   if [ -z "$TOKEN" ]; then
     echo "  WARNING: Failed to acquire token — authenticated tests will be skipped."

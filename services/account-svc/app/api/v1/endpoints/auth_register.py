@@ -40,8 +40,13 @@ async def register(payload: RegisterRequest):
             password=payload.password,
             display_name=payload.display_name,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError:
+        # Use a generic message to avoid leaking whether an email is already
+        # registered (prevents user enumeration attacks).
+        raise HTTPException(
+            status_code=409,
+            detail="Registration could not be completed. Please try a different email.",
+        ) from None
     except RuntimeError as exc:
         logger.error("Keycloak user creation error: %s", exc)
         raise HTTPException(
