@@ -6,8 +6,12 @@ RUN pip install --no-cache-dir \
     "sqlalchemy[asyncio]" \
     pgvector \
     pydantic-settings \
-    httpx
+    "pydantic[email]" \
+    httpx \
+    razorpay
 COPY migrations/ ./migrations/
 COPY services/payments-svc/ ./services/payments-svc/
+# account-svc source needed so migrations/env.py can import activity-schema models
+COPY services/account-svc/ ./services/account-svc/
 COPY shared/ ./shared/
 RUN pip install --no-cache-dir -e ./shared
