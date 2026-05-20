@@ -6,6 +6,7 @@
     ":semanticCommits",
     "helpers:pinGitHubActionDigests"
   ],
+  "baseBranches": ["main", "develop"],
   "schedule": ["before 9am on Monday"],
   "timezone": "Asia/Kolkata",
   "branchPrefix": "ns/chore/renovate/",
@@ -31,6 +32,11 @@
       "groupName": "major (review individually)",
       "matchUpdateTypes": ["major"],
       "automerge": false
+    },
+    {
+      "groupName": "opentelemetry (core + contrib)",
+      "matchPackagePatterns": ["^opentelemetry-"],
+      "matchManagers": ["pip_requirements", "pip_setup", "pyproject"]
     }
   ],
   "vulnerabilityAlerts": {

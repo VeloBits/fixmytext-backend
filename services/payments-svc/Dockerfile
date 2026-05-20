@@ -27,6 +27,11 @@ RUN python -m venv .venv && \
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim AS runtime
 
+# Release version injected by CD pipeline
+ARG APP_VERSION=0.0.0-dev
+ENV VERSION=${APP_VERSION}
+LABEL org.opencontainers.image.version=${APP_VERSION}
+
 # Non-root user for security
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
