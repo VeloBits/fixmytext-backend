@@ -33,6 +33,8 @@ class Settings(BaseSharedSettings):
     KEYCLOAK_REALM: str = "fixmytext"
     KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
     KEYCLOAK_JWKS_URL: str = ""
+    KEYCLOAK_ADMIN: str = "admin"
+    KEYCLOAK_ADMIN_PASSWORD: str = ""
 
     # ── Share ─────────────────────────────────────────────────────────────────
     SHARE_EXPIRE_DAYS: int = 30
