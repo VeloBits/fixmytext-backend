@@ -1,4 +1,5 @@
 """Thin /auth/register endpoint — proxies user creation to Keycloak Admin API."""
+
 import logging
 
 from fastapi import APIRouter, HTTPException, status
@@ -55,8 +56,9 @@ async def register(payload: RegisterRequest):
     # Trigger verification email (non-fatal if it fails)
     try:
         await send_verification_email(keycloak_id)
-    except (OSError, RuntimeError) as exc:
-        # Non-fatal: log without the email address to avoid PII in logs.
-        logger.warning("Could not send verification email (user=%s): %s", keycloak_id, exc)
+    except Exception as exc:  # noqa: BLE001
+        # Sanitize email before logging to prevent log injection via \r\n in user input.
+        safe_email = str(payload.email).replace("\r", "").replace("\n", "")
+        logger.warning("Could not send verification email to %s: %s", safe_email, exc)
 
     return {"message": "Account created. Check your email to verify."}

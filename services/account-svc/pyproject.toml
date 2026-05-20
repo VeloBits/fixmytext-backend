@@ -1,28 +1,18 @@
 [tool.ruff]
-line-length = 100
+line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "B",   # flake8-bugbear
-    "C4",  # flake8-comprehensions
-    "UP",  # pyupgrade
-    "S",   # flake8-bandit (security)
-    "PLW", # pylint warnings
-    "C90", # mccabe complexity
-]
+# Matches root pyproject.toml — run ruff from repo root for consistent behaviour.
+select = ["E", "W", "F", "I", "B", "UP", "C4", "SIM"]
 ignore = [
-    "S101",  # assert statements ok in tests
-    "S603",  # subprocess without shell=True
-    "B008",  # function calls in default args (FastAPI Depends pattern)
+    "E501",   # line-too-long — handled by formatter
+    "B008",   # function calls in default args (FastAPI Depends pattern)
+    "UP007",  # use-x-or-y-for-union
+    "SIM108", # ternary-operator — sometimes less readable
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# SQLAlchemy ORM models use string forward references in Mapped["Type"] annotations.
-# These resolve via the mapper registry at runtime — F821 (undefined name) is expected.
-"app/db/models/*.py" = ["F821"]
-"tests/*" = ["S", "PLW"]
+"tests/**/*.py" = ["S101", "S105", "S106"]
+"app/db/models/*.py" = ["F821"]  # SQLAlchemy Mapped["Type"] forward refs
+

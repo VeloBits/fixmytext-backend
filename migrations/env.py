@@ -102,15 +102,34 @@ if _ACCOUNT_SVC in sys.path:
 # these imports as intentional.  They are imported for their side-effect of
 # registering each table with their service's Base.metadata.
 _PAYMENTS_MODELS = [
-    User, UserDailyLogin, UserSpinLog, UserToolUsage, VisitorUsage,
-    VisitorToolUsage, UserDiscoveredTool,
-    PassCatalog, PassCatalogPrice, CreditPackCatalog, CreditPackPrice,
-    Subscription, PaymentEvent, BillingUserPass, UserPassTool, BillingUserCredit,
+    User,
+    UserDailyLogin,
+    UserSpinLog,
+    UserToolUsage,
+    VisitorUsage,
+    VisitorToolUsage,
+    UserDiscoveredTool,
+    PassCatalog,
+    PassCatalogPrice,
+    CreditPackCatalog,
+    CreditPackPrice,
+    Subscription,
+    PaymentEvent,
+    BillingUserPass,
+    UserPassTool,
+    BillingUserCredit,
 ]
 _ACCOUNT_MODELS = [
-    UserPreferences, UserUiSettings, UserGamification, UserFavoriteTool,
-    UserToolStats, UserTemplate, UserPipeline, UserPipelineStep,
-    OperationHistory, SharedResult,
+    UserPreferences,
+    UserUiSettings,
+    UserGamification,
+    UserFavoriteTool,
+    UserToolStats,
+    UserTemplate,
+    UserPipeline,
+    UserPipelineStep,
+    OperationHistory,
+    SharedResult,
 ]
 
 config = context.config
