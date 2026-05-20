@@ -66,7 +66,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install ruff
-        run: pip install ruff
+        # Pin version to match local pyproject.toml / pre-commit config.
+        # Upgrade intentionally to avoid silent behaviour changes across CI runs.
+        run: pip install "ruff==0.15.9"
 
       - name: Check formatting
         run: ruff format --check ${{ matrix.ruff_target }}
