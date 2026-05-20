@@ -1,4 +1,4 @@
-"""User data endpoints: preferences, gamification, templates, ui-settings, favorites, tool-stats, pipelines.
+"""User data endpoints: preferences, gamification, templates, ui-settings, favorites, tool-stats.
 
 Covers all per-user data CRUD operations including paginated listing of
 templates and pipelines, favorite management, gamification state, and UI
