@@ -34,7 +34,10 @@ async def _get_admin_token() -> str:
             },
         )
         if resp.status_code != 200:
-            raise RuntimeError(f"Keycloak admin auth failed: {resp.text}")
+            # Avoid leaking Keycloak response body (may contain sensitive info).
+            raise RuntimeError(
+                f"Keycloak admin auth failed with status {resp.status_code}"
+            )
         data = resp.json()
 
     _TOKEN_CACHE["token"] = data["access_token"]
@@ -77,8 +80,9 @@ async def create_keycloak_user(
     if resp.status_code == 409:
         raise ValueError("An account with this email already exists.")
     if resp.status_code != 201:
+        # Log status only — avoid including resp.text which may contain PII.
         raise RuntimeError(
-            f"Keycloak user creation failed ({resp.status_code}): {resp.text}"
+            f"Keycloak user creation failed with status {resp.status_code}"
         )
 
     # Keycloak returns the user URL in the Location header

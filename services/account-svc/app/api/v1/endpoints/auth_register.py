@@ -39,8 +39,13 @@ async def register(payload: RegisterRequest):
             password=payload.password,
             display_name=payload.display_name,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError:
+        # Use a generic message to avoid leaking whether an email is already
+        # registered (prevents user enumeration attacks).
+        raise HTTPException(
+            status_code=409,
+            detail="Registration could not be completed. Please try a different email.",
+        ) from None
     except RuntimeError as exc:
         logger.error("Keycloak user creation error: %s", exc)
         raise HTTPException(
@@ -50,7 +55,8 @@ async def register(payload: RegisterRequest):
     # Trigger verification email (non-fatal if it fails)
     try:
         await send_verification_email(keycloak_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not send verification email to %s: %s", payload.email, exc)
+    except (OSError, RuntimeError) as exc:
+        # Non-fatal: log without the email address to avoid PII in logs.
+        logger.warning("Could not send verification email (user=%s): %s", keycloak_id, exc)
 
     return {"message": "Account created. Check your email to verify."}

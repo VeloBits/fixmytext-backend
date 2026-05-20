@@ -98,7 +98,8 @@ def create_order(
                     and order.get("amount") == amount
                     and order.get("currency", "").upper() == currency.upper()
                 ):
-                    logger.info(
+                    # Use DEBUG to avoid logging transaction IDs at INFO level.
+                    logger.debug(
                         "Returning existing order %s for receipt=%s",
                         str(order["id"]).replace("\n", "").replace("\r", ""),
                         str(idempotency_key).replace("\n", "").replace("\r", ""),
