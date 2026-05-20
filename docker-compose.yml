@@ -56,102 +56,27 @@ services:
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # MIGRATE  —  runs alembic upgrade head once, then exits (shared logic)
-  # Each profile has its own migrate service so build context matches.
-  # Both backend services depend on their migrate service completing.
+  # MIGRATE  —  runs alembic upgrade head once, then exits.
+  # Uses the standalone migrations/ directory which imports models from
+  # services/payments-svc (the canonical model source after monolith removal).
   # ══════════════════════════════════════════════════════════════════════════
 
   migrate-dev:
     profiles: ["dev"]
     build:
       context: .
-      dockerfile: services/monolith/Dockerfile.dev
+      dockerfile: migrations/Dockerfile.migrate
     container_name: fixmytext-migrate-dev
     restart: "no"
-    command: ["alembic", "upgrade", "head"]
-    volumes:
-      - ./services/monolith:/app  # Dockerfile.dev doesn't COPY source; mount it so alembic.ini is found
-      - ./shared:/app/shared               # shared package mounted so -e ./shared resolves at runtime
-      - fixmytext-dev-venv:/app/.venv  # named volume; dev-entrypoint.sh re-syncs to requirements.txt on start
+    working_dir: /app
+    command: ["alembic", "-c", "migrations/alembic.ini", "upgrade", "head"]
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD:-fixmytext_dev}@db-service:5432/fixmytext
+      - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
     depends_on:
       db-service:
         condition: service_healthy
-    networks:
-      - fixmytext-net
-
-  migrate-prod:
-    profiles: ["prod"]
-    build:
-      context: .
-      dockerfile: services/monolith/Dockerfile
-      target: runtime
-    container_name: fixmytext-migrate-prod
-    restart: "no"
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-          set -eu
-          if [ -f /run/secrets/db_password ]; then
-            POSTGRES_PASSWORD="$$(cat /run/secrets/db_password)"
-          else
-            POSTGRES_PASSWORD="$${POSTGRES_PASSWORD:-fixmytext_dev}"
-          fi
-          export DATABASE_URL="postgresql+asyncpg://fixmytext:$${POSTGRES_PASSWORD}@db-service:5432/fixmytext"
-          exec "$$@"
-      - --
-    command: ["alembic", "upgrade", "head"]
-    env_file:
-      - .env
-    environment:
-      - SECRET_KEY=${SECRET_KEY:-}
-    secrets:
-      - db_password
-    depends_on:
-      db-service:
-        condition: service_healthy
-    networks:
-      - fixmytext-net
-
-
-  # ══════════════════════════════════════════════════════════════════════════
-  # DEV  —  profile: dev
-  # ══════════════════════════════════════════════════════════════════════════
-
-  backend-dev:
-    profiles: ["dev"]
-    build:
-      context: .
-      dockerfile: services/monolith/Dockerfile.dev
-    container_name: fixmytext-backend-dev
-    # Kong owns host :8000 and proxies all /api/v1/* and /health traffic
-    # here. Monolith is reachable only inside the compose network.
-    # To bypass Kong for direct debugging, run `docker compose --profile
-    # dev up backend-dev db-service redis-service migrate-dev` and add a
-    # temporary `ports: ["8000:8000"]` override locally.
-    expose:
-      - "8000"
-    volumes:
-      - ./services/monolith:/app            # mount source — uvicorn --reload picks up changes
-      - ./shared:/app/shared               # shared package mounted so -e ./shared resolves at runtime
-      - fixmytext-dev-venv:/app/.venv       # named venv; dev-entrypoint.sh re-syncs to requirements.txt on start
-    env_file:
-      - .env
-    environment:
-      - HOST=0.0.0.0
-      - PORT=8000
-      - DEBUG=true
-      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-      - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD:-fixmytext_dev}@db-service:5432/fixmytext
-    depends_on:
-      db-service:
-        condition: service_healthy
-      migrate-dev:
-        condition: service_completed_successfully
     networks:
       - fixmytext-net
 
@@ -289,7 +214,8 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════
   # KONG  —  API gateway (dev profile only for now)
-  # Routes /api/v1/* and /health to backend-dev. /api/v1/ai/* to ai-svc.
+  # Routes all /api/v1/* and /health traffic to the appropriate microservice.
+  # The monolith is gone; account-svc now handles /api/v1/auth/* and /health.
   # ══════════════════════════════════════════════════════════════════════════
 
   kong:
@@ -312,8 +238,6 @@ services:
       - "8000:8000"
       - "127.0.0.1:8001:8001"
     depends_on:
-      backend-dev:
-        condition: service_started
       ai-svc:
         condition: service_started
       text-svc:
@@ -383,70 +307,6 @@ services:
     networks:
       - fixmytext-net
 
-  # ══════════════════════════════════════════════════════════════════════════
-  # PROD  —  profile: prod
-  # ══════════════════════════════════════════════════════════════════════════
-
-  backend-prod:
-    profiles: ["prod"]
-    build:
-      context: .
-      dockerfile: services/monolith/Dockerfile
-      target: runtime
-    container_name: fixmytext-backend-prod
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    environment:
-      - HOST=0.0.0.0
-      - PORT=8000
-      - DEBUG=false
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-          set -eu
-          if [ -f /run/secrets/db_password ]; then
-            POSTGRES_PASSWORD="$$(cat /run/secrets/db_password)"
-          else
-            POSTGRES_PASSWORD="$${POSTGRES_PASSWORD:-fixmytext_dev}"
-          fi
-          export DATABASE_URL="postgresql+asyncpg://fixmytext:$${POSTGRES_PASSWORD}@db-service:5432/fixmytext"
-          if [ -f /run/secrets/secret_key ]; then
-            export SECRET_KEY="$$(cat /run/secrets/secret_key)"
-          fi
-          if [ -f /run/secrets/razorpay_key_secret ]; then
-            export RAZORPAY_KEY_SECRET="$$(cat /run/secrets/razorpay_key_secret)"
-          fi
-          if [ -f /run/secrets/groq_api_key ]; then
-            export GROQ_API_KEY="$$(cat /run/secrets/groq_api_key)"
-          fi
-          exec "$$@"
-      - --
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-    secrets:
-      - db_password
-      - secret_key
-      - razorpay_key_secret
-      - groq_api_key
-    depends_on:
-      db-service:
-        condition: service_healthy
-      migrate-prod:
-        condition: service_completed_successfully
-        required: true
-    networks:
-      - fixmytext-net
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-
 # ── Shared network ────────────────────────────────────────────────────────────
 networks:
   fixmytext-net:
@@ -455,27 +315,5 @@ networks:
 # ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   fixmytext-pgdata:
-  # Dev-only: holds the python venv across container restarts. The
-  # dev-entrypoint.sh script re-syncs it to requirements.txt on every start
-  # via a sha256 hash check, so editing requirements.txt and re-running
-  # `docker compose --profile dev up` is enough — no manual volume nuke.
-  # If you ever need to reset it: `docker volume rm backend_fixmytext-dev-venv`
-  fixmytext-dev-venv:
-  # Keycloak's own Postgres data (separate from the monolith's db-service)
+  # Keycloak's own Postgres data (separate from the app db-service)
   keycloak-pgdata:
-
-# ── Secrets (production) ─────────────────────────────────────────────────────
-# Create ./secrets/ directory and add one secret per file:
-#   echo 'your_db_password'       > secrets/db_password.txt
-#   echo 'your_jwt_secret_key'    > secrets/secret_key.txt
-#   echo 'your_razorpay_secret'   > secrets/razorpay_key_secret.txt
-#   echo 'your_groq_api_key'      > secrets/groq_api_key.txt
-secrets:
-  db_password:
-    file: ./secrets/db_password.txt
-  secret_key:
-    file: ./secrets/secret_key.txt
-  razorpay_key_secret:
-    file: ./secrets/razorpay_key_secret.txt
-  groq_api_key:
-    file: ./secrets/groq_api_key.txt

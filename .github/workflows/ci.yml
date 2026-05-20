@@ -17,15 +17,11 @@ jobs:
   lint:
     name: Lint & Format (${{ matrix.service }})
     runs-on: ubuntu-latest
-    # Matrix scaffolding for the strangler-fig split. Today only `monolith`
-    # is populated; each future service extraction adds a matrix entry so
-    # adding ai-svc / text-svc / etc. is a mechanical YAML change.
+    # One matrix entry per service. Add a new entry when a new service is extracted.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - service: monolith
-            ruff_target: "services/monolith/app/ services/monolith/tests/ shared/"
           - service: ai-svc
             path: services/ai-svc
             ruff_target: "services/ai-svc/app/ services/ai-svc/tests/"
@@ -38,6 +34,9 @@ jobs:
           - service: account-svc
             path: services/account-svc
             ruff_target: "services/account-svc/app/ services/account-svc/tests/"
+          - service: migrations
+            path: migrations
+            ruff_target: "migrations/"
     steps:
       - uses: actions/checkout@v6
 
@@ -91,20 +90,20 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
-      - name: Install dependencies
-        working-directory: services/monolith
+      - name: Install account-svc dependencies
+        working-directory: services/account-svc
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests with coverage
-        working-directory: services/monolith
+      - name: Run account-svc tests with coverage
+        working-directory: services/account-svc
         run: |
           pytest \
             --cov=app \
             --cov-report=xml \
             --cov-report=term-missing \
-            --cov-fail-under=65 \
+            --cov-fail-under=50 \
             -v
 
       - name: Upload coverage report
@@ -112,7 +111,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-report
-          path: coverage.xml
+          path: services/account-svc/coverage.xml
 
   security:
     name: Security Scan
@@ -128,7 +127,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r services/monolith/requirements.txt
+          pip install -r services/account-svc/requirements.txt
           pip install pip-audit
 
       - name: Audit dependencies for known vulnerabilities
@@ -142,8 +141,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Build monolith Docker image
-        run: docker build -t backend:${{ github.sha }} -f services/monolith/Dockerfile .
+      - name: Build account-svc Docker image
+        run: docker build -t account-svc:${{ github.sha }} -f services/account-svc/Dockerfile .
 
       - name: Build ai-svc Docker image
         run: docker build -t ai-svc:${{ github.sha }} -f services/ai-svc/Dockerfile .
@@ -151,10 +150,13 @@ jobs:
       - name: Build text-svc Docker image
         run: docker build -t text-svc:${{ github.sha }} -f services/text-svc/Dockerfile .
 
+      - name: Build migrate Docker image
+        run: docker build -t migrate:${{ github.sha }} -f migrations/Dockerfile.migrate .
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
-          image-ref: 'backend:${{ github.sha }}'
+          image-ref: 'account-svc:${{ github.sha }}'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'

@@ -16,14 +16,16 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # SQLAlchemy ORM models use string forward references in Mapped["Type"] annotations.
 # These resolve via the mapper registry at runtime — F821 (undefined name) is expected.
-"services/monolith/app/db/models/*.py" = ["F821"]
 "services/payments-svc/app/db/models/*.py" = ["F821"]
+"services/account-svc/app/db/models/*.py" = ["F821"]
 # Test files: allow assert statements and magic values
-"services/monolith/tests/**/*.py" = ["S101", "S105", "S106"]
 "services/payments-svc/tests/**/*.py" = ["S101", "S105", "S106"]
+"services/account-svc/tests/**/*.py" = ["S101", "S105", "S106"]
 "shared/tests/**/*.py" = ["S101", "S105", "S106"]
 # Alembic migrations: allow unused imports (SA types imported for column definitions)
-"services/monolith/alembic/versions/*.py" = ["F401"]
+"migrations/versions/*.py" = ["F401"]
+# migrations/env.py uses sys.path manipulation; import ordering handled by noqa
+"migrations/env.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 # Cross-cutting infra package; treat as first-party so isort groups it with `app`.
@@ -34,5 +36,5 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.bandit]
-exclude_dirs = ["services/monolith/tests", "shared/tests", ".venv"]
+exclude_dirs = ["services/payments-svc/tests", "services/account-svc/tests", "shared/tests", ".venv"]
 skips = ["B101", "B601"]

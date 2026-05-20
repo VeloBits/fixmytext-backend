@@ -1,27 +1,70 @@
-"""Alembic environment configuration for async PostgreSQL migrations."""
+"""Alembic environment configuration for async PostgreSQL migrations.
+
+Model imports come from services/payments-svc, which has the most complete
+set of SQLAlchemy models (auth + billing + activity schemas). sys.path is
+extended at the top of this file so those imports resolve without installing
+the service package.
+"""
 
 import asyncio
+import os
 import re
+import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+# ── Ensure payments-svc models are importable ────────────────────────────────
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+_PAYMENTS_SVC = str(_BACKEND_ROOT / "services" / "payments-svc")
+if _PAYMENTS_SVC not in sys.path:
+    sys.path.insert(0, _PAYMENTS_SVC)
 
-from alembic import context
-from app.core.config import settings
-from app.db.models.gamification import UserGamification
-from app.db.models.preferences import UserPreferences
-from app.db.models.template import UserTemplate
-from app.db.models.user import User
-from app.db.models.visitor_usage import VisitorUsage
-from app.db.session import Base
+_SHARED_PKG = str(_BACKEND_ROOT / "shared")
+if _SHARED_PKG not in sys.path:
+    sys.path.insert(0, _SHARED_PKG)
+
+# Provide a fallback DATABASE_URL so settings can be instantiated when
+# alembic is invoked without a full .env (e.g. during CI offline checks).
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql+asyncpg://fixmytext:fixmytext_dev@localhost:5432/fixmytext",
+)
+
+from sqlalchemy import pool  # noqa: E402
+from sqlalchemy.engine import Connection  # noqa: E402
+from sqlalchemy.ext.asyncio import async_engine_from_config  # noqa: E402
+
+from alembic import context  # noqa: E402
+from app.core.config import settings  # noqa: E402
+from app.db.models import (  # noqa: E402, F401
+    BillingUserCredit,
+    BillingUserPass,
+    CreditPackCatalog,
+    CreditPackPrice,
+    PassCatalog,
+    PassCatalogPrice,
+    PaymentEvent,
+    Subscription,
+    User,
+    UserDailyLogin,
+    UserDiscoveredTool,
+    UserPassTool,
+    UserSpinLog,
+    UserToolUsage,
+    VisitorToolUsage,
+    VisitorUsage,
+)
+from app.db.session import Base  # noqa: E402
 
 # Explicitly reference every model so static analysers (CodeQL, ruff) recognise
 # these imports as intentional.  They are imported for their side-effect of
 # registering each table with Base.metadata so Alembic autogenerate works.
-_MODELS = [User, UserGamification, UserPreferences, UserTemplate, VisitorUsage]
+_MODELS = [
+    User, UserDailyLogin, UserSpinLog, UserToolUsage, VisitorUsage,
+    VisitorToolUsage, UserDiscoveredTool,
+    PassCatalog, PassCatalogPrice, CreditPackCatalog, CreditPackPrice,
+    Subscription, PaymentEvent, BillingUserPass, UserPassTool, BillingUserCredit,
+]
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
