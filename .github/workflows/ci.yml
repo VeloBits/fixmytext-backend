@@ -160,7 +160,9 @@ jobs:
           pip install pip-audit
 
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit --strict --vulnerability-service osv
+        # PYSEC-2025-183 (PyJWT) is ignored — no fix version exists upstream yet.
+        # Track: https://github.com/jpadilla/pyjwt/issues — remove once patched.
+        run: pip-audit --strict --vulnerability-service osv --ignore-vuln PYSEC-2025-183
 
   docker:
     name: Docker Build & Scan
