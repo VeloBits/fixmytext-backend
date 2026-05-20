@@ -54,8 +54,6 @@ async def register(payload: RegisterRequest):
     except Exception as exc:  # noqa: BLE001
         # Sanitize email before logging to prevent log injection via \r\n in user input.
         safe_email = str(payload.email).replace("\r", "").replace("\n", "")
-        logger.warning(
-            "Could not send verification email to %s: %s", safe_email, exc
-        )
+        logger.warning("Could not send verification email to %s: %s", safe_email, exc)
 
     return {"message": "Account created. Check your email to verify."}
