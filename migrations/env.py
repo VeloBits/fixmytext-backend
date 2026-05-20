@@ -1,9 +1,12 @@
 """Alembic environment configuration for async PostgreSQL migrations.
 
-Model imports come from services/payments-svc, which has the most complete
-set of SQLAlchemy models (auth + billing + activity schemas). sys.path is
-extended at the top of this file so those imports resolve without installing
-the service package.
+Model imports come from two services:
+- services/payments-svc — auth + billing models (User, Subscription, passes, credits)
+- services/account-svc  — activity models (preferences, gamification, history, share, etc.)
+
+Both sys.path entries are managed carefully to avoid module-name collisions: the
+account-svc import block clears and restores the `app.*` sys.modules cache so that
+payments-svc remains the primary `app` namespace after both are loaded.
 """
 
 import asyncio
@@ -54,16 +57,57 @@ from app.db.models import (  # noqa: E402, F401
     VisitorToolUsage,
     VisitorUsage,
 )
-from app.db.session import Base  # noqa: E402
+from app.db.session import Base as _payments_base  # noqa: E402
+
+# ── Also load account-svc models (activity-schema tables not in payments-svc) ─
+# We must temporarily replace `app.*` in sys.modules so account-svc's
+# `from app.db.session import Base` resolves to its own declarative base
+# rather than the already-cached payments-svc one.
+_ACCOUNT_SVC = str(_BACKEND_ROOT / "services" / "account-svc")
+_saved_app_modules: dict = {k: v for k, v in sys.modules.items() if k.startswith("app")}
+for _k in list(sys.modules.keys()):
+    if _k.startswith("app"):
+        del sys.modules[_k]
+
+if _ACCOUNT_SVC not in sys.path:
+    sys.path.insert(0, _ACCOUNT_SVC)
+
+from app.db.models import (  # noqa: E402, F401
+    OperationHistory,
+    SharedResult,
+    UserFavoriteTool,
+    UserGamification,
+    UserPipeline,
+    UserPipelineStep,
+    UserPreferences,
+    UserTemplate,
+    UserToolStats,
+    UserUiSettings,
+)
+from app.db.session import Base as _account_base  # noqa: E402
+
+# Restore payments-svc as the primary `app` namespace and remove account-svc
+# from sys.path to prevent future collisions.
+for _k in list(sys.modules.keys()):
+    if _k.startswith("app"):
+        del sys.modules[_k]
+sys.modules.update(_saved_app_modules)
+if _ACCOUNT_SVC in sys.path:
+    sys.path.remove(_ACCOUNT_SVC)
 
 # Explicitly reference every model so static analysers (CodeQL, ruff) recognise
 # these imports as intentional.  They are imported for their side-effect of
-# registering each table with Base.metadata so Alembic autogenerate works.
-_MODELS = [
+# registering each table with their service's Base.metadata.
+_PAYMENTS_MODELS = [
     User, UserDailyLogin, UserSpinLog, UserToolUsage, VisitorUsage,
     VisitorToolUsage, UserDiscoveredTool,
     PassCatalog, PassCatalogPrice, CreditPackCatalog, CreditPackPrice,
     Subscription, PaymentEvent, BillingUserPass, UserPassTool, BillingUserCredit,
+]
+_ACCOUNT_MODELS = [
+    UserPreferences, UserUiSettings, UserGamification, UserFavoriteTool,
+    UserToolStats, UserTemplate, UserPipeline, UserPipelineStep,
+    OperationHistory, SharedResult,
 ]
 
 config = context.config
@@ -72,7 +116,8 @@ config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-target_metadata = Base.metadata
+# Combine both services' metadata so autogenerate covers all tables.
+target_metadata = [_payments_base.metadata, _account_base.metadata]
 
 
 # ── Django-style sequential revision numbering ────────────────────────────────
