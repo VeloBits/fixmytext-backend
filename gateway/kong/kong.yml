@@ -77,16 +77,26 @@ services:
         config:
           allowed_payload_size: 1
 
-  # ── TODO: account-svc (user data, history, share) ─────────────────────────
-  # - name: account-svc
-  #   url: http://account-svc:8000
-  #   routes:
-  #     - name: account-routes
-  #       paths:
-  #         - /api/v1/user
-  #         - /api/v1/history
-  #         - /api/v1/share
-  #       strip_path: false
+  # ── account-svc (user data, history, share) ───────────────────────────────
+  - name: account-svc
+    url: http://account-svc:8000
+    routes:
+      - name: user-routes
+        paths:
+          - /api/v1/user
+        strip_path: false
+      - name: history-routes
+        paths:
+          - /api/v1/history
+        strip_path: false
+      - name: share-routes
+        paths:
+          - /api/v1/share
+        strip_path: false
+    plugins:
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 1
 
 plugins:
   # Inject / echo X-Request-ID on every request so it appears in monolith
