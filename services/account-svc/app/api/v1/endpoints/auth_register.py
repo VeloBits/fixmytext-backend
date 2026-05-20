@@ -52,8 +52,10 @@ async def register(payload: RegisterRequest):
     try:
         await send_verification_email(keycloak_id)
     except Exception as exc:  # noqa: BLE001
+        # Sanitize email before logging to prevent log injection via \r\n in user input.
+        safe_email = str(payload.email).replace("\r", "").replace("\n", "")
         logger.warning(
-            "Could not send verification email to %s: %s", payload.email, exc
+            "Could not send verification email to %s: %s", safe_email, exc
         )
 
     return {"message": "Account created. Check your email to verify."}
