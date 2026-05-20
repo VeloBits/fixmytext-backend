@@ -24,6 +24,12 @@ from app.tool_registry import get_tool
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitize_for_log(value: str) -> str:
+    """Strip CR/LF from user-controlled values to prevent log injection."""
+    return str(value).replace("\r", "").replace("\n", "")
+
+
 router = APIRouter(prefix="/ai", tags=["AI"])
 
 # ── Request / response schemas ────────────────────────────────────────────────
@@ -170,9 +176,10 @@ async def run_ai_tool(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    safe_op = _sanitize_for_log(tool_id)
     logger.info(
         "AI     op=%s user=%s chars=%d",
-        tool_id,
+        safe_op,
         user.id,
         len(req.text),
     )
@@ -196,13 +203,13 @@ async def run_ai_tool(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("AI     op=%s -> FAILED: %s", tool_id, exc)
+        logger.exception("AI     op=%s -> FAILED: %s", safe_op, exc)
         raise HTTPException(
             status_code=500,
             detail=f"{tool_def.display_name} failed",
         ) from exc
 
-    logger.info("AI     op=%s -> OK (%d chars)", tool_id, len(result))
+    logger.info("AI     op=%s -> OK (%d chars)", safe_op, len(result))
     return TextResponse(original=req.text, result=result, operation=operation)
 
 
@@ -236,8 +243,9 @@ async def stream_ai_tool(
             ):
                 yield f"data: {token}\n\n"
             yield "data: [DONE]\n\n"
-        except Exception as exc:
-            logger.exception("Stream error for tool=%s", tool_id)
-            yield f"data: [ERROR] {exc}\n\n"
+        except Exception:
+            # Do not expose exc (stack trace) to the client — log it server-side only.
+            logger.exception("Stream error for tool=%s", _sanitize_for_log(tool_id))
+            yield "data: [ERROR] Internal server error\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

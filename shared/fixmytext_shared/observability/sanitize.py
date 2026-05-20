@@ -57,13 +57,25 @@ class LogSanitizationFilter(logging.Filter):
 
 
 class PiiRedactionFilter(logging.Filter):
-    """Redact log records whose message mentions a PII key."""
+    """Redact log records whose interpolated message mentions a PII key.
+
+    Uses record.getMessage() (which interpolates args into the format string)
+    rather than record.msg alone, so parameterised calls like
+    ``logger.info("request %s", "?token=...")`` are also caught.
+    """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, str):
-            for key in _PII_PATTERN_KEYS:
-                if key in record.msg.lower():
-                    record.msg = "[REDACTED]"
-                    record.args = ()
-                    return True
+        # getMessage() returns the fully-interpolated message string so that
+        # sensitive data passed as *args* (not baked into the format string)
+        # is still detected and redacted.
+        try:
+            interpolated = record.getMessage().lower()
+        except Exception:  # noqa: BLE001 — malformed record, don't crash
+            interpolated = str(record.msg).lower()
+
+        for key in _PII_PATTERN_KEYS:
+            if key in interpolated:
+                record.msg = "[REDACTED]"
+                record.args = ()
+                return True
         return True

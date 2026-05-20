@@ -87,7 +87,9 @@ async def create_keycloak_user(email: str, password: str, display_name: str) -> 
     # Keycloak returns the user URL in the Location header
     location = resp.headers.get("Location", "")
     keycloak_id = location.rstrip("/").split("/")[-1]
-    logger.info("Created Keycloak user id=%s email=%s", keycloak_id, email)
+    # Sanitize email before logging — user-provided value; strip \r\n to prevent log injection.
+    safe_email = email.replace("\r", "").replace("\n", "")
+    logger.info("Created Keycloak user id=%s email=%s", keycloak_id, safe_email)
     return keycloak_id
 
 
