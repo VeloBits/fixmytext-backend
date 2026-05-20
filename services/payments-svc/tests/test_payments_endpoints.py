@@ -58,12 +58,13 @@ async def test_subscription_status_requires_auth(async_client):
 @pytest.mark.asyncio
 async def test_webhook_invalid_signature_returns_400(async_client):
     """POST /api/v1/subscription/webhook with invalid signature should return 400."""
-    with patch(
-        "app.api.v1.endpoints.subscription.verify_webhook_signature",
-        return_value=False,
-    ), patch(
-        "app.api.v1.endpoints.subscription.settings"
-    ) as mock_settings:
+    with (
+        patch(
+            "app.api.v1.endpoints.subscription.verify_webhook_signature",
+            return_value=False,
+        ),
+        patch("app.api.v1.endpoints.subscription.settings") as mock_settings,
+    ):
         mock_settings.RAZORPAY_WEBHOOK_SECRET = "test-secret"
         response = await async_client.post(
             "/api/v1/subscription/webhook",

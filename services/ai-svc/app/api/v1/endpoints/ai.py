@@ -91,9 +91,7 @@ async def get_current_user(
             audience=settings.KEYCLOAK_AUDIENCE or None,
         )
     except (JWTError, ValueError) as exc:
-        raise HTTPException(
-            status_code=401, detail="Token expired or invalid"
-        ) from exc
+        raise HTTPException(status_code=401, detail="Token expired or invalid") from exc
     return AuthenticatedUser(
         id=payload.get("sub", ""),
         email=payload.get("email", ""),

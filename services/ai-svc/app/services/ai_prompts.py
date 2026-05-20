@@ -53,8 +53,7 @@ FORMAT_PROMPTS: dict[str, str] = {
 # Tone-specific sub-prompts keyed by tone name.
 TONE_INSTRUCTIONS: dict[str, str] = {
     "formal": (
-        "Rewrite in a formal, professional tone. "
-        "Use proper language, avoid contractions and slang."
+        "Rewrite in a formal, professional tone. Use proper language, avoid contractions and slang."
     ),
     "casual": (
         "Rewrite in a casual, relaxed tone. "

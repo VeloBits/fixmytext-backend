@@ -114,13 +114,16 @@ jobs:
           cache: pip
 
       - name: Install account-svc dependencies
-        working-directory: services/account-svc
+        # Run from repo root so -e ./shared in requirements.txt resolves to
+        # backend/shared/ (the editable package directory).
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r services/account-svc/requirements.txt
 
       - name: Run account-svc tests with coverage
         working-directory: services/account-svc
+        env:
+          KEYCLOAK_JWKS_URL: "http://test-keycloak:8080/realms/test/protocol/openid-connect/certs"
         run: |
           pytest \
             --cov=app \

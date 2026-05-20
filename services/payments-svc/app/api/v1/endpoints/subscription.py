@@ -573,8 +573,7 @@ def _validate_payment_amount(  # noqa: C901
 
     if expected is not None and expected != amount:
         logger.warning(
-            "Payment amount mismatch: expected=%s got=%s item_type=%s "
-            "item_id=%s user=%s order=%s",
+            "Payment amount mismatch: expected=%s got=%s item_type=%s item_id=%s user=%s order=%s",
             str(expected).replace("\n", "").replace("\r", ""),
             str(amount).replace("\n", "").replace("\r", ""),
             str(item_type).replace("\n", "").replace("\r", ""),
