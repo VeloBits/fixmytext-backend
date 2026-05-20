@@ -4,6 +4,7 @@ Uses the admin-cli client with KEYCLOAK_ADMIN credentials (password grant)
 to obtain an admin token. Token is cached for its lifetime to avoid hammering
 the token endpoint on every request.
 """
+
 import logging
 import time
 
@@ -42,9 +43,7 @@ async def _get_admin_token() -> str:
     return _TOKEN_CACHE["token"]
 
 
-async def create_keycloak_user(
-    email: str, password: str, display_name: str
-) -> str:
+async def create_keycloak_user(email: str, password: str, display_name: str) -> str:
     """Create a user in Keycloak and return the new user's Keycloak ID.
 
     Raises:

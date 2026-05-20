@@ -66,7 +66,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install ruff
-        run: pip install ruff
+        # Pin version to match local pyproject.toml / pre-commit config.
+        # Upgrade intentionally to avoid silent behaviour changes across CI runs.
+        run: pip install "ruff==0.15.9"
 
       - name: Check formatting
         run: ruff format --check ${{ matrix.ruff_target }}
@@ -114,13 +116,16 @@ jobs:
           cache: pip
 
       - name: Install account-svc dependencies
-        working-directory: services/account-svc
+        # Run from repo root so -e ./shared in requirements.txt resolves to
+        # backend/shared/ (the editable package directory).
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r services/account-svc/requirements.txt
 
       - name: Run account-svc tests with coverage
         working-directory: services/account-svc
+        env:
+          KEYCLOAK_JWKS_URL: "http://test-keycloak:8080/realms/test/protocol/openid-connect/certs"
         run: |
           pytest \
             --cov=app \
@@ -157,7 +162,9 @@ jobs:
           pip install pip-audit
 
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit --strict --vulnerability-service osv
+        # PYSEC-2025-183 (PyJWT) is ignored — no fix version exists upstream yet.
+        # Track: https://github.com/jpadilla/pyjwt/issues — remove once patched.
+        run: pip-audit --strict --vulnerability-service osv --ignore-vuln PYSEC-2025-183
 
   docker:
     name: Docker Build & Scan

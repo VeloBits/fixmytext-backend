@@ -6,7 +6,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 # Ensure the app can import without a real DB
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/testdb")
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/testdb"
+)
 os.environ.setdefault("SECRET_KEY", "test-secret-key-at-least-32-characters")
 
 
