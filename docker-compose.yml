@@ -1,22 +1,56 @@
 # fixmytext-backend — unified compose file with profiles.
 #
 # Profiles:
-#   dev   development stack  (hot reload, source volumes)
-#   prod  production stack   (multi-stage builds, nginx)
+#   dev   development stack  (hot reload, source volumes, Traefik on :80)
+#   prod  production stack   (multi-stage builds, TLS — Sprint 9)
+#
+# Local development requires /etc/hosts entries (see backend/README.md):
+#   127.0.0.1 auth-dev.velobits.dev
+#   127.0.0.1 api-dev.velobits.dev
+#   127.0.0.1 develop-fixmytext.velobits.dev
 #
 # Usage:
 #   docker compose --profile dev up --build     # dev
-#   docker compose --profile prod up --build    # prod
+#   docker compose --profile prod up --build    # prod (Sprint 9)
 #
 services:
 
   # ══════════════════════════════════════════════════════════════════════════
-  # DATABASE  —  shared across profiles
+  # TRAEFIK (Sprint 5b) — edge reverse proxy for all *.velobits.dev subdomains.
+  # Owns external port :80. Routes by Host header to the right container.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  traefik:
+    profiles: ["dev"]
+    image: traefik:v3.2
+    container_name: velobits-traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=fixmytext-net
+      - --entrypoints.web.address=:80
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "127.0.0.1:8090:8080"   # dashboard, localhost-only
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - fixmytext-net
+
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # PRODUCT DATABASES (velobits-dev-db Postgres instance)
+  # Hosts fixmytext + chat + notes + futureapp databases. NEVER hosts
+  # Keycloak's identity DB (which is a separate Postgres instance below).
   # ══════════════════════════════════════════════════════════════════════════
 
   db-service:
     image: pgvector/pgvector:pg16
-    container_name: fixmytext-db
+    container_name: velobits-dev-db
     restart: unless-stopped
     ports:
       - "${DB_HOST_PORT:-5433}:5432"
@@ -26,6 +60,8 @@ services:
       POSTGRES_DB: fixmytext
     volumes:
       - fixmytext-pgdata:/var/lib/postgresql/data
+      # First-init only: creates placeholder DBs for future products
+      - ./infrastructure/db-init:/docker-entrypoint-initdb.d:ro
     networks:
       - fixmytext-net
     healthcheck:
@@ -57,8 +93,6 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════
   # MIGRATE  —  runs alembic upgrade head once, then exits.
-  # Uses the standalone migrations/ directory which imports models from
-  # services/payments-svc (the canonical model source after monolith removal).
   # ══════════════════════════════════════════════════════════════════════════
 
   migrate-dev:
@@ -82,8 +116,8 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════
   # AI-SVC  —  Groq-backed AI text transformation service (dev profile)
-  # Kong routes /api/v1/ai/* here.  Service is reachable only inside the
-  # compose network; Kong owns the external :8000 port.
+  # Kong routes /api/v1/ai/* here. Service is internal-only (Kong owns
+  # the path-prefix seam; Traefik owns the subdomain seam).
   # ══════════════════════════════════════════════════════════════════════════
 
   ai-svc:
@@ -115,8 +149,7 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════
   # TEXT-SVC  —  local text transformation service (dev profile)
-  # Kong routes /api/v1/text/* here.  Service is reachable only inside the
-  # compose network; Kong owns the external :8000 port.
+  # Kong routes /api/v1/text/* here.
   # ══════════════════════════════════════════════════════════════════════════
 
   text-svc:
@@ -145,7 +178,6 @@ services:
   # ══════════════════════════════════════════════════════════════════════════
   # PAYMENTS-SVC  —  billing: passes, credits, subscriptions, Razorpay (dev)
   # Kong routes /api/v1/passes/* and /api/v1/subscription/* here.
-  # Service is reachable only inside the compose network.
   # ══════════════════════════════════════════════════════════════════════════
 
   payments-svc:
@@ -178,9 +210,9 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════
-  # ACCOUNT-SVC  —  user data, history, share (dev profile)
-  # Kong routes /api/v1/user/*, /api/v1/history/*, /api/v1/share/* here.
-  # Service is reachable only inside the compose network.
+  # ACCOUNT-SVC  —  user data, history, share, session cookie (dev profile)
+  # Kong routes /api/v1/auth/*, /api/v1/user/*, /api/v1/history/*,
+  # /api/v1/share/* here.
   # ══════════════════════════════════════════════════════════════════════════
 
   account-svc:
@@ -198,6 +230,16 @@ services:
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-account-svc
       - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
+      # Sprint 5b: session cookie config
+      - SESSION_COOKIE_SECRET=${SESSION_COOKIE_SECRET}
+      - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-fixmytext_session}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
+      - SESSION_COOKIE_MAX_AGE=${SESSION_COOKIE_MAX_AGE:-604800}
+      - SESSION_COOKIE_DOMAIN=${SESSION_COOKIE_DOMAIN:-}
+      # Sprint 5b: Keycloak dev realm
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://auth-dev.velobits.dev}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits-Dev}
+      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/Velobits-Dev/protocol/openid-connect/certs}
     depends_on:
       db-service:
         condition: service_healthy
@@ -213,9 +255,9 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════
-  # KONG  —  API gateway (dev profile only for now)
-  # Routes all /api/v1/* and /health traffic to the appropriate microservice.
-  # The monolith is gone; account-svc now handles /api/v1/auth/* and /health.
+  # KONG  —  API gateway. Behind Traefik; routes /api/v1/* to services.
+  # No longer owns external port :8000 — Traefik routes api-dev.velobits.dev
+  # to this container via Docker labels.
   # ══════════════════════════════════════════════════════════════════════════
 
   kong:
@@ -234,9 +276,10 @@ services:
       KONG_ADMIN_LISTEN: "127.0.0.1:8001"
     volumes:
       - ./gateway/kong/kong.yml:/etc/kong/kong.yml:ro
-    ports:
-      - "8000:8000"
-      - "127.0.0.1:8001:8001"
+    # NOTE: external port mapping removed in Sprint 5b. Traefik owns :80
+    # and routes Host=api-dev.velobits.dev to this container.
+    expose:
+      - "8000"
     depends_on:
       ai-svc:
         condition: service_started
@@ -254,24 +297,30 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kong-dev.rule=Host(`api-dev.velobits.dev`)"
+      - "traefik.http.routers.kong-dev.entrypoints=web"
+      - "traefik.http.services.kong-dev.loadbalancer.server.port=8000"
 
   # ══════════════════════════════════════════════════════════════════════════
-  # KEYCLOAK  —  identity provider (currently running but IDLE)
-  # Realm import is idempotent (see infrastructure/keycloak/realm-export.json).
-  # No users are provisioned. Frontend OIDC integration is TODO.
+  # KEYCLOAK DEV  —  identity provider for the Velobits-Dev realm.
+  # Sprint 5b: renamed from `keycloak` (which is now reserved for the prod
+  # placeholder). The dev realm export is at infrastructure/keycloak/
+  # realm-export-dev.json.
   # ══════════════════════════════════════════════════════════════════════════
 
-  keycloak-db:
+  keycloak-dev-db:
     profiles: ["dev"]
     image: postgres:16-alpine
-    container_name: fixmytext-keycloak-db
+    container_name: keycloak-dev-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-kcdev}
-      POSTGRES_DB: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:-kcdev}}
+      POSTGRES_DB: keycloak_dev_db
     volumes:
-      - keycloak-pgdata:/var/lib/postgresql/data
+      - keycloak-dev-pgdata:/var/lib/postgresql/data
     networks:
       - fixmytext-net
     healthcheck:
@@ -280,32 +329,40 @@ services:
       timeout: 3s
       retries: 5
 
-  keycloak:
+  keycloak-dev:
     profiles: ["dev"]
     image: quay.io/keycloak/keycloak:26.0
-    container_name: fixmytext-keycloak
+    container_name: keycloak-dev
     restart: unless-stopped
     command: ["start-dev", "--import-realm"]
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_URL: jdbc:postgresql://keycloak-dev-db:5432/keycloak_dev_db
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-kcdev}
-      KC_HOSTNAME: localhost
+      KC_DB_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:-kcdev}}
+      KC_HOSTNAME: auth-dev.velobits.dev
+      KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
       KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_DEV_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}}
     volumes:
-      - ./infrastructure/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro
+      - ./infrastructure/keycloak/realm-export-dev.json:/opt/keycloak/data/import/realm.json:ro
       - ./infrastructure/keycloak/themes/fixmytext:/opt/keycloak/themes/fixmytext:ro
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     depends_on:
-      keycloak-db:
+      keycloak-dev-db:
         condition: service_healthy
     networks:
       - fixmytext-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak-dev.rule=Host(`auth-dev.velobits.dev`)"
+      - "traefik.http.routers.keycloak-dev.entrypoints=web"
+      - "traefik.http.services.keycloak-dev.loadbalancer.server.port=8080"
+
 
 # ── Shared network ────────────────────────────────────────────────────────────
 networks:
@@ -315,5 +372,6 @@ networks:
 # ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   fixmytext-pgdata:
-  # Keycloak's own Postgres data (separate from the app db-service)
-  keycloak-pgdata:
+  # Keycloak's identity database (separate from product DBs by design — see
+  # docs/SPRINT-5.md decision row 20).
+  keycloak-dev-pgdata:
