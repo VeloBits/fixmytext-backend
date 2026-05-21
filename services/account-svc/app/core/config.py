@@ -30,11 +30,25 @@ class Settings(BaseSharedSettings):
 
     # ── Auth (JWKS from Keycloak) ─────────────────────────────────────────────
     KEYCLOAK_URL: str = ""
-    KEYCLOAK_REALM: str = "fixmytext"
+    # Default is now the dev realm; prod overrides via env var.
+    KEYCLOAK_REALM: str = "Velobits-Dev"
     KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
     KEYCLOAK_JWKS_URL: str = ""
     KEYCLOAK_ADMIN: str = "admin"
     KEYCLOAK_ADMIN_PASSWORD: str = ""
+
+    # ── Session cookie (per-app, host-only, set by account-svc) ───────────────
+    # Sprint 5b: account-svc issues this cookie on successful auth so that
+    # cross-framework apps (Vite + Next.js) share session state.
+    SESSION_COOKIE_NAME: str = "fixmytext_session"
+    SESSION_COOKIE_SECRET: str = ""
+    # secure=True forces the browser to send the cookie only over HTTPS.
+    # Local dev runs over http://, so default is False and prod overrides.
+    SESSION_COOKIE_SECURE: bool = False
+    SESSION_COOKIE_MAX_AGE: int = 604800  # 7 days
+    # Empty Domain attribute = host-only (intentional). The cookie scopes to
+    # the exact host it was set on, preventing cross-subdomain leakage.
+    SESSION_COOKIE_DOMAIN: str = ""
 
     # ── Share ─────────────────────────────────────────────────────────────────
     SHARE_EXPIRE_DAYS: int = 30
