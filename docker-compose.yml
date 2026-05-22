@@ -31,6 +31,9 @@ services:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=fixmytext-net
+      # Sprint 5e: file provider activates path-prefix routing for content-app vs web-app
+      - --providers.file.directory=/etc/traefik/rules
+      - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --log.level=INFO
     ports:
@@ -38,6 +41,8 @@ services:
       - "127.0.0.1:8090:8080"   # dashboard, localhost-only
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Sprint 5c: rules/ dir is empty; Sprint 5e populates it with path-prefix rules
+      - ./gateway/traefik/rules:/etc/traefik/rules:ro
     networks:
       - fixmytext-net
 
