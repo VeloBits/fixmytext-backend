@@ -28,19 +28,45 @@ Read the ADRs in numeric order for the full picture.
 - Groq API key (free at [console.groq.com](https://console.groq.com) — for AI tools)
 - Razorpay keys (for billing features — optional for development)
 
+## Local development with VeloBits subdomains (Sprint 5b)
+
+The backend now runs behind **Traefik** (edge reverse proxy) which routes
+by `Host` header to the right container. Local dev mirrors production
+exactly — only DNS source changes (`/etc/hosts` here, real DNS in Sprint 9).
+
+### One-time `/etc/hosts` setup
+
+Add these entries (requires sudo):
+
+```bash
+sudo tee -a /etc/hosts <<EOF
+127.0.0.1 auth-dev.velobits.dev
+127.0.0.1 api-dev.velobits.dev
+127.0.0.1 develop-fixmytext.velobits.dev
+EOF
+```
+
+### Subdomain map (dev)
+
+| URL | Container | Purpose |
+|---|---|---|
+| `http://auth-dev.velobits.dev` | `keycloak-dev` | Keycloak (Velobits-Dev realm) |
+| `http://api-dev.velobits.dev` | `kong` | API gateway → backend microservices |
+| `http://develop-fixmytext.velobits.dev` | (frontend dev container, run separately) | FixMyText dev frontend |
+| `http://127.0.0.1:8090` | `traefik` | Traefik dashboard (localhost-only) |
+
 ## Setup
 
 **Docker (recommended):**
 ```bash
 cd backend
-cp .env.example .env       # Fill in SECRET_KEY and optional GROQ_API_KEY
+cp .env.example .env       # Fill in SESSION_COOKIE_SECRET + KEYCLOAK_DEV_* + GROQ_API_KEY
 docker compose --profile dev up --build
 ```
 
-Starts PostgreSQL, Redis, runs Alembic migrations, launches the API with hot
-reload, and brings up Kong (gateway on `:8000`) + Keycloak (identity at
-`:8080`, currently idle — no users provisioned). Frontend keeps using
-`VITE_API_URL=http://localhost:8000` — Kong proxies transparently.
+Starts PostgreSQL (product DBs), Redis, runs Alembic migrations, launches the
+backend microservices, brings up Kong (API gateway behind Traefik) +
+Keycloak-Dev (Velobits-Dev realm) + Traefik (edge proxy on `:80`).
 
 To skip Kong/Keycloak and hit the monolith directly (legacy dev loop):
 
