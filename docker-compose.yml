@@ -2,7 +2,7 @@
 #
 # Profiles:
 #   dev   development stack  (hot reload, source volumes, Traefik on :80)
-#   prod  production stack   (multi-stage builds, TLS — Sprint 9)
+#   prod  production stack   (multi-stage builds, TLS)
 #
 # Local development requires /etc/hosts entries (see backend/README.md):
 #   127.0.0.1 auth-dev.velobits.dev
@@ -11,12 +11,12 @@
 #
 # Usage:
 #   docker compose --profile dev up --build     # dev
-#   docker compose --profile prod up --build    # prod (Sprint 9)
+#   docker compose --profile prod up --build    # prod
 #
 services:
 
   # ══════════════════════════════════════════════════════════════════════════
-  # TRAEFIK (Sprint 5b) — edge reverse proxy for all *.velobits.dev subdomains.
+  # TRAEFIK — edge reverse proxy for all *.velobits.dev subdomains.
   # Owns external port :80. Routes by Host header to the right container.
   # ══════════════════════════════════════════════════════════════════════════
 
@@ -31,7 +31,7 @@ services:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=fixmytext-net
-      # Sprint 5e: file provider activates path-prefix routing for content-app vs web-app
+      # file provider activates path-prefix routing for content-app vs web-app
       - --providers.file.directory=/etc/traefik/rules
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
@@ -41,7 +41,6 @@ services:
       - "127.0.0.1:8090:8080"   # dashboard, localhost-only
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      # Sprint 5c: rules/ dir is empty; Sprint 5e populates it with path-prefix rules
       - ./gateway/traefik/rules:/etc/traefik/rules:ro
     networks:
       - fixmytext-net
@@ -235,13 +234,11 @@ services:
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-account-svc
       - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
-      # Sprint 5b: session cookie config
       - SESSION_COOKIE_SECRET=${SESSION_COOKIE_SECRET}
       - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-fixmytext_session}
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
       - SESSION_COOKIE_MAX_AGE=${SESSION_COOKIE_MAX_AGE:-604800}
       - SESSION_COOKIE_DOMAIN=${SESSION_COOKIE_DOMAIN:-}
-      # Sprint 5b: Keycloak dev realm
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://auth-dev.velobits.dev}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits-Dev}
       - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/Velobits-Dev/protocol/openid-connect/certs}
@@ -281,8 +278,8 @@ services:
       KONG_ADMIN_LISTEN: "127.0.0.1:8001"
     volumes:
       - ./gateway/kong/kong.yml:/etc/kong/kong.yml:ro
-    # NOTE: external port mapping removed in Sprint 5b. Traefik owns :80
-    # and routes Host=api-dev.velobits.dev to this container.
+    # No external port mapping — Traefik owns :80 and routes
+    # Host=api-dev.velobits.dev to this container.
     expose:
       - "8000"
     depends_on:
@@ -310,9 +307,8 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════
   # KEYCLOAK DEV  —  identity provider for the Velobits-Dev realm.
-  # Sprint 5b: renamed from `keycloak` (which is now reserved for the prod
-  # placeholder). The dev realm export is at infrastructure/keycloak/
-  # realm-export-dev.json.
+  # Dev realm export is at infrastructure/keycloak/realm-export-dev.json.
+  # The prod equivalent (keycloak-prod) is provisioned during production deploy.
   # ══════════════════════════════════════════════════════════════════════════
 
   keycloak-dev-db:
@@ -377,6 +373,6 @@ networks:
 # ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   fixmytext-pgdata:
-  # Keycloak's identity database (separate from product DBs by design — see
-  # docs/SPRINT-5.md decision row 20).
+  # Keycloak's identity database (separate from product DBs by design —
+  # identity and product data are never co-located).
   keycloak-dev-pgdata:

@@ -4,8 +4,8 @@ Text transformation API endpoint for text-svc.
 Serves all LOCAL (non-AI) text transformation tools at
 ``POST /api/v1/text/{tool_id}``.
 
-Design decisions for Sprint 4e:
-- No quota check (restored in Sprint 4g).
+Design decisions:
+- No quota check at the endpoint level (enforced in pass_service).
 - No tool discovery recording (no DB).
 - Optional auth — requests are accepted with or without JWT.
   User ID is extracted from JWT only if present (for logging).

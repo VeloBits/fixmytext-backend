@@ -1,4 +1,4 @@
-"""Tests for the per-app session cookie (Sprint 5b).
+"""Tests for the per-app session cookie.
 
 Covers:
 1. sign_session → verify_session round-trip

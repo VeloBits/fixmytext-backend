@@ -38,8 +38,8 @@ class Settings(BaseSharedSettings):
     KEYCLOAK_ADMIN_PASSWORD: str = ""
 
     # ── Session cookie (per-app, host-only, set by account-svc) ───────────────
-    # Sprint 5b: account-svc issues this cookie on successful auth so that
-    # cross-framework apps (Vite + Next.js) share session state.
+    # Issued on successful auth so that cross-framework apps (Vite + Next.js)
+    # share session state without re-authenticating.
     SESSION_COOKIE_NAME: str = "fixmytext_session"
     SESSION_COOKIE_SECRET: str = ""
     # secure=True forces the browser to send the cookie only over HTTPS.
