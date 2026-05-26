@@ -17,7 +17,6 @@ import pytest
 
 from app.core.session_cookie import build_claims, sign_session, verify_session
 
-
 SECRET = "test-secret-at-least-32-characters-long"
 
 
