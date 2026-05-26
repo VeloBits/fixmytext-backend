@@ -28,11 +28,11 @@ Read the ADRs in numeric order for the full picture.
 - Groq API key (free at [console.groq.com](https://console.groq.com) — for AI tools)
 - Razorpay keys (for billing features — optional for development)
 
-## Local development with VeloBits subdomains (Sprint 5b)
+## Local development with VeloBits subdomains
 
-The backend now runs behind **Traefik** (edge reverse proxy) which routes
+The backend runs behind **Traefik** (edge reverse proxy) which routes
 by `Host` header to the right container. Local dev mirrors production
-exactly — only DNS source changes (`/etc/hosts` here, real DNS in Sprint 9).
+exactly — only DNS source changes (`/etc/hosts` here, real DNS in production).
 
 ### One-time `/etc/hosts` setup
 

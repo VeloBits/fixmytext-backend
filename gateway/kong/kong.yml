@@ -95,7 +95,6 @@ plugins:
       origins:
         - http://localhost:3000
         - http://127.0.0.1:3000
-        # Sprint 5b: VeloBits subdomain origins for cross-product SSO + cookies
         - http://develop-fixmytext.velobits.dev
         - https://fixmytext.velobits.dev
       methods:
