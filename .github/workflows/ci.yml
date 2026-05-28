@@ -148,7 +148,7 @@ jobs:
             --cov=app \
             --cov-report=xml \
             --cov-report=term-missing \
-            --cov-fail-under=50 \
+            --cov-fail-under=70 \
             -v
 
       - name: Upload coverage report
