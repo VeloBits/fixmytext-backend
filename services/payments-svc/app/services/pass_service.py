@@ -505,6 +505,34 @@ async def grant_credits(
     return billing_credit
 
 
+# ── Welcome gift (first purchase) ─────────────────────────────────────────────
+
+
+async def maybe_grant_welcome_gift(
+    user: User, db: AsyncSession, amount: int = 10
+) -> bool:
+    """Grant a one-time welcome credit gift on the user's first purchase.
+
+    Idempotent: grants only if the user has no prior ``welcome`` credit row.
+    Called from both ``/passes/verify`` and the webhook (whichever fulfills the
+    first purchase), so the gift lands exactly once regardless of which path
+    wins the race. The caller holds the user row lock and owns the commit.
+    Returns True if the gift was granted.
+    """
+    existing = await db.execute(
+        select(func.count()).where(
+            and_(
+                BillingUserCredit.user_id == user.id,
+                BillingUserCredit.source == "welcome",
+            )
+        )
+    )
+    if existing.scalar() == 0:
+        await grant_credits(user, amount, "welcome", db, auto_commit=False)
+        return True
+    return False
+
+
 # ── Credit balance ───────────────────────────────────────────────────────────
 
 

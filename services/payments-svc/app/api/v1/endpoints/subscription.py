@@ -7,11 +7,11 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import get_current_user
-from app.core.pass_catalog import get_credit_pack, get_pass, get_price
 from app.db.models.billing_subscription import PaymentEvent, Subscription
 from app.db.models.user import User
 from app.db.session import get_db
@@ -20,14 +20,18 @@ from app.schemas.subscription import (
     RazorpayProVerifyRequest,
     SubscriptionStatus,
 )
+from app.services.fulfillment_service import AlreadyFulfilled, fulfill_payment
+from app.services.order_validation import (
+    validate_order_scope_and_amount,
+    validate_pro_amount,
+)
 from app.services.pass_service import (
     get_active_passes,
     get_all_tool_uses_today,
     get_credit_balance,
     get_subscription_tier,
-    grant_credits,
-    grant_pass,
     has_logged_in_today,
+    maybe_grant_welcome_gift,
     record_daily_login,
 )
 from app.services.razorpay_service import (
@@ -173,20 +177,40 @@ async def verify_pro_payment(
     if notes.get("item_type") != "pro_subscription":
         raise HTTPException(400, "Order is not for Pro subscription")
 
-    # Create/update Subscription row in billing schema
-    sub = Subscription(
-        user_id=user.id,
-        tier="pro",
-        status="active",
-        razorpay_order_id=req.razorpay_order_id,
-        razorpay_payment_id=req.razorpay_payment_id,
-        amount_paid_subunits=order.get("amount"),
-        currency=order.get("currency"),
-        region=user.region,
-    )
-    db.add(sub)
+    # Block amount tampering, then fulfill exactly once through the shared
+    # authority — a double verify or a verify/webhook race activates Pro once.
+    validate_pro_amount(order.get("amount"), order.get("currency"))
 
-    await db.commit()
+    await db.execute(select(User).where(User.id == user.id).with_for_update())
+
+    try:
+        await fulfill_payment(
+            db=db,
+            user=user,
+            razorpay_payment_id=req.razorpay_payment_id,
+            razorpay_order_id=req.razorpay_order_id,
+            item_type="pro_subscription",
+            item_id=None,
+            tool_ids=[],
+            amount_subunits=order.get("amount"),
+            currency=order.get("currency"),
+            fulfilled_via="verify",
+        )
+        await db.commit()
+    except (AlreadyFulfilled, IntegrityError):
+        # Already fulfilled (replay) or an active subscription already exists —
+        # idempotent success instead of a 500 on the one-active-sub constraint.
+        await db.rollback()
+        logger.info(
+            "Pro already active (verify): user=%s payment=%s",
+            user.id,
+            _s(req.razorpay_payment_id),
+        )
+        return {"status": "success", "tier": "pro", "detail": "already_fulfilled"}
+    except Exception:
+        await db.rollback()
+        raise
+
     logger.info(
         "Pro activated: user=%s order=%s payment=%s",
         user.id,
@@ -364,7 +388,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         await db.commit()
         return {"status": "ok"}
 
-    # ── payment.captured — fulfill the purchase ──────────────────────
+    # ── payment.captured — fulfill the purchase (idempotent) ─────────
     if event_type == "payment.captured":
         if not user_id:
             logger.error(
@@ -374,85 +398,17 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
             await db.commit()
             raise HTTPException(400, "Missing user_id in order notes")
 
-        # Validate amount matches expected catalog price
-        _validate_payment_amount(
-            item_type, item_id, amount, currency, user_id, order_id
-        )
-
+        # Validate amount/scope BEFORE granting; a mismatch now BLOCKS
+        # fulfillment (BE-PAY-03) and records an 'error' event for audit.
+        tool_ids: list[str] = []
         try:
-            # Look up user
-            user_result = await db.execute(select(User).where(User.id == user_id))
-            user = user_result.scalars().first()
-            if not user:
-                logger.error("Webhook user not found: user_id=%s", user_id)
-                pe.status = "error"
-                await db.commit()
-                raise HTTPException(400, "User not found")
-
             if item_type == "pro_subscription":
-                sub = Subscription(
-                    user_id=user.id,
-                    tier="pro",
-                    status="active",
-                    razorpay_order_id=order_id,
-                    razorpay_payment_id=payment_id,
-                    amount_paid_subunits=amount,
-                    currency=currency,
-                    region=user.region,
-                )
-                db.add(sub)
-                logger.info(
-                    "Pro activated via webhook: user=%s payment=%s",
-                    user.id,
-                    safe_payment_id,
-                )
-
-            elif item_type == "pass":
-                pass_def = get_pass(item_id)
-                if not pass_def:
-                    logger.error("Unknown pass in webhook: %s", safe_item_id)
-                    pe.status = "error"
-                    await db.commit()
-                    raise HTTPException(400, f"Unknown pass: {item_id}")
-                tool_ids_raw = notes.get("tool_ids", "*")
-                tool_ids = tool_ids_raw.split(",") if tool_ids_raw else ["*"]
-                await grant_pass(
-                    user,
-                    item_id,
-                    tool_ids,
-                    "razorpay",
-                    db,
-                    razorpay_payment_id=payment_id,
-                    auto_commit=False,
-                )
-                logger.info(
-                    "Pass granted via webhook: user=%s pass=%s payment=%s",
-                    user.id,
-                    safe_item_id,
-                    safe_payment_id,
-                )
-
-            elif item_type == "credit":
-                pack = get_credit_pack(item_id)
-                if not pack:
-                    logger.error("Unknown credit pack in webhook: %s", safe_item_id)
-                    pe.status = "error"
-                    await db.commit()
-                    raise HTTPException(400, f"Unknown credit pack: {item_id}")
-                await grant_credits(
-                    user,
-                    pack["credits"],
-                    "purchase",
-                    db,
-                    razorpay_payment_id=payment_id,
-                    auto_commit=False,
-                )
-                logger.info(
-                    "Credits granted via webhook: user=%s pack=%s credits=%d payment=%s",
-                    user.id,
-                    safe_item_id,
-                    pack["credits"],
-                    safe_payment_id,
+                validate_pro_amount(amount, currency)
+            elif item_type in ("pass", "credit"):
+                tool_ids, _, _ = validate_order_scope_and_amount(
+                    order={"notes": notes, "amount": amount, "currency": currency},
+                    expected_item_id=item_id,
+                    expected_item_type=item_type,
                 )
             else:
                 logger.warning(
@@ -460,11 +416,62 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                     safe_item_type,
                     safe_order_id,
                 )
+                pe.status = "processed"
+                pe.processed_at = datetime.now(UTC)
+                await db.commit()
+                return {"status": "ok"}
+        except HTTPException:
+            pe.status = "error"
+            await db.commit()
+            raise
+
+        try:
+            # Lock + load the user for welcome-gift atomicity vs the verify path.
+            user_result = await db.execute(
+                select(User).where(User.id == user_id).with_for_update()
+            )
+            user = user_result.scalars().first()
+            if not user:
+                logger.error("Webhook user not found: user_id=%s", user_id)
+                pe.status = "error"
+                await db.commit()
+                raise HTTPException(400, "User not found")
+
+            await fulfill_payment(
+                db=db,
+                user=user,
+                razorpay_payment_id=payment_id,
+                razorpay_order_id=order_id,
+                item_type=item_type,
+                item_id=item_id,
+                tool_ids=tool_ids,
+                amount_subunits=amount,
+                currency=currency,
+                fulfilled_via="webhook",
+            )
+            if item_type in ("pass", "credit"):
+                await maybe_grant_welcome_gift(user, db)
 
             pe.status = "processed"
             pe.processed_at = datetime.now(UTC)
             await db.commit()
+            logger.info(
+                "Payment fulfilled via webhook: user=%s type=%s item=%s payment=%s",
+                user.id,
+                safe_item_type,
+                safe_item_id,
+                safe_payment_id,
+            )
 
+        except AlreadyFulfilled:
+            # The verify callback (or another delivery) already fulfilled this
+            # payment — acknowledge without a second grant.
+            await db.rollback()
+            logger.info(
+                "Duplicate payment fulfillment ignored (webhook): payment=%s",
+                safe_payment_id,
+            )
+            return {"status": "ok", "detail": "already_fulfilled"}
         except HTTPException:
             raise
         except Exception:
@@ -525,59 +532,3 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     pe.processed_at = datetime.now(UTC)
     await db.commit()
     return {"status": "ok"}
-
-
-def _validate_payment_amount(  # noqa: C901
-    item_type: str | None,
-    item_id: str | None,
-    amount: int | None,
-    currency: str | None,
-    user_id: uuid.UUID,
-    order_id: str | None,
-) -> None:
-    """Validate that the payment amount matches catalog pricing.
-
-    Logs a warning on mismatch but does not block fulfillment — Razorpay's
-    signature verification already guarantees the payment is authentic.
-    """
-    if not amount or not item_type:
-        return
-
-    expected: int | None = None
-    if item_type == "pro_subscription":
-        for pricing in PRO_PLAN_PRICES.values():
-            if pricing["currency"].upper() == (currency or "").upper():
-                expected = pricing["amount"]
-                break
-    elif item_type in ("pass", "credit") and item_id:
-        # Collect all catalog prices across regions and warn if the paid
-        # amount does not match any of them.
-        catalog_prices: list[int] = []
-        for region in ("IN", "US", "GB", "EU"):
-            price = get_price(item_id, region)
-            if price is not None and price not in catalog_prices:
-                catalog_prices.append(price)
-        if amount in catalog_prices:
-            expected = amount
-        elif catalog_prices:
-            logger.warning(
-                "Payment amount mismatch: expected_one_of=%s got=%s item_type=%s "
-                "item_id=%s user=%s order=%s",
-                str(catalog_prices).replace("\n", "").replace("\r", ""),
-                str(amount).replace("\n", "").replace("\r", ""),
-                str(item_type).replace("\n", "").replace("\r", ""),
-                str(item_id).replace("\n", "").replace("\r", ""),
-                str(user_id).replace("\n", "").replace("\r", ""),
-                str(order_id).replace("\n", "").replace("\r", ""),
-            )
-
-    if expected is not None and expected != amount:
-        logger.warning(
-            "Payment amount mismatch: expected=%s got=%s item_type=%s item_id=%s user=%s order=%s",
-            str(expected).replace("\n", "").replace("\r", ""),
-            str(amount).replace("\n", "").replace("\r", ""),
-            str(item_type).replace("\n", "").replace("\r", ""),
-            str(item_id).replace("\n", "").replace("\r", ""),
-            str(user_id).replace("\n", "").replace("\r", ""),
-            str(order_id).replace("\n", "").replace("\r", ""),
-        )

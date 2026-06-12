@@ -9,6 +9,7 @@ from app.db.models.billing_catalog import (
 from app.db.models.billing_credit import BillingUserCredit
 from app.db.models.billing_pass import BillingUserPass, UserPassTool
 from app.db.models.billing_subscription import PaymentEvent, Subscription
+from app.db.models.payment_fulfillment import PaymentFulfillment
 from app.db.models.user import User
 from app.db.models.user_daily_login import UserDailyLogin
 from app.db.models.user_discovered_tool import UserDiscoveredTool
@@ -33,6 +34,7 @@ __all__ = [
     "CreditPackPrice",
     "Subscription",
     "PaymentEvent",
+    "PaymentFulfillment",
     "BillingUserPass",
     "UserPassTool",
     "BillingUserCredit",

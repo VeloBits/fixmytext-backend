@@ -3,7 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -19,7 +19,6 @@ from app.core.pass_catalog import (
     get_price,
     get_symbol,
 )
-from app.db.models.billing_credit import BillingUserCredit
 from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.passes import (
@@ -37,14 +36,15 @@ from app.schemas.passes import (
     ReferralCodeResponse,
     SpinResult,
 )
+from app.services.fulfillment_service import AlreadyFulfilled, fulfill_payment
+from app.services.order_validation import validate_order_scope_and_amount
 from app.services.pass_service import (
     claim_referral,
     ensure_referral_code,
     get_active_credits,
     get_active_passes,
     get_credit_balance,
-    grant_credits,
-    grant_pass,
+    maybe_grant_welcome_gift,
     spin_wheel,
 )
 from app.services.payment_service import verify_razorpay_payment
@@ -258,91 +258,67 @@ async def verify_pass_payment(
 ):
     """Verify a Razorpay payment signature, then grant the purchased pass or credits.
 
-    Delegates signature and ownership checks to the payment service. On success,
-    grants the purchased item and a one-time welcome gift (10 credits) for
-    first-time purchasers. All grants are wrapped in a single transaction.
+    Fulfillment is idempotent and exactly-once: this verify callback and the
+    Razorpay webhook converge on a single ledger keyed by the payment id, so a
+    replayed body or a verify/webhook race grants the entitlement only once.
+    Tool scope and the paid amount are validated server-side against the order
+    notes and the catalog — the client-supplied ``tool_ids`` are ignored.
     """
     # Verify signature and ownership via centralized payment service
     order = await verify_razorpay_payment(
         req.razorpay_order_id, req.razorpay_payment_id, req.razorpay_signature, user
     )
 
-    # Validate that the order metadata matches the client's claimed item
-    notes = order.get("notes", {})
-    if notes.get("item_id") != req.item_id or notes.get("item_type") != req.item_type:
-        raise HTTPException(
-            400, "Order details do not match — item_id or item_type mismatch"
-        )
+    # Server-side scope + amount validation. tool_ids come from the order notes
+    # fixed at creation time, NOT from req.tool_ids; amount is reconciled against
+    # the catalog price for the charged currency.
+    tool_ids, amount, currency = validate_order_scope_and_amount(
+        order=order, expected_item_id=req.item_id, expected_item_type=req.item_type
+    )
 
-    # Lock user row first to ensure atomicity for grant + welcome gift
+    # Lock the user row so the welcome-gift check is atomic against the webhook.
     await db.execute(select(User).where(User.id == user.id).with_for_update())
 
+    safe_item_id = str(req.item_id).replace("\r", "").replace("\n", "")
+    safe_payment_id = str(req.razorpay_payment_id).replace("\r", "").replace("\n", "")
+
     try:
-        if req.item_type == "pass":
-            pass_def = get_pass(req.item_id)
-            if not pass_def:
-                raise HTTPException(400, f"Unknown pass: {req.item_id}")
-            tool_ids = req.tool_ids if req.tool_ids else ["*"]
-            await grant_pass(
-                user,
-                req.item_id,
-                tool_ids,
-                "razorpay",
-                db,
-                razorpay_payment_id=req.razorpay_payment_id,
-                auto_commit=False,
-            )
-            safe_item_id = str(req.item_id).replace("\r", "").replace("\n", "")
-            safe_payment_id = (
-                str(req.razorpay_payment_id).replace("\r", "").replace("\n", "")
-            )
-            logger.info(
-                "Pass granted: user=%s pass=%s payment=%s",
-                user.id,
-                safe_item_id,
-                safe_payment_id,
-            )
-
-        elif req.item_type == "credit":
-            pack = get_credit_pack(req.item_id)
-            if not pack:
-                raise HTTPException(400, f"Unknown credit pack: {req.item_id}")
-            await grant_credits(
-                user,
-                pack["credits"],
-                "purchase",
-                db,
-                razorpay_payment_id=req.razorpay_payment_id,
-                auto_commit=False,
-            )
-            safe_item_id = str(req.item_id).replace("\r", "").replace("\n", "")
-            safe_payment_id = (
-                str(req.razorpay_payment_id).replace("\r", "").replace("\n", "")
-            )
-            logger.info(
-                "Credits granted: user=%s pack=%s credits=%d payment=%s",
-                user.id,
-                safe_item_id,
-                pack["credits"],
-                safe_payment_id,
-            )
-
-        # First purchase welcome gift (idempotent — user row already locked above)
-        already_welcomed = await db.execute(
-            select(func.count()).where(
-                BillingUserCredit.user_id == user.id,
-                BillingUserCredit.source == "welcome",
-            )
+        await fulfill_payment(
+            db=db,
+            user=user,
+            razorpay_payment_id=req.razorpay_payment_id,
+            razorpay_order_id=req.razorpay_order_id,
+            item_type=req.item_type,
+            item_id=req.item_id,
+            tool_ids=tool_ids,
+            amount_subunits=amount,
+            currency=currency,
+            fulfilled_via="verify",
         )
-        if already_welcomed.scalar() == 0:
-            await grant_credits(user, 10, "welcome", db, auto_commit=False)
+        # First-purchase welcome gift (idempotent; user row locked above).
+        if await maybe_grant_welcome_gift(user, db):
             logger.info("Welcome gift granted: user=%s", user.id)
-
         await db.commit()
+    except AlreadyFulfilled:
+        await db.rollback()
+        logger.info(
+            "Payment already fulfilled (verify): user=%s item=%s payment=%s",
+            user.id,
+            safe_item_id,
+            safe_payment_id,
+        )
+        return {"status": "success", "detail": "already_fulfilled"}
     except Exception:
         await db.rollback()
         raise
 
+    logger.info(
+        "Payment fulfilled (verify): user=%s type=%s item=%s payment=%s",
+        user.id,
+        req.item_type,
+        safe_item_id,
+        safe_payment_id,
+    )
     return {"status": "success"}
 
 
