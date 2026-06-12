@@ -1,0 +1,35 @@
+# Railway config-as-code for payments-svc — build from source.
+#
+# Dashboard setup for this Railway service:
+#   • Config-as-Code path : services/payments-svc/railway.toml
+#   • Root Directory      : /   (repo root — the Dockerfile COPYs shared/ and
+#                                 services/payments-svc/, so it needs repo-root context)
+#   • Branch auto-deploy  : DISABLED. Deploys are driven only by the CI-gated
+#                           GitHub Actions workflow (.github/workflows/deploy-railway.yml)
+#                           so nothing ships without green CI (H-7).
+#                           Branch -> env: develop -> development, main -> production.
+#
+# NOTE: payments-svc serves the internal entitlement gate (/internal/v1/check-access)
+# that text-svc and ai-svc call. Set INTERNAL_SHARED_SECRET (same value across all
+# three services) in this Railway service's variables, or the gate fails closed.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "services/payments-svc/Dockerfile"
+
+[deploy]
+# Railway injects $PORT at runtime; bind to it.
+startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+numReplicas = 1
+
+[environments.production.deploy]
+restartPolicyType = "ALWAYS"
+numReplicas = 1
+
+[environments.development.deploy]
+restartPolicyType = "ON_FAILURE"
+numReplicas = 1

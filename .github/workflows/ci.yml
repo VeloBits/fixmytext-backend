@@ -203,10 +203,15 @@ jobs:
       - name: Build text-svc Docker image
         run: docker build -t text-svc:${{ github.sha }} -f services/text-svc/Dockerfile .
 
+      - name: Build payments-svc Docker image
+        run: docker build -t payments-svc:${{ github.sha }} -f services/payments-svc/Dockerfile .
+
       - name: Build migrate Docker image
         run: docker build -t migrate:${{ github.sha }} -f migrations/Dockerfile.migrate .
 
-      - name: Run Trivy vulnerability scanner
+      # Informational scan of one image -> GitHub Security tab (kept for the SARIF
+      # view). The hard gate below is what actually fails the build (M-12).
+      - name: Trivy SARIF (account-svc, Security tab)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: 'account-svc:${{ github.sha }}'
@@ -220,6 +225,54 @@ jobs:
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
+
+      # ── Gate: fail the build on any CRITICAL/HIGH (fixable) vuln in any of the
+      # service images (M-12). A red CI here blocks the CI-gated Railway deploy
+      # (.github/workflows/deploy-railway.yml) from ever shipping the image.
+      - name: Trivy gate (account-svc)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: 'account-svc:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Trivy gate (ai-svc)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: 'ai-svc:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Trivy gate (text-svc)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: 'text-svc:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Trivy gate (payments-svc)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: 'payments-svc:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Trivy gate (migrate)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: 'migrate:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
 
   create-release:
     name: Create Sentry Release

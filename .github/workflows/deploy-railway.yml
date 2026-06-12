@@ -1,0 +1,82 @@
+# Deploy to Railway (build from source) — CI-GATED.
+#
+# Runs ONLY after the "Backend Test & Build" workflow completes successfully on
+# main or develop — never on a raw push. This is the in-repo enforcement of H-7:
+# a red CI (failing tests, coverage gate, or the Trivy image scan) blocks the
+# deploy. Railway's own per-service branch auto-deploy MUST be DISABLED in the
+# dashboard so this workflow is the only path to an environment.
+#
+# Branch -> environment:  develop -> development,  main -> production.
+#
+# Required GitHub secrets (Settings -> Secrets and variables -> Actions):
+#   RAILWAY_TOKEN_DEV   — project token scoped to the Railway *development* env
+#   RAILWAY_TOKEN_PROD  — project token scoped to the Railway *production* env
+# Each service's railway.toml (services/<svc>/railway.toml) supplies the Dockerfile
+# path + start command; set each service's Config-as-Code path + Root Directory (/)
+# in the Railway dashboard. Service names in the matrix below must match the
+# Railway service names.
+name: Deploy (Railway)
+
+on:
+  workflow_run:
+    workflows: ["Backend Test & Build"]
+    types: [completed]
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Railway environment to deploy"
+        type: choice
+        options: [development, production]
+        default: development
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-railway-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    # Gate: only a successful CI run (or a manual dispatch) may deploy.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [account-svc, ai-svc, text-svc, payments-svc]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Deploy the exact commit that passed CI; fall back to the ref for dispatch.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: Resolve Railway environment from branch
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.workflow_run.head_branch }}" = "main" ]; then
+            echo "name=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=development" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli@4
+
+      - name: Deploy ${{ matrix.service }} to Railway (${{ steps.env.outputs.name }})
+        # railway up uploads the repo and Railway builds it from the service's
+        # railway.toml (Dockerfile). The env-scoped token selects project+env.
+        run: railway up --service "${{ matrix.service }}" --ci
+        env:
+          RAILWAY_TOKEN: ${{ steps.env.outputs.name == 'production' && secrets.RAILWAY_TOKEN_PROD || secrets.RAILWAY_TOKEN_DEV }}

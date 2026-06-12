@@ -1,0 +1,33 @@
+# Railway config-as-code for text-svc — build from source.
+#
+# Dashboard setup for this Railway service:
+#   • Config-as-Code path : services/text-svc/railway.toml
+#   • Root Directory      : /   (repo root — the Dockerfile COPYs shared/ and
+#                                 services/text-svc/, so it needs repo-root context)
+#   • Branch auto-deploy  : DISABLED. Deploys are driven only by the CI-gated
+#                           GitHub Actions workflow (.github/workflows/deploy-railway.yml)
+#                           so nothing ships without green CI (H-7).
+#                           Branch -> env: develop -> development, main -> production.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "services/text-svc/Dockerfile"
+
+[deploy]
+# Railway injects $PORT at runtime; bind to it. The Dockerfile CMD runs
+# --workers 4; Railway's startCommand overrides it, so keep the worker count
+# in sync here if you rely on multiple workers (H-5 DoS bound).
+startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 4"
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+numReplicas = 1
+
+[environments.production.deploy]
+restartPolicyType = "ALWAYS"
+numReplicas = 1
+
+[environments.development.deploy]
+restartPolicyType = "ON_FAILURE"
+numReplicas = 1
