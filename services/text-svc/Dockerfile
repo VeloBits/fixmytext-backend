@@ -57,4 +57,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Multiple workers so one CPU-bound tool request can't wedge the whole service
+# (paired with per-request wall-clock bounds on heavy tools). Override via
+# WEB_CONCURRENCY at deploy time to match the container's CPU allocation.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

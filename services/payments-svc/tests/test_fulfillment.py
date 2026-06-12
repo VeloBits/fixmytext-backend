@@ -108,17 +108,25 @@ async def test_replay_same_payment_id_grants_once(session_factory, user):
 
     async with session_factory() as db:
         subs = (
-            await db.execute(
-                select(Subscription).where(Subscription.user_id == user.id)
-            )
-        ).scalars().all()
-        ledger = (
-            await db.execute(
-                select(PaymentFulfillment).where(
-                    PaymentFulfillment.razorpay_payment_id == "pay_replay"
+            (
+                await db.execute(
+                    select(Subscription).where(Subscription.user_id == user.id)
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
+        ledger = (
+            (
+                await db.execute(
+                    select(PaymentFulfillment).where(
+                        PaymentFulfillment.razorpay_payment_id == "pay_replay"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     assert len(subs) == 1, "replay must not create a second subscription"
     assert len(ledger) == 1, "exactly one ledger row per payment id"
@@ -140,16 +148,18 @@ async def test_second_distinct_payment_same_user_is_idempotent(session_factory, 
 
     async with session_factory() as db:
         active = (
-            await db.execute(
-                select(Subscription).where(
-                    Subscription.user_id == user.id,
-                    Subscription.status == "active",
+            (
+                await db.execute(
+                    select(Subscription).where(
+                        Subscription.user_id == user.id,
+                        Subscription.status == "active",
+                    )
                 )
             )
-        ).scalars().all()
-        ledger = (
-            await db.execute(select(PaymentFulfillment))
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
+        ledger = (await db.execute(select(PaymentFulfillment))).scalars().all()
 
     assert len(active) == 1
     # pay_B rolled back, so only pay_A's ledger row persists.

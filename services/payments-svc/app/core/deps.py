@@ -5,9 +5,10 @@ JIT-provisions) the corresponding User row so downstream handlers receive
 a fully-populated ORM object.
 """
 
+import hmac
 import uuid
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fixmytext_shared.security.jwt import verify_jwt_raw
 from sqlalchemy import select
@@ -18,6 +19,19 @@ from app.db.models.user import User
 from app.db.session import get_db
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+async def verify_internal_secret(
+    x_internal_secret: str = Header(default=""),
+) -> None:
+    """Guard internal service-to-service endpoints with a shared secret.
+
+    Fails closed: if ``INTERNAL_SHARED_SECRET`` is unset, every internal call is
+    denied so a missing secret cannot silently expose the entitlement gate.
+    """
+    expected = settings.INTERNAL_SHARED_SECRET
+    if not expected or not hmac.compare_digest(x_internal_secret, expected):
+        raise HTTPException(status_code=401, detail="invalid internal credentials")
 
 
 async def get_current_user(

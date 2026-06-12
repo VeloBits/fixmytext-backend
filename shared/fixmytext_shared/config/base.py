@@ -30,6 +30,12 @@ class BaseSharedSettings(BaseSettings):
     # Redis (optional)
     REDIS_URL: str = ""
 
+    # Internal service-to-service shared secret (entitlement gate, etc.).
+    # Sent as the X-Internal-Secret header; verified with hmac.compare_digest.
+    # Empty => internal endpoints fail closed (deny all) so a missing secret
+    # never silently disables the gate.
+    INTERNAL_SHARED_SECRET: str = ""
+
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 

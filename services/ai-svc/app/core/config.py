@@ -34,5 +34,8 @@ class Settings(BaseSharedSettings):
     RATE_LIMIT_MAX_REQUESTS: int = 25
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
+    # ── Entitlement gate (payments-svc internal endpoint) ─────────────────────
+    PAYMENTS_INTERNAL_URL: str = "http://payments-svc:8000"
+
 
 settings = Settings()

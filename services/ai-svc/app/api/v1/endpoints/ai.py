@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.rate_limit import ai_limiter
 from app.services import ai_service
+from app.services.entitlement_client import check_access as check_entitlement
 from app.tool_registry import get_tool
 
 logger = logging.getLogger(__name__)
@@ -184,8 +185,15 @@ async def run_ai_tool(
         len(req.text),
     )
 
-    # Rate limiting
+    # Rate limiting first (cheap), then the per-tool entitlement check (H-1):
+    # consumes credits/passes/free quota, fails closed if payments-svc is down.
     await ai_limiter.check(request, user_id=user.id)
+    await check_entitlement(
+        tool_id=tool_id,
+        user_id=user.id,
+        email=user.email,
+        email_verified=user.is_email_verified,
+    )
 
     # Build operation label (include sub-param for parameterised tools)
     operation = tool_id
@@ -233,6 +241,12 @@ async def stream_ai_tool(
         raise HTTPException(status_code=404, detail=f"AI tool '{tool_id}' not found")
 
     await ai_limiter.check(request, user_id=user.id)
+    await check_entitlement(
+        tool_id=tool_id,
+        user_id=user.id,
+        email=user.email,
+        email_verified=user.is_email_verified,
+    )
 
     extra_args = _extract_extra_args(tool_id, req)
 
