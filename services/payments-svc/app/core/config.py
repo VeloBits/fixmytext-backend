@@ -32,6 +32,9 @@ class Settings(BaseSharedSettings):
     KEYCLOAK_URL: str = ""
     KEYCLOAK_REALM: str = "fixmytext"
     KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
+    # Expected token issuer (Keycloak realm URL). REQUIRED in prod (startup
+    # assert); empty disables issuer checks (dev only).
+    KEYCLOAK_ISSUER: str = ""
     KEYCLOAK_JWKS_URL: str = ""
 
     # ── Razorpay ──────────────────────────────────────────────────────────────

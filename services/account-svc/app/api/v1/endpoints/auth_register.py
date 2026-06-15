@@ -2,13 +2,22 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, field_validator
 
+from app.core.rate_limit import register_limiter
 from app.services.keycloak_admin import create_keycloak_user, send_verification_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _client_ip(request: Request) -> str:
+    """Best-effort real client IP (first X-Forwarded-For hop, else peer)."""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 class RegisterRequest(BaseModel):
@@ -32,8 +41,11 @@ class RegisterRequest(BaseModel):
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(payload: RegisterRequest):
+async def register(payload: RegisterRequest, request: Request):
     """Create a new user in Keycloak. Frontend follows with a Direct Grant login."""
+    # Throttle per client IP before touching the Keycloak Admin API (M-8).
+    await register_limiter.check(request, user_id=f"ip:{_client_ip(request)}")
+
     try:
         keycloak_id = await create_keycloak_user(
             email=payload.email,

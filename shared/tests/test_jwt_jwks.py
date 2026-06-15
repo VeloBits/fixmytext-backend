@@ -129,6 +129,19 @@ class TestVerifyJwtJWKS:
                 issuer=ISSUER,
             )
 
+    def test_rejects_wrong_issuer(self, patched_jwk_fetch):
+        """Issuer is verified when passed — cross-realm tokens are rejected (BE-AUTH-01)."""
+        private_pem, _ = patched_jwk_fetch
+        token = _make_token(private_pem, _base_payload())
+        with pytest.raises(jwt.InvalidIssuerError):
+            verify_jwt(
+                token,
+                algorithm="RS256",
+                jwks_url=JWKS_URL,
+                audience=AUDIENCE,
+                issuer="http://evil-keycloak:8080/realms/other",
+            )
+
     def test_requires_jwks_url(self):
         with pytest.raises(ValueError, match="RS256 requires"):
             verify_jwt("anytoken", algorithm="RS256")

@@ -53,6 +53,7 @@ async def get_current_user(
             algorithm="RS256",
             jwks_url=settings.KEYCLOAK_JWKS_URL,
             audience=settings.KEYCLOAK_AUDIENCE or None,
+            issuer=settings.KEYCLOAK_ISSUER or None,
         )
         keycloak_id = uuid.UUID(payload.get("sub"))
     except Exception as exc:

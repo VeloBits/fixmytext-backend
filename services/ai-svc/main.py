@@ -111,6 +111,18 @@ async def lifespan(app: FastAPI):
         )
 
     init_logs_otel()
+
+    # Fail fast in prod if JWT audience/issuer verification would be disabled
+    # (M-6, BE-AUTH-01).
+    from fixmytext_shared.config.validation import assert_required_in_prod
+
+    assert_required_in_prod(
+        settings.ENVIRONMENT,
+        KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
+        KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
+        KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
+    )
+
     init_groq_client()
     logger.info("Groq client initialized")
 

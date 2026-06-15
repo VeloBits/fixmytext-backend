@@ -102,6 +102,29 @@ logger = logging.getLogger("fixmytext.payments-svc")
 async def lifespan(app: FastAPI):
     """Initialize/cleanup shared clients on startup/shutdown."""
     init_logs_otel()
+
+    # Fail fast in prod on missing security-critical config (M-6, BE-AUTH-01)
+    # and the internal entitlement secret (without it the gate fails closed).
+    from fixmytext_shared.config.validation import (
+        assert_required_in_prod,
+        is_production_like,
+    )
+
+    assert_required_in_prod(
+        settings.ENVIRONMENT,
+        KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
+        KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
+        KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
+        INTERNAL_SHARED_SECRET=settings.INTERNAL_SHARED_SECRET,
+    )
+    # BE-PAY-09: the fake backend bypasses Razorpay signature verification —
+    # it must never run in a production environment.
+    if is_production_like(settings.ENVIRONMENT) and settings.PAYMENTS_BACKEND.lower() == "fake":
+        raise RuntimeError(
+            "Refusing to start: PAYMENTS_BACKEND=fake in a production environment "
+            "(bypasses payment signature verification — BE-PAY-09)."
+        )
+
     init_razorpay()
     logger.info("Razorpay client initialized")
 

@@ -102,6 +102,19 @@ async def lifespan(app: FastAPI):
     """Initialize/cleanup shared clients on startup/shutdown."""
     init_logs_otel()
 
+    # Fail fast in prod if a security-critical setting is unset — never silently
+    # run with audience/issuer verification or cookie signing disabled
+    # (M-6, BE-AUTH-01, BE-AUTH-04).
+    from fixmytext_shared.config.validation import assert_required_in_prod
+
+    assert_required_in_prod(
+        settings.ENVIRONMENT,
+        KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
+        KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
+        KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
+        SESSION_COOKIE_SECRET=settings.SESSION_COOKIE_SECRET,
+    )
+
     from app.core.redis import close_redis, init_redis
 
     await init_redis()

@@ -54,6 +54,7 @@ async def _resolve_user_id(
                 algorithm="RS256",
                 jwks_url=settings.KEYCLOAK_JWKS_URL,
                 audience=settings.KEYCLOAK_AUDIENCE or None,
+                issuer=settings.KEYCLOAK_ISSUER or None,
             )
             return uuid.UUID(payload["sub"])
         except Exception:
@@ -88,6 +89,7 @@ async def get_current_user(
                 algorithm="RS256",
                 jwks_url=settings.KEYCLOAK_JWKS_URL,
                 audience=settings.KEYCLOAK_AUDIENCE or None,
+                issuer=settings.KEYCLOAK_ISSUER or None,
             )
         except Exception as exc:
             raise HTTPException(

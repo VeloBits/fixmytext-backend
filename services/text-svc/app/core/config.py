@@ -26,6 +26,8 @@ class Settings(BaseSharedSettings):
     # invalid tokens fall back to the anonymous-visitor quota.
     KEYCLOAK_JWKS_URL: str = ""
     KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
+    # Expected token issuer (Keycloak realm URL); empty disables issuer checks.
+    KEYCLOAK_ISSUER: str = ""
 
     # ── Entitlement gate (payments-svc internal endpoint) ─────────────────────
     PAYMENTS_INTERNAL_URL: str = "http://payments-svc:8000"

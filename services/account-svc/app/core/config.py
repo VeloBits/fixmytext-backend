@@ -33,6 +33,10 @@ class Settings(BaseSharedSettings):
     # Default is now the dev realm; prod overrides via env var.
     KEYCLOAK_REALM: str = "Velobits-Dev"
     KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
+    # Expected token issuer (Keycloak realm URL, e.g.
+    # https://auth.example.com/realms/<realm>). REQUIRED in prod — see the
+    # startup assert in main.lifespan. Empty disables issuer checks (dev only).
+    KEYCLOAK_ISSUER: str = ""
     KEYCLOAK_JWKS_URL: str = ""
     KEYCLOAK_ADMIN: str = "admin"
     KEYCLOAK_ADMIN_PASSWORD: str = ""
@@ -57,6 +61,13 @@ class Settings(BaseSharedSettings):
 
     # ── History ───────────────────────────────────────────────────────────────
     HISTORY_PREVIEW_MAX_LENGTH: int = 500
+
+    # ── Rate limiting ─────────────────────────────────────────────────────────
+    # /auth/register is throttled hard per client IP — it proxies to the Keycloak
+    # Admin API and can be sprayed to mass-create users, amplify verification
+    # emails, or enumerate addresses (M-8).
+    REGISTER_RATE_LIMIT_MAX_REQUESTS: int = 10
+    REGISTER_RATE_LIMIT_WINDOW_SECONDS: int = 3600
 
 
 settings = Settings()

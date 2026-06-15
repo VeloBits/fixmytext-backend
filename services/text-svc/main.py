@@ -99,6 +99,15 @@ async def lifespan(app: FastAPI):
     """Initialize/cleanup shared clients on startup/shutdown."""
     init_logs_otel()
 
+    # Without the internal secret the entitlement gate fails closed and every
+    # billable tool returns 503 — refuse to start prod misconfigured.
+    from fixmytext_shared.config.validation import assert_required_in_prod
+
+    assert_required_in_prod(
+        settings.ENVIRONMENT,
+        INTERNAL_SHARED_SECRET=settings.INTERNAL_SHARED_SECRET,
+    )
+
     from app.core.redis import close_redis, init_redis
 
     await init_redis()

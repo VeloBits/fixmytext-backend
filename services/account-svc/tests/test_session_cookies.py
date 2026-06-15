@@ -12,8 +12,10 @@ Covers:
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 import pytest
+from starlette.responses import Response
 
 from app.core.session_cookie import build_claims, sign_session, verify_session
 
@@ -93,6 +95,43 @@ def test_malformed_token_returns_none():
     assert verify_session("not-a-cookie", SECRET) is None
     assert verify_session("nodot", SECRET) is None
     assert verify_session("!!!!.!!!!", SECRET) is None
+
+
+def test_session_cookie_subject_is_keycloak_id(monkeypatch):
+    """M-7: the cookie `sub` is the Keycloak id (what get_current_user matches
+    on), not the DB primary key — otherwise the cookie never resolves a user."""
+    from app.api.v1.endpoints import auth as auth_mod
+
+    monkeypatch.setattr(auth_mod.settings, "SESSION_COOKIE_SECRET", SECRET)
+    db_id = "11111111-1111-1111-1111-111111111111"
+    kc_id = "22222222-2222-2222-2222-222222222222"
+    user = SimpleNamespace(
+        id=db_id, keycloak_id=kc_id, email="u@e.com", is_email_verified=True
+    )
+
+    response = Response()
+    auth_mod._set_session_cookie(response, user)
+
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "fixmytext_session=" in set_cookie
+    value = set_cookie.split("fixmytext_session=", 1)[1].split(";", 1)[0]
+    claims = verify_session(value, SECRET)
+    assert claims is not None
+    assert claims["sub"] == kc_id
+    assert claims["sub"] != db_id
+
+
+def test_session_cookie_skipped_without_keycloak_id(monkeypatch):
+    """A user with no keycloak_id gets no cookie (rather than a bad one)."""
+    from app.api.v1.endpoints import auth as auth_mod
+
+    monkeypatch.setattr(auth_mod.settings, "SESSION_COOKIE_SECRET", SECRET)
+    user = SimpleNamespace(
+        id="x", keycloak_id=None, email="u@e.com", is_email_verified=True
+    )
+    response = Response()
+    auth_mod._set_session_cookie(response, user)
+    assert "set-cookie" not in {k.lower() for k in response.headers}
 
 
 @pytest.mark.asyncio

@@ -47,8 +47,14 @@ def _set_session_cookie(
     """
     if not settings.SESSION_COOKIE_SECRET:
         return
+    # The cookie `sub` MUST be the Keycloak id: get_current_user resolves the
+    # cookie via `User.keycloak_id == sub` (M-7). Signing the DB primary key
+    # here made the cookie never resolve (silent Bearer fallback). Skip the
+    # cookie for any user lacking a keycloak_id (should not occur post-cutover).
+    if not user.keycloak_id:
+        return
     claims = build_claims(
-        sub=str(user.id),
+        sub=str(user.keycloak_id),
         email=user.email,
         email_verified=user.is_email_verified,
         roles=roles or [],

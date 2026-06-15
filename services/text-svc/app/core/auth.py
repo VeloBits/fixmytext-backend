@@ -44,6 +44,7 @@ async def get_optional_user(
             algorithm="RS256",
             jwks_url=settings.KEYCLOAK_JWKS_URL,
             audience=settings.KEYCLOAK_AUDIENCE or None,
+            issuer=settings.KEYCLOAK_ISSUER or None,
         )
     except (JWTError, ValueError):
         logger.debug("text-svc: invalid token — treating request as anonymous")
