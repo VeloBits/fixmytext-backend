@@ -1,6 +1,5 @@
 """Pass service — unified tool access checking, pass/credit granting and consuming."""
 
-import random
 import secrets
 from datetime import UTC, date, datetime, timedelta
 
@@ -676,9 +675,10 @@ async def spin_wheel(user: User, db: AsyncSession) -> dict:
     if existing_spin:
         return {"error": "Already spun this week. Come back next week!"}
 
-    # Weighted random selection
+    # Weighted random selection — use a cryptographic RNG so the outcome can't
+    # be predicted/seeded by a caller chasing the rare high-value prizes (BE-PAY-07).
     total_weight = sum(r["weight"] for r in SPIN_REWARDS)
-    roll = random.randint(1, total_weight)  # noqa: S311
+    roll = secrets.randbelow(total_weight) + 1
     cumulative = 0
     reward = SPIN_REWARDS[-1]
     for r in SPIN_REWARDS:
@@ -762,19 +762,34 @@ async def claim_referral(user: User, code: str, db: AsyncSession) -> dict:
         return {"error": "You've already used a referral code."}
     if user.referral_code == code:
         return {"error": "You can't use your own referral code."}
+    # M-10: require a verified email so a script can't farm referrals with a
+    # swarm of throwaway, never-confirmed accounts.
+    if not user.is_email_verified:
+        return {"error": "Verify your email before claiming a referral code."}
 
     result = await db.execute(select(User).where(User.referral_code == code))
     referrer = result.scalars().first()
     if not referrer:
         return {"error": "Invalid referral code."}
 
+    # M-10: cap how many referral payouts a single referrer can earn. Past the
+    # cap the new user still gets their reward, but the referrer earns nothing —
+    # so farming via burner accounts stops paying out.
+    referred_count = await db.scalar(
+        select(func.count()).select_from(User).where(User.referred_by == referrer.id)
+    )
+    referrer_eligible = (referred_count or 0) < settings.REFERRAL_MAX_PER_REFERRER
+
     try:
-        # Reward referrer
-        rr = REFERRAL_REWARDS["referrer"]
-        await grant_pass(
-            referrer, rr["pass_id"], ["*"], "referral", db, auto_commit=False
-        )
-        await grant_credits(referrer, rr["credits"], "referral", db, auto_commit=False)
+        # Reward referrer (only while under the per-referrer cap)
+        if referrer_eligible:
+            rr = REFERRAL_REWARDS["referrer"]
+            await grant_pass(
+                referrer, rr["pass_id"], ["*"], "referral", db, auto_commit=False
+            )
+            await grant_credits(
+                referrer, rr["credits"], "referral", db, auto_commit=False
+            )
 
         # Reward new user
         nr = REFERRAL_REWARDS["new_user"]

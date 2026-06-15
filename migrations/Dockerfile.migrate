@@ -15,3 +15,8 @@ COPY services/payments-svc/ ./services/payments-svc/
 COPY services/account-svc/ ./services/account-svc/
 COPY shared/ ./shared/
 RUN pip install --no-cache-dir -e ./shared
+
+# Run migrations as a non-root user (DO-06). Alembic only needs DB access +
+# read access to /app (root-owned files are world-readable), not root.
+RUN useradd --create-home --uid 10001 migrate
+USER migrate

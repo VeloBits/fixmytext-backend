@@ -46,21 +46,14 @@ class TestInMemoryRateLimiter:
 
 @pytest.mark.asyncio
 class TestRedisRateLimiter:
-    def _fake_redis(self, current_count: int):
-        """Build a mock that mimics aioredis pipeline behaviour."""
-        pipe = MagicMock()
-        pipe.zremrangebyscore = MagicMock()
-        pipe.zcard = MagicMock()
-        pipe.zadd = MagicMock()
-        pipe.expire = MagicMock()
-        # results[1] is zcard's value
-        pipe.execute = AsyncMock(return_value=[None, current_count, None, None])
+    def _fake_redis(self, *, allowed: bool):
+        """Mock the atomic Lua eval: returns 1 (allowed) or 0 (over limit)."""
         client = MagicMock()
-        client.pipeline = MagicMock(return_value=pipe)
+        client.eval = AsyncMock(return_value=1 if allowed else 0)
         return client
 
     async def test_passes_when_under_limit(self, request_factory):
-        client = self._fake_redis(current_count=0)
+        client = self._fake_redis(allowed=True)
         limiter = RedisRateLimiter(
             redis_factory=lambda: client,
             max_requests=5,
@@ -69,7 +62,7 @@ class TestRedisRateLimiter:
         await limiter.check(request_factory("1.2.3.4"))
 
     async def test_raises_429_when_over_limit(self, request_factory):
-        client = self._fake_redis(current_count=10)
+        client = self._fake_redis(allowed=False)
         limiter = RedisRateLimiter(
             redis_factory=lambda: client,
             max_requests=5,
@@ -79,15 +72,35 @@ class TestRedisRateLimiter:
             await limiter.check(request_factory("1.2.3.4"))
         assert exc_info.value.status_code == 429
 
-    async def test_no_op_when_redis_unavailable(self, request_factory):
+    async def test_fails_closed_via_in_memory_when_redis_unavailable(
+        self, request_factory
+    ):
+        """M-4: Redis down must NOT mean 'no limit' — the in-process fallback
+        still enforces the cap (here max_requests=1)."""
         limiter = RedisRateLimiter(
             redis_factory=lambda: None,
             max_requests=1,
             window_seconds=60,
         )
-        # should not raise even when called many times
-        for _ in range(5):
-            await limiter.check(request_factory("1.2.3.4"))
+        req = request_factory("1.2.3.4")
+        await limiter.check(req)  # 1st allowed
+        with pytest.raises(HTTPException) as exc_info:
+            await limiter.check(req)  # 2nd over the in-memory cap
+        assert exc_info.value.status_code == 429
+
+    async def test_falls_back_to_in_memory_on_redis_error(self, request_factory):
+        """A transient Redis error degrades to the in-process limiter, not open."""
+        client = MagicMock()
+        client.eval = AsyncMock(side_effect=ConnectionError("redis down"))
+        limiter = RedisRateLimiter(
+            redis_factory=lambda: client,
+            max_requests=1,
+            window_seconds=60,
+        )
+        req = request_factory("9.9.9.9")
+        await limiter.check(req)  # 1st allowed (fallback)
+        with pytest.raises(HTTPException):
+            await limiter.check(req)  # 2nd blocked (fallback enforces)
 
 
 class TestCreateLimiter:

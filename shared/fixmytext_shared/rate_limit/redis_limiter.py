@@ -4,27 +4,53 @@ The limiter does **not** import a Redis client directly. Callers pass a
 ``redis_factory`` callable that returns the current Redis client (or
 ``None`` when Redis is unavailable). This keeps the shared package
 agnostic of how each service manages its Redis connection lifecycle.
+
+The check-and-increment is done in a single Lua script so it is atomic — two
+concurrent requests can't both read an under-limit count and then both add
+(the classic sorted-set race). When Redis is unavailable the limiter falls
+back to an in-process limiter rather than degrading to *no* limit (M-4): a
+Redis outage must never silently disable quotas.
 """
 
 import logging
 import time
+import uuid
 from collections.abc import Callable
 from typing import Any
 
 from fastapi import HTTPException, Request
 
+from fixmytext_shared.rate_limit.memory import InMemoryRateLimiter
+
 logger = logging.getLogger(__name__)
+
+# Atomic sliding-window check: drop expired members, count, and only then add
+# (if under the limit). Returns 1 when allowed, 0 when the limit is hit.
+_SLIDING_WINDOW_LUA = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local max_requests = tonumber(ARGV[3])
+local member = ARGV[4]
+redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
+local count = redis.call('ZCARD', key)
+if count >= max_requests then
+  return 0
+end
+redis.call('ZADD', key, now, member)
+redis.call('EXPIRE', key, window + 1)
+return 1
+"""
 
 
 class RedisRateLimiter:
-    """Sliding-window rate limiter backed by Redis sorted sets.
+    """Atomic sliding-window rate limiter backed by Redis sorted sets.
 
-    Each key is a sorted set where scores are Unix timestamps. On every
-    check we remove expired members, count remaining ones, and add the
-    current timestamp. The key auto-expires after the window closes.
-
-    When ``redis_factory()`` returns ``None`` the check is a no-op
-    (graceful degradation — caller may chain with InMemoryRateLimiter).
+    Each key is a sorted set keyed by Unix-timestamp scores. The Lua script
+    expires old members, counts, and conditionally adds — all atomically.
+    When ``redis_factory()`` returns ``None`` (or a Redis call errors) the
+    limiter delegates to an in-process :class:`InMemoryRateLimiter` so the
+    quota still holds per-replica instead of failing open.
     """
 
     def __init__(
@@ -38,12 +64,16 @@ class RedisRateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._prefix = prefix
+        # Fail-closed fallback — never degrade to "no limit" when Redis is down.
+        self._fallback = InMemoryRateLimiter(max_requests, window_seconds)
 
     async def check(self, request: Request, user_id: str | None = None) -> None:
-        """Check rate limit via Redis. Raises HTTPException(429) if exceeded."""
+        """Check rate limit. Raises HTTPException(429) if exceeded."""
         redis = self._redis_factory()
         if redis is None:
-            return  # Redis unavailable — degrade open
+            # Redis unavailable — enforce per-process instead of failing open.
+            await self._fallback.check(request, user_id=user_id)
+            return
 
         if user_id:
             raw_key = f"user:{user_id}"
@@ -52,21 +82,30 @@ class RedisRateLimiter:
 
         key = f"{self._prefix}:{raw_key}"
         now = time.time()
-        window_start = now - self.window_seconds
+        member = f"{now}:{uuid.uuid4().hex}"  # unique so equal timestamps don't collide
 
-        pipe = redis.pipeline()
-        pipe.zremrangebyscore(key, 0, window_start)
-        pipe.zcard(key)
-        pipe.zadd(key, {str(now): now})
-        pipe.expire(key, self.window_seconds + 1)
-        results = await pipe.execute()
-
-        current_count = results[1]
-        if current_count >= self.max_requests:
+        try:
+            allowed = await redis.eval(
+                _SLIDING_WINDOW_LUA,
+                1,
+                key,
+                now,
+                self.window_seconds,
+                self.max_requests,
+                member,
+            )
+        except Exception:
+            # Transient Redis error — degrade to the in-process limiter, not open.
             logger.warning(
-                "RATE LIMIT (Redis) hit for %s (%d/%d in %ds)",
+                "Redis rate-limit eval failed; using in-memory fallback", exc_info=True
+            )
+            await self._fallback.check(request, user_id=user_id)
+            return
+
+        if not allowed:
+            logger.warning(
+                "RATE LIMIT (Redis) hit for %s (max %d in %ds)",
                 raw_key,
-                current_count,
                 self.max_requests,
                 self.window_seconds,
             )

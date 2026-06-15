@@ -70,6 +70,10 @@ def _configure_logging() -> None:
     else:
         handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT))
     root.addHandler(handler)
+    # Redact secrets/PII before they hit stdout, not only the OTLP handler (M-9).
+    from fixmytext_shared.observability.logs import attach_log_sanitizers
+
+    attach_log_sanitizers(handler)
 
     # Tame noisy loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -86,6 +90,7 @@ def _configure_logging() -> None:
         else:
             uv_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT))
         uv_logger.addHandler(uv_handler)
+        attach_log_sanitizers(uv_handler)  # also redact uvicorn.access query strings
         uv_logger.propagate = False
 
 
@@ -113,6 +118,8 @@ async def lifespan(app: FastAPI):
         KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
         KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
         SESSION_COOKIE_SECRET=settings.SESSION_COOKIE_SECRET,
+        # Required so the registration rate limit holds across replicas (M-4, M-8).
+        REDIS_URL=settings.REDIS_URL,
     )
 
     from app.core.redis import close_redis, init_redis
@@ -135,9 +142,10 @@ app = FastAPI(
     title="FixMyText Account Service",
     description="User account data: preferences, gamification, templates, history, share.",
     version=settings.VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    # OpenAPI docs are served only in development (BE-CFG-01).
+    docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
+    redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None,
+    openapi_url="/openapi.json" if settings.ENVIRONMENT == "development" else None,
     lifespan=lifespan,
 )
 

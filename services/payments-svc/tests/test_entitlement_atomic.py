@@ -23,7 +23,11 @@ from app.db.models import (
     User,
 )
 from app.db.session import Base
-from app.services.pass_service import check_tool_access, check_visitor_access
+from app.services.pass_service import (
+    check_tool_access,
+    check_visitor_access,
+    claim_referral,
+)
 
 TEST_DB_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -149,6 +153,25 @@ async def test_concurrent_pass_uses_never_exceed_cap(factory, user_id):
 
 
 # ── Visitor quota with a server-derived key ──────────────────────────────────
+
+
+# ── M-10: referral anti-farming ──────────────────────────────────────────────
+
+
+async def test_referral_requires_verified_email(factory):
+    """An unverified account can't claim a referral (blocks burner farming)."""
+    async with factory() as db:
+        u = User(
+            email=f"u-{uuid.uuid4().hex[:8]}@test.test",
+            display_name="Unverified",
+            is_email_verified=False,
+        )
+        db.add(u)
+        await db.commit()
+        await db.refresh(u)
+        result = await claim_referral(u, "SOME-FRIEND-CODE", db)
+    assert "error" in result
+    assert "verify" in result["error"].lower()
 
 
 async def test_visitor_quota_blocks_after_free_limit(factory):

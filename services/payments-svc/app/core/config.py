@@ -46,5 +46,8 @@ class Settings(BaseSharedSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     PAYMENTS_BACKEND: str = "razorpay"
 
+    # Anti-abuse: max referral payouts a single referrer can earn (M-10).
+    REFERRAL_MAX_PER_REFERRER: int = 20
+
 
 settings = Settings()

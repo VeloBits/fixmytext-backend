@@ -17,6 +17,16 @@ from fixmytext_shared.observability.sanitize import (
 _logger_provider: LoggerProvider | None = None
 
 
+def attach_log_sanitizers(handler: logging.Handler) -> None:
+    """Attach secret-sanitization + PII-redaction filters to a log handler.
+
+    The stdout StreamHandler must get these too — not only the OTLP handler —
+    or secrets/PII passed as query params reach Docker logs unredacted (M-9).
+    """
+    handler.addFilter(LogSanitizationFilter())
+    handler.addFilter(PiiRedactionFilter())
+
+
 def init_logs_otel(settings: BaseSharedSettings) -> None:
     """Configure OTel logs export. No-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset."""
     global _logger_provider

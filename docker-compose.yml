@@ -60,7 +60,8 @@ services:
       - "${DB_HOST_PORT:-5433}:5432"
     environment:
       POSTGRES_USER: fixmytext
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fixmytext_dev}
+      # Fail fast if unset rather than booting with a known weak default (M-13).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: fixmytext
     volumes:
       - fixmytext-pgdata:/var/lib/postgresql/data
@@ -318,7 +319,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:-kcdev}}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DEV_DB_PASSWORD in .env}}
       POSTGRES_DB: keycloak_dev_db
     volumes:
       - keycloak-dev-pgdata:/var/lib/postgresql/data
@@ -340,14 +341,14 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-dev-db:5432/keycloak_dev_db
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:-kcdev}}
+      KC_DB_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DEV_DB_PASSWORD in .env}}
       KC_HOSTNAME: auth-dev.velobits.dev
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_DEV_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_DEV_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_DEV_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_DEV_ADMIN_PASSWORD in .env}}
     volumes:
       - ./infrastructure/keycloak/realm-export-dev.json:/opt/keycloak/data/import/realm.json:ro
       - ./infrastructure/keycloak/themes/fixmytext:/opt/keycloak/themes/fixmytext:ro
