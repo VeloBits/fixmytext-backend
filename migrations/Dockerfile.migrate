@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 WORKDIR /app
+# Apply available OS security patches (e.g. openssl) so the base image's fixable
+# CVEs don't trip the CI Trivy gate.
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir \
     alembic \
     asyncpg \

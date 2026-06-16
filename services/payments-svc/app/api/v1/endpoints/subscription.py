@@ -364,7 +364,9 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         # winning delivery fulfills it, and the payment_fulfillments ledger
         # guarantees the grant happens exactly once regardless.
         await db.rollback()
-        logger.info("Duplicate webhook (concurrent insert) ignored: event_id=%s", safe_event_id)
+        logger.info(
+            "Duplicate webhook (concurrent insert) ignored: event_id=%s", safe_event_id
+        )
         return {"status": "ok", "detail": "duplicate"}
 
     # ── payment.authorized — informational only (capture pending) ────

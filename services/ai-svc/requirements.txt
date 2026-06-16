@@ -33,7 +33,7 @@ opentelemetry-instrumentation-logging==0.55b1
 cachetools>=5.5
 
 # PyJWT for token verification
-PyJWT[crypto]==2.12.1
+PyJWT[crypto]==2.13.0
 
 # Shared internal package
 -e ./shared
