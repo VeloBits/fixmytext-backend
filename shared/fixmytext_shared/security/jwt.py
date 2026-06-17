@@ -21,6 +21,7 @@ def verify_jwt(
     jwks_url: str | None = None,
     audience: str | None = None,
     issuer: str | None = None,
+    require_audience: bool = False,
 ) -> ClaimSchema:
     """Verify a JWT and return a typed ClaimSchema.
 
@@ -32,6 +33,12 @@ def verify_jwt(
     For ``HS256``: requires ``secret``. Raises ``ValueError`` if missing.
     For ``RS256``: requires ``jwks_url``. Optionally ``audience`` and
     ``issuer`` for additional validation.
+
+    ``require_audience`` (RS256 only) forbids the implicit "no audience =>
+    skip ``aud`` verification" fail-open: when True and ``audience`` is None,
+    a ``ValueError`` is raised instead of accepting any-audience tokens.
+    Callers should enable it in production so audience verification cannot be
+    silently disabled by an empty audience setting.
 
     Raises ``jwt.PyJWTError`` (or subclasses) on invalid signature,
     expired tokens, or claim mismatches.
@@ -46,7 +53,11 @@ def verify_jwt(
         if not jwks_url:
             raise ValueError("verify_jwt: RS256 requires `jwks_url`")
         payload = jwks.verify(
-            token, jwks_url=jwks_url, audience=audience, issuer=issuer
+            token,
+            jwks_url=jwks_url,
+            audience=audience,
+            issuer=issuer,
+            require_audience=require_audience,
         )
     else:
         raise ValueError(f"verify_jwt: unsupported algorithm: {algo!r}")
@@ -63,6 +74,7 @@ def verify_jwt_raw(
     jwks_url: str | None = None,
     audience: str | None = None,
     issuer: str | None = None,
+    require_audience: bool = False,
 ) -> dict[str, Any]:
     """Same as verify_jwt but returns the raw payload dict."""
     claims = verify_jwt(
@@ -72,5 +84,6 @@ def verify_jwt_raw(
         jwks_url=jwks_url,
         audience=audience,
         issuer=issuer,
+        require_audience=require_audience,
     )
     return claims.to_dict()

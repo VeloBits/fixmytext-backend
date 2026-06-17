@@ -48,6 +48,14 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db():
-    """FastAPI dependency that yields an async DB session."""
+    """FastAPI dependency that yields an async DB session.
+
+    Commits on clean exit; rolls back on exception.
+    """
     async with AsyncSessionLocal() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

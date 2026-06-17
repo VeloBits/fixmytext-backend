@@ -15,6 +15,7 @@ import uuid
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fixmytext_shared.config.validation import is_production_like
 from fixmytext_shared.security.jwt import verify_jwt_raw
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +26,13 @@ from app.db.models.user import User
 from app.db.session import get_db
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+# In production, an empty KEYCLOAK_AUDIENCE must NOT silently disable audience
+# verification — require it so a misconfiguration fails loudly instead of
+# accepting any-audience tokens. Dev/test keep the lenient (skip-aud) behaviour
+# so local runs without a configured audience still work. This is defence in
+# depth alongside main.lifespan's assert_required_in_prod startup guard.
+_REQUIRE_AUDIENCE = is_production_like(settings.ENVIRONMENT)
 
 
 async def _resolve_user_id(
@@ -55,6 +63,7 @@ async def _resolve_user_id(
                 jwks_url=settings.KEYCLOAK_JWKS_URL,
                 audience=settings.KEYCLOAK_AUDIENCE or None,
                 issuer=settings.KEYCLOAK_ISSUER or None,
+                require_audience=_REQUIRE_AUDIENCE,
             )
             return uuid.UUID(payload["sub"])
         except Exception:
@@ -90,6 +99,7 @@ async def get_current_user(
                 jwks_url=settings.KEYCLOAK_JWKS_URL,
                 audience=settings.KEYCLOAK_AUDIENCE or None,
                 issuer=settings.KEYCLOAK_ISSUER or None,
+                require_audience=_REQUIRE_AUDIENCE,
             )
         except Exception as exc:
             raise HTTPException(

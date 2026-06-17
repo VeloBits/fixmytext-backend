@@ -145,3 +145,53 @@ class TestVerifyJwtJWKS:
     def test_requires_jwks_url(self):
         with pytest.raises(ValueError, match="RS256 requires"):
             verify_jwt("anytoken", algorithm="RS256")
+
+    def test_require_audience_raises_when_audience_missing(self, patched_jwk_fetch):
+        """require_audience=True forbids the implicit fail-open: no audience => error.
+
+        Guards against an empty KEYCLOAK_AUDIENCE silently disabling ``aud``
+        verification in production.
+        """
+        private_pem, _ = patched_jwk_fetch
+        token = _make_token(private_pem, _base_payload())
+        with pytest.raises(ValueError, match="audience verification is required"):
+            verify_jwt(
+                token,
+                algorithm="RS256",
+                jwks_url=JWKS_URL,
+                audience=None,
+                issuer=ISSUER,
+                require_audience=True,
+            )
+
+    def test_require_audience_passes_when_audience_present(self, patched_jwk_fetch):
+        """require_audience=True with a concrete audience verifies normally."""
+        private_pem, _ = patched_jwk_fetch
+        token = _make_token(private_pem, _base_payload())
+        claims = verify_jwt(
+            token,
+            algorithm="RS256",
+            jwks_url=JWKS_URL,
+            audience=AUDIENCE,
+            issuer=ISSUER,
+            require_audience=True,
+        )
+        assert claims.aud == AUDIENCE
+        assert claims.sub == "kc-user-1"
+
+    def test_missing_audience_allowed_by_default(self, patched_jwk_fetch):
+        """Default (require_audience=False) preserves the lenient dev behaviour:
+        with no audience supplied, the ``aud`` claim is not verified."""
+        private_pem, _ = patched_jwk_fetch
+        token = _make_token(private_pem, _base_payload())
+        claims = verify_jwt(
+            token,
+            algorithm="RS256",
+            jwks_url=JWKS_URL,
+            audience=None,
+            issuer=ISSUER,
+        )
+        # Verification succeeded without an audience check; the aud claim is
+        # still surfaced from the payload.
+        assert claims.aud == AUDIENCE
+        assert claims.sub == "kc-user-1"

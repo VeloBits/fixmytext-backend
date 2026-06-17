@@ -13,9 +13,6 @@ emoji==2.15.0
 # Redis (for rate limiting)
 redis[hiredis]==7.4.0
 
-# Background job queue (async Groq calls)
-arq>=0.26.0
-
 # Structured logging
 python-json-logger==4.1.0
 

@@ -20,7 +20,8 @@ COPY services/ai-svc/requirements.txt .
 COPY shared/ ./shared/
 RUN python -m venv .venv && \
     .venv/bin/pip install --upgrade pip --quiet && \
-    .venv/bin/pip install --no-cache-dir -r requirements.txt
+    .venv/bin/pip install --no-cache-dir -r requirements.txt && \
+    .venv/bin/pip install --no-cache-dir --no-deps arq==0.28.0
 
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────

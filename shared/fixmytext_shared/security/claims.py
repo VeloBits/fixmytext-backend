@@ -25,6 +25,7 @@ class ClaimSchema:
     org_id: str | None = None
     iss: str | None = None
     aud: str | None = None
+    preferred_username: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "ClaimSchema":
@@ -49,6 +50,7 @@ class ClaimSchema:
             org_id=payload.get("org_id"),
             iss=payload.get("iss"),
             aud=aud,
+            preferred_username=payload.get("preferred_username"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -64,4 +66,5 @@ class ClaimSchema:
             "org_id": self.org_id,
             "iss": self.iss,
             "aud": self.aud,
+            "preferred_username": self.preferred_username,
         }

@@ -35,12 +35,29 @@ def verify(
     jwks_url: str,
     audience: str | None = None,
     issuer: str | None = None,
+    require_audience: bool = False,
 ) -> dict[str, Any]:
     """Decode + validate an RS256 JWT using the issuer's JWKS document.
 
+    When ``audience`` is ``None`` the ``aud`` claim is **not** verified.
+    Pass ``require_audience=True`` to forbid that implicit fail-open: with no
+    ``audience`` supplied it raises ``ValueError`` instead of accepting tokens
+    for any audience. Callers should set this in production (where an empty
+    ``KEYCLOAK_AUDIENCE`` is a misconfiguration, not a feature) so audience
+    verification can never be silently disabled.
+
+    Raises ``ValueError`` if ``require_audience`` is True but ``audience`` is None.
     Raises ``jwt.PyJWTError`` on signature/audience/issuer mismatch.
     Raises ``httpx.HTTPError`` if JWKS fetch fails on cache miss.
     """
+    if audience is None and require_audience:
+        raise ValueError(
+            "jwks.verify: audience verification is required (require_audience=True) "
+            "but no `audience` was provided — refusing to accept tokens for any "
+            "audience. Set the audience (e.g. KEYCLOAK_AUDIENCE) or pass "
+            "require_audience=False to opt out."
+        )
+
     client = _get_jwk_client(jwks_url)
     try:
         signing_key = client.get_signing_key_from_jwt(token)

@@ -105,18 +105,18 @@ services:
   # ══════════════════════════════════════════════════════════════════════════
 
   pgbouncer:
-    image: bitnami/pgbouncer:1.23
+    image: edoburu/pgbouncer:latest
     profiles: ["dev"]
     container_name: fixmytext-pgbouncer
     environment:
-      - POSTGRESQL_HOST=db-service
-      - POSTGRESQL_PORT=5432
-      - POSTGRESQL_DATABASE=fixmytext
-      - POSTGRESQL_USERNAME=fixmytext
-      - POSTGRESQL_PASSWORD=fixmytext_dev
-      - PGBOUNCER_POOL_MODE=transaction
-      - PGBOUNCER_MAX_CLIENT_CONN=200
-      - PGBOUNCER_DEFAULT_POOL_SIZE=20
+      - DB_HOST=db-service
+      - DB_PORT=5432
+      - DB_NAME=fixmytext
+      - DB_USER=fixmytext
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=200
+      - DEFAULT_POOL_SIZE=20
     ports:
       - "6432:6432"
     depends_on:
@@ -203,6 +203,12 @@ services:
         condition: service_started
     networks:
       - fixmytext-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.from_url('redis://redis-service:6379/0').ping()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ══════════════════════════════════════════════════════════════════════════
   # TEXT-SVC  —  local text transformation service (dev profile)
@@ -331,10 +337,11 @@ services:
       KONG_ADMIN_LISTEN: "127.0.0.1:8001"
     volumes:
       - ./gateway/kong/kong.yml:/etc/kong/kong.yml:ro
-    # No external port mapping — Traefik owns :80 and routes
-    # Host=api-dev.velobits.dev to this container.
-    expose:
-      - "8000"
+    # Port 8000 is published to the host so the browser can reach Kong directly
+    # at http://localhost:8000 (used by VITE_API_URL in local dev).
+    # Traefik also routes Host=api-dev.velobits.dev → this container on port 80.
+    ports:
+      - "8000:8000"
     depends_on:
       ai-svc:
         condition: service_started
@@ -394,7 +401,10 @@ services:
       KC_DB_URL: jdbc:postgresql://keycloak-dev-db:5432/keycloak_dev_db
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DEV_DB_PASSWORD in .env}}
-      KC_HOSTNAME: auth-dev.velobits.dev
+      # localhost makes OIDC discovery return http://localhost:8080 URLs, which
+      # the browser can reach via the published port 8080 without /etc/hosts.
+      # Switch to auth-dev.velobits.dev once you add the /etc/hosts entry (see README).
+      KC_HOSTNAME: localhost
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
@@ -404,18 +414,77 @@ services:
     volumes:
       - ./infrastructure/keycloak/realm-export-dev.json:/opt/keycloak/data/import/realm.json:ro
       - ./infrastructure/keycloak/themes/fixmytext:/opt/keycloak/themes/fixmytext:ro
-    expose:
-      - "8080"
+    ports:
+      - "8080:8080"
     depends_on:
       keycloak-dev-db:
         condition: service_healthy
     networks:
       - fixmytext-net
+    # KC_HEALTH_ENABLED=true exposes /health/ready. The KC 26 image is UBI-based
+    # and ships curl. We probe the realm OIDC config on 8080 (served once the
+    # realm import completes), which is what keycloak-bootstrap waits on too.
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080; echo -e 'GET /realms/Velobits-Dev/.well-known/openid-configuration HTTP/1.0\\r\\n\\r\\n' >&3; grep -q '200 OK' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.keycloak-dev.rule=Host(`auth-dev.velobits.dev`)"
       - "traefik.http.routers.keycloak-dev.entrypoints=web"
       - "traefik.http.services.keycloak-dev.loadbalancer.server.port=8080"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # KEYCLOAK BOOTSTRAP  —  one-shot init that provisions identity providers
+  # (Google / GitHub) and SMTP on the Velobits-Dev realm via the Admin API.
+  # The realm itself is imported by keycloak-dev (--import-realm); this service
+  # only adds the env-driven config that can't live in the realm JSON. It is
+  # idempotent: bootstrap.sh exits 0 if the realm already exists, and skips each
+  # IdP whose OAuth credentials are blank.
+  #
+  # NOTE: bootstrap.sh requires bash + curl + python3, none of which ship in the
+  # keycloak:26.0 runtime image. We use alpine and `apk add` them (~7s) rather
+  # than maintaining a custom Dockerfile. The script's own 60-attempt wait loop
+  # is kept as a backstop even though depends_on waits for service_healthy.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  keycloak-bootstrap:
+    profiles: ["dev"]
+    image: alpine:3
+    container_name: keycloak-bootstrap
+    restart: "no"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - apk add --no-cache bash curl python3 >/dev/null && exec bash /scripts/bootstrap.sh
+    environment:
+      # Internal service address — bootstrap.sh waits on $KEYCLOAK_URL/health/ready.
+      KEYCLOAK_URL: http://keycloak-dev:8080
+      KEYCLOAK_REALM: Velobits-Dev
+      KEYCLOAK_ADMIN: ${KEYCLOAK_DEV_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_DEV_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_DEV_ADMIN_PASSWORD in .env}}
+      REALM_EXPORT_PATH: /scripts/realm-export-dev.json
+      # Social login (optional — blank values leave the buttons disabled).
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GH_OAUTH_CLIENT_ID: ${GH_OAUTH_CLIENT_ID:-}
+      GH_OAUTH_CLIENT_SECRET: ${GH_OAUTH_CLIENT_SECRET:-}
+      # SMTP (optional — gated on SMTP_HOST + SMTP_USERNAME inside the script).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    volumes:
+      - ./infrastructure/keycloak/bootstrap.sh:/scripts/bootstrap.sh:ro
+      - ./infrastructure/keycloak/realm-export-dev.json:/scripts/realm-export-dev.json:ro
+    depends_on:
+      keycloak-dev:
+        condition: service_healthy
+    networks:
+      - fixmytext-net
 
 
 # ── Shared network ────────────────────────────────────────────────────────────
