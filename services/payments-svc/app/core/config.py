@@ -21,9 +21,14 @@ class Settings(BaseSharedSettings):
 
     # ── Database (same Postgres as monolith) ──────────────────────────────────
     DATABASE_URL: str
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 5
+    # Right-sized for PgBouncer: 2 services * N replicas * 5+2 conns stays
+    # well under Postgres max_connections (~100). Set PGBOUNCER_URL to route
+    # through the pooler and use these smaller per-process pool values.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 2
     DB_POOL_RECYCLE: int = 3600
+    # Optional: override DATABASE_URL with PgBouncer endpoint at runtime.
+    PGBOUNCER_URL: str | None = None
     DB_SCHEMA_AUTH: str = "auth"
     DB_SCHEMA_ACTIVITY: str = "activity"
     DB_SCHEMA_BILLING: str = "billing"

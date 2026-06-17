@@ -5,8 +5,14 @@ Model imports come from two services:
 - services/account-svc  — activity models (preferences, gamification, history, share, etc.)
 
 Both sys.path entries are managed carefully to avoid module-name collisions: the
-account-svc import block clears and restores the `app.*` sys.modules cache so that
-payments-svc remains the primary `app` namespace after both are loaded.
+account-svc import block clears and restores the ``app.*`` sys.modules cache so that
+payments-svc remains the primary ``app`` namespace after both are loaded.
+
+After both sets of models are loaded, ``configure_mappers()`` is called once so
+SQLAlchemy resolves all relationship back-references across both declarative bases
+before alembic autogenerate inspects the metadata.  This prevents the
+"could not determine join condition" errors that were raised when autogenerate ran
+with only one base's mappers configured.
 """
 
 import asyncio
@@ -39,6 +45,7 @@ os.environ.setdefault(
 from sqlalchemy import pool  # noqa: E402
 from sqlalchemy.engine import Connection  # noqa: E402
 from sqlalchemy.ext.asyncio import async_engine_from_config  # noqa: E402
+from sqlalchemy.orm import configure_mappers  # noqa: E402
 
 from alembic import context  # noqa: E402
 from app.core.config import settings  # noqa: E402
@@ -98,6 +105,12 @@ for _k in list(sys.modules.keys()):
 sys.modules.update(_saved_app_modules)
 if _ACCOUNT_SVC in sys.path:
     sys.path.remove(_ACCOUNT_SVC)
+
+# Resolve all relationship back-references across both declarative bases now
+# that every model has been registered.  Without this call, alembic
+# autogenerate can raise "could not determine join condition" when it inspects
+# metadata that contains cross-base foreign-key relationships.
+configure_mappers()
 
 # Explicitly reference every model so static analysers (CodeQL, ruff) recognise
 # these imports as intentional.  They are imported for their side-effect of

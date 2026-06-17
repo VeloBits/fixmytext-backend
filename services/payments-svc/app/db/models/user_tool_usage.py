@@ -3,7 +3,7 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, ForeignKey, Index, SmallInteger, String, text
+from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,6 +20,7 @@ class UserToolUsage(Base):
             "usage_date",
             postgresql_include=["tool_id", "use_count"],
         ),
+        CheckConstraint("use_count > 0", name="ck_user_tool_use_count_positive"),
         {"schema": settings.DB_SCHEMA_AUTH},
     )
 

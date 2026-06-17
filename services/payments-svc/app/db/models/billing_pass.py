@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, ForeignKey, Index, SmallInteger, String, text
+from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, Index, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,10 @@ class BillingUserPass(Base):
             "user_id",
             "expires_at",
             postgresql_where=text("is_active = true"),
+        ),
+        CheckConstraint(
+            "source IN ('razorpay', 'earned', 'referral', 'spin', 'quest', 'welcome')",
+            name="ck_pass_source",
         ),
         {"schema": settings.DB_SCHEMA_BILLING},
     )

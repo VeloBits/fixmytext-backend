@@ -8,9 +8,11 @@ Rate limiting: shared ``rl:ai`` prefix in Redis (cross-service with monolith).
 """
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
+from arq.connections import ArqRedis, RedisSettings, create_pool
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -264,3 +266,120 @@ async def stream_ai_tool(
             yield "data: [ERROR] Internal server error\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ── Helpers: arq Redis pool ───────────────────────────────────────────────────
+
+_arq_pool: ArqRedis | None = None
+
+
+async def _get_arq_pool() -> ArqRedis:
+    global _arq_pool
+    if _arq_pool is None:
+        _arq_pool = await create_pool(
+            RedisSettings.from_dsn(
+                os.environ.get("REDIS_URL", "redis://redis-service:6379/0")
+            )
+        )
+    return _arq_pool
+
+
+# ── Endpoint: POST /api/v1/ai/{tool_id}/enqueue ──────────────────────────────
+
+
+class EnqueueResponse(BaseModel):
+    job_id: str
+    status: str = "queued"
+
+
+@router.post("/{tool_id}/enqueue", response_model=EnqueueResponse)
+async def enqueue_ai_tool(
+    tool_id: str,
+    request: Request,
+    user: AuthenticatedUser = Depends(get_verified_user),
+) -> EnqueueResponse:
+    """Enqueue an AI tool job for async execution via arq worker.
+
+    Returns immediately with a ``job_id``. Poll ``GET /jobs/{job_id}`` for the result.
+    Useful for tools where Groq latency would block the ASGI worker.
+    """
+    tool_def = get_tool(tool_id)
+    if tool_def is None:
+        raise HTTPException(status_code=404, detail=f"AI tool '{tool_id}' not found")
+
+    req_model = _REQUEST_MODELS.get(tool_id, TextRequest)
+    try:
+        body = await request.json()
+        req = req_model(**body)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    await ai_limiter.check(request, user_id=user.id)
+    await check_entitlement(
+        tool_id=tool_id,
+        user_id=user.id,
+        email=user.email,
+        email_verified=user.is_email_verified,
+    )
+
+    options: dict[str, Any] = {}
+    if hasattr(req, "target_language"):
+        options["target_language"] = req.target_language
+    if hasattr(req, "tone"):
+        options["tone"] = req.tone
+    if hasattr(req, "format"):
+        options["format"] = req.format
+
+    pool = await _get_arq_pool()
+    job = await pool.enqueue_job(
+        "run_ai_tool",
+        tool_id,
+        req.text,
+        user.id,
+        options,
+    )
+    return EnqueueResponse(job_id=job.job_id)
+
+
+# ── Endpoint: GET /api/v1/ai/jobs/{job_id} ───────────────────────────────────
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    result: dict[str, Any] | None = None
+
+
+@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(
+    job_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> JobStatusResponse:
+    """Poll the status of an enqueued AI job.
+
+    Status values: ``queued``, ``in_progress``, ``complete``, ``failed``, ``not_found``.
+    ``result`` is populated (with ``original``, ``result``, ``operation``) when status is ``complete``.
+    """
+    pool = await _get_arq_pool()
+    job = await pool.job(job_id) if hasattr(pool, "job") else None
+
+    if job is None:
+        return JobStatusResponse(job_id=job_id, status="not_found")
+
+    try:
+        job_result = await job.result(timeout=0.1, poll_delay=0.05)
+        return JobStatusResponse(job_id=job_id, status="complete", result=job_result)
+    except Exception:
+        pass
+
+    info = await job.info()
+    if info is None:
+        return JobStatusResponse(job_id=job_id, status="not_found")
+
+    status = "queued"
+    if info.start_ms is not None and info.finish_ms is None:
+        status = "in_progress"
+    elif info.finish_ms is not None and info.success is False:
+        status = "failed"
+
+    return JobStatusResponse(job_id=job_id, status=status)

@@ -12,7 +12,25 @@ from collections.abc import Sequence
 from typing import Union
 
 from alembic import op
-from app.core.config import settings
+
+# ``settings`` is only used for schema name constants.  Import it from the
+# environment when available; fall back to a lightweight stub so this migration
+# can be introspected (``alembic history``, ``alembic check``) without a
+# running payments-svc import chain.
+try:
+    from app.core.config import settings  # type: ignore[import]
+except Exception:
+    import os as _os
+
+    class _FakeSettings:  # type: ignore[no-redef]
+        DATABASE_URL: str = _os.environ.get(
+            "DATABASE_URL",
+            "postgresql+asyncpg://fixmytext:fixmytext_dev@localhost:5432/fixmytext",
+        )
+        DB_SCHEMA_BILLING: str = _os.environ.get("DB_SCHEMA_BILLING", "billing")
+        DB_SCHEMA_AUTH: str = _os.environ.get("DB_SCHEMA_AUTH", "auth")
+
+    settings = _FakeSettings()
 
 revision: str = "0020"
 down_revision: Union[str, None] = "0019"

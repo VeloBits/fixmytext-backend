@@ -5,7 +5,7 @@ Covers: pass_catalog, pass_catalog_prices, credit_pack_catalog, credit_pack_pric
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Integer, SmallInteger, String, text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,7 +44,10 @@ class PassCatalog(Base):
 
 class PassCatalogPrice(Base):
     __tablename__ = "pass_catalog_prices"
-    __table_args__ = {"schema": settings.DB_SCHEMA_BILLING}
+    __table_args__ = (
+        CheckConstraint("amount_subunits > 0", name="ck_pass_price_positive"),
+        {"schema": settings.DB_SCHEMA_BILLING},
+    )
 
     pass_id: Mapped[str] = mapped_column(
         String(50),
@@ -86,7 +89,10 @@ class CreditPackCatalog(Base):
 
 class CreditPackPrice(Base):
     __tablename__ = "credit_pack_prices"
-    __table_args__ = {"schema": settings.DB_SCHEMA_BILLING}
+    __table_args__ = (
+        CheckConstraint("amount_subunits > 0", name="ck_credit_price_positive"),
+        {"schema": settings.DB_SCHEMA_BILLING},
+    )
 
     pack_id: Mapped[str] = mapped_column(
         String(50),

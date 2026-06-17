@@ -1,0 +1,224 @@
+# Grafana Alert Rule Stubs — fix-my-text-repos backend
+# Generated: 2026-06-17
+#
+# TODO: set datasource UID and notification channel before activating.
+#   1. Replace every `datasourceUid: <DATASOURCE_UID>` with the actual UID from
+#      Grafana → Configuration → Data Sources.
+#   2. Replace `<NOTIFICATION_CHANNEL_UID>` with your contact-point UID.
+#   3. Validate LogQL / PromQL expressions against live data before enabling.
+#   4. Import via Grafana UI (Alerting → Alert rules → Import) or Terraform provider.
+
+apiVersion: 1
+
+groups:
+  - name: payments-svc
+    folder: fix-my-text / payments
+    interval: 1m
+    rules:
+
+      - uid: fmt-pay-webhook-errors
+        title: payment-webhook-errors
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: <DATASOURCE_UID>
+            model:
+              # LogQL: count failed webhook events over 10-minute window
+              # Adjust label names to match actual Loki stream selectors.
+              expr: |
+                sum(rate({service="payments-svc", event="webhook"} |= "error" [10m]))
+                /
+                sum(rate({service="payments-svc", event="webhook"} [10m]))
+              queryType: range
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.02]   # > 2 % error rate
+                  query:
+                    params: [A]
+        for: 10m
+        labels:
+          severity: critical
+          slo: payment-webhook-error-rate
+          service: payments-svc
+        annotations:
+          summary: "Payment webhook error rate exceeded 2 %"
+          description: >
+            The payment webhook error rate has been above 2 % for the last 10 minutes.
+            SLO target: < 1 % (rolling 7 d). Check payments-svc logs in Loki and
+            verify Stripe dashboard for delivery failures.
+            Runbook: docs/DR.md — Failure Scenarios table, row "Webhook delivery failure".
+
+      - uid: fmt-pay-5xx-rate
+        title: service-5xx-rate (payments-svc)
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: <DATASOURCE_UID>
+            model:
+              # LogQL: 5xx rate for payments-svc
+              expr: |
+                sum(rate({service="payments-svc"} | json | status >= 500 [5m]))
+                /
+                sum(rate({service="payments-svc"} | json [5m]))
+              queryType: range
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.005]  # > 0.5 % 5xx rate
+                  query:
+                    params: [A]
+        for: 5m
+        labels:
+          severity: critical
+          slo: payments-svc-availability
+          service: payments-svc
+        annotations:
+          summary: "payments-svc 5xx rate exceeded 0.5 %"
+          description: >
+            payments-svc HTTP 5xx error rate has been above 0.5 % for 5 minutes.
+            SLO target: < 0.1 % (availability 99.9 %, rolling 28 d).
+            Check Sentry for recent errors and Loki for stack traces.
+
+  - name: account-svc
+    folder: fix-my-text / account
+    interval: 1m
+    rules:
+
+      - uid: fmt-acct-5xx-rate
+        title: service-5xx-rate (account-svc)
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: <DATASOURCE_UID>
+            model:
+              expr: |
+                sum(rate({service="account-svc"} | json | status >= 500 [5m]))
+                /
+                sum(rate({service="account-svc"} | json [5m]))
+              queryType: range
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.01]   # > 1 % 5xx rate
+                  query:
+                    params: [A]
+        for: 5m
+        labels:
+          severity: warning
+          slo: account-svc-availability
+          service: account-svc
+        annotations:
+          summary: "account-svc 5xx rate exceeded 1 %"
+          description: >
+            account-svc HTTP 5xx error rate has been above 1 % for 5 minutes.
+            SLO target: availability 99.5 % (rolling 28 d).
+            Investigate with Loki query: {service="account-svc"} | json | status >= 500.
+
+  - name: infrastructure
+    folder: fix-my-text / infra
+    interval: 30s
+    rules:
+
+      - uid: fmt-db-connection-saturation
+        title: db-connection-saturation
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: <DATASOURCE_UID>
+            model:
+              # PromQL placeholder — replace with actual Postgres exporter metric.
+              # Common metric: pg_stat_activity_count / pg_settings_max_connections
+              expr: |
+                (
+                  pg_stat_activity_count{datname="fixmytext"}
+                  /
+                  pg_settings_max_connections
+                ) * 100
+              queryType: range
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [90]   # > 90 % saturation
+                  query:
+                    params: [A]
+        for: 2m
+        labels:
+          severity: warning
+          slo: db-connection-saturation
+          service: postgres
+        annotations:
+          summary: "Postgres connection pool saturation above 90 %"
+          description: >
+            The Postgres connection pool has been above 90 % capacity for 2 minutes.
+            SLO target: < 80 % saturation.
+            Risk: connection refusals to all services. Consider increasing max_connections
+            or deploying PgBouncer. See docs/DR.md for failover steps.
+
+  - name: ai-svc
+    folder: fix-my-text / ai
+    interval: 1m
+    rules:
+
+      - uid: fmt-groq-latency-high
+        title: groq-latency-high
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: <DATASOURCE_UID>
+            model:
+              # LogQL: extract Groq upstream latency from structured JSON logs.
+              # Assumes ai-svc emits: {"service":"ai-svc","upstream":"groq","duration_ms":<n>}
+              expr: |
+                quantile_over_time(0.95,
+                  {service="ai-svc", upstream="groq"}
+                  | json
+                  | unwrap duration_ms [5m]
+                ) / 1000
+              queryType: range
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [45]   # > 45 s p95 latency
+                  query:
+                    params: [A]
+        for: 5m
+        labels:
+          severity: warning
+          slo: ai-svc-groq-latency
+          service: ai-svc
+        annotations:
+          summary: "Groq API p95 latency exceeded 45 s"
+          description: >
+            ai-svc Groq upstream p95 latency has been above 45 s for 5 minutes.
+            SLO target: p95 < 30 s (rolling 28 d).
+            Check Groq status page and ai-svc error logs. If Groq is degraded,
+            see docs/DR.md — Failure Scenarios, row "Groq / AI provider outage".
+
+# Notification policy stub
+# contactPoints:
+#   - name: on-call-default
+#     uid: <NOTIFICATION_CHANNEL_UID>
+#     type: pagerduty   # or slack, opsgenie, email
+#     settings:
+#       integrationKey: <PAGERDUTY_KEY>   # TODO: populate from secrets

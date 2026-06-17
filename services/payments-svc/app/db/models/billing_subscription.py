@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Integer, String, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +20,11 @@ class Subscription(Base):
             "user_id",
             unique=True,
             postgresql_where=text("status = 'active'"),
+        ),
+        CheckConstraint("tier IN ('free', 'pro')", name="ck_subscription_tier"),
+        CheckConstraint(
+            "status IN ('active', 'cancelled', 'expired', 'pending')",
+            name="ck_subscription_status",
         ),
         {"schema": settings.DB_SCHEMA_BILLING},
     )
@@ -76,6 +81,10 @@ class PaymentEvent(Base):
             "razorpay_event_id",
             unique=True,
             postgresql_where=text("razorpay_event_id IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "status IN ('received', 'processed', 'failed', 'duplicate')",
+            name="ck_payment_event_status",
         ),
         {"schema": settings.DB_SCHEMA_BILLING},
     )

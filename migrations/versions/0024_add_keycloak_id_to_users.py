@@ -30,6 +30,7 @@ def upgrade() -> None:
     op.alter_column("users", "hashed_password", nullable=True, schema="auth")
 
 
+# WARNING: This downgrade will fail if any users have hashed_password=NULL (Keycloak-only accounts). Remove such rows first.
 def downgrade() -> None:
     op.alter_column("users", "hashed_password", nullable=False, schema="auth")
     op.drop_index("ix_users_keycloak_id", table_name="users", schema="auth")

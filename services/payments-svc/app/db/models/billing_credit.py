@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, SmallInteger, String, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,6 +25,14 @@ class BillingUserCredit(Base):
             "user_id",
             "credits_remaining",
             postgresql_where=text("credits_remaining > 0"),
+        ),
+        CheckConstraint(
+            "credits_remaining >= 0 AND credits_remaining <= credits_total",
+            name="ck_credits_remaining_valid",
+        ),
+        CheckConstraint(
+            "source IN ('purchase', 'streak', 'quest', 'achievement', 'referral', 'welcome', 'spin')",
+            name="ck_credit_source",
         ),
         {"schema": settings.DB_SCHEMA_BILLING},
     )

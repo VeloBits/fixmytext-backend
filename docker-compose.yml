@@ -97,6 +97,36 @@ services:
 
 
   # ══════════════════════════════════════════════════════════════════════════
+  # PGBOUNCER  —  connection pooler in transaction mode (dev profile).
+  # Services route through :6432 when PGBOUNCER_URL is set in .env.
+  # Caps total server-side connections at PGBOUNCER_DEFAULT_POOL_SIZE=20 while
+  # allowing up to 200 client-side connections, preventing Postgres
+  # max_connections exhaustion under multi-replica deployments.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  pgbouncer:
+    image: bitnami/pgbouncer:1.23
+    profiles: ["dev"]
+    container_name: fixmytext-pgbouncer
+    environment:
+      - POSTGRESQL_HOST=db-service
+      - POSTGRESQL_PORT=5432
+      - POSTGRESQL_DATABASE=fixmytext
+      - POSTGRESQL_USERNAME=fixmytext
+      - POSTGRESQL_PASSWORD=fixmytext_dev
+      - PGBOUNCER_POOL_MODE=transaction
+      - PGBOUNCER_MAX_CLIENT_CONN=200
+      - PGBOUNCER_DEFAULT_POOL_SIZE=20
+    ports:
+      - "6432:6432"
+    depends_on:
+      db-service:
+        condition: service_healthy
+    networks:
+      - fixmytext-net
+
+
+  # ══════════════════════════════════════════════════════════════════════════
   # MIGRATE  —  runs alembic upgrade head once, then exits.
   # ══════════════════════════════════════════════════════════════════════════
 
@@ -151,6 +181,28 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # AI-WORKER  —  arq worker that executes async Groq jobs enqueued by ai-svc.
+  # Runs the same Docker image as ai-svc but with the arq entrypoint.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  ai-worker:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: services/ai-svc/Dockerfile
+    container_name: fixmytext-ai-worker
+    command: ["python", "-m", "arq", "app.worker.main.WorkerSettings"]
+    env_file:
+      - .env
+    environment:
+      - OTEL_SERVICE_NAME=fixmytext-ai-worker
+    depends_on:
+      redis-service:
+        condition: service_started
+    networks:
+      - fixmytext-net
 
   # ══════════════════════════════════════════════════════════════════════════
   # TEXT-SVC  —  local text transformation service (dev profile)
