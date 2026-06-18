@@ -5,6 +5,7 @@ to obtain an admin token. Token is cached for its lifetime to avoid hammering
 the token endpoint on every request.
 """
 
+import asyncio
 import logging
 import time
 
@@ -15,25 +16,27 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _TOKEN_CACHE: dict = {}  # {"token": str, "expires_at": float}
+_TOKEN_LOCK = asyncio.Lock()
 
 
 async def _get_admin_token() -> str:
     """Return a cached admin token, refreshing if expired."""
-    now = time.time()
-    if _TOKEN_CACHE.get("token") and _TOKEN_CACHE.get("expires_at", 0) > now + 30:
-        return _TOKEN_CACHE["token"]
+    async with _TOKEN_LOCK:
+        now = time.time()
+        if _TOKEN_CACHE.get("token") and _TOKEN_CACHE.get("expires_at", 0) > now + 30:
+            return _TOKEN_CACHE["token"]
 
-    url = f"{settings.KEYCLOAK_URL}/realms/master/protocol/openid-connect/token"
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(
-            url,
-            data={
-                "grant_type": "password",
-                "client_id": "admin-cli",
-                "username": settings.KEYCLOAK_ADMIN,
-                "password": settings.KEYCLOAK_ADMIN_PASSWORD,
-            },
-        )
+        url = f"{settings.KEYCLOAK_URL}/realms/master/protocol/openid-connect/token"
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                url,
+                data={
+                    "grant_type": "password",
+                    "client_id": "admin-cli",
+                    "username": settings.KEYCLOAK_ADMIN,
+                    "password": settings.KEYCLOAK_ADMIN_PASSWORD,
+                },
+            )
         if resp.status_code != 200:
             # Avoid leaking Keycloak response body (may contain sensitive info).
             raise RuntimeError(
@@ -41,9 +44,9 @@ async def _get_admin_token() -> str:
             )
         data = resp.json()
 
-    _TOKEN_CACHE["token"] = data["access_token"]
-    _TOKEN_CACHE["expires_at"] = now + data.get("expires_in", 60)
-    return _TOKEN_CACHE["token"]
+        _TOKEN_CACHE["token"] = data["access_token"]
+        _TOKEN_CACHE["expires_at"] = now + data.get("expires_in", 60)
+        return _TOKEN_CACHE["token"]
 
 
 async def create_keycloak_user(email: str, password: str, display_name: str) -> str:

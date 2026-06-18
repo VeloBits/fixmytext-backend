@@ -18,6 +18,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fixmytext_shared.config.validation import is_production_like
 from fixmytext_shared.security.jwt import verify_jwt_raw
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -113,8 +114,14 @@ async def get_current_user(
             hashed_password=None,
             is_email_verified=bool(payload.get("email_verified", False)),
         )
-        db.add(user)
-        await db.flush()
+        try:
+            db.add(user)
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            user = await db.scalar(select(User).where(User.keycloak_id == keycloak_id))
+            if user is None or user.keycloak_id != keycloak_id:
+                raise HTTPException(status_code=401, detail="Not authenticated")
     elif user is None:
         # Cookie pointed at a user that doesn't exist in DB — treat as 401.
         raise HTTPException(status_code=401, detail="Not authenticated")

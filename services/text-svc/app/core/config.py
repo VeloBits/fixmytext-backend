@@ -24,6 +24,7 @@ class Settings(BaseSharedSettings):
     # ── Optional auth (JWKS from Keycloak) ────────────────────────────────────
     # When set, a present Bearer token is decoded to identify the user; absent or
     # invalid tokens fall back to the anonymous-visitor quota.
+    KEYCLOAK_REALM: str = "Velobits-Dev"
     KEYCLOAK_JWKS_URL: str = ""
     KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
     # Expected token issuer (Keycloak realm URL); empty disables issuer checks.

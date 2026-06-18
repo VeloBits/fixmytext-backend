@@ -25,16 +25,20 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 async def _get_subscription_tier(user_id: uuid.UUID, db: AsyncSession) -> str:
     """Return the active subscription tier for a user, defaulting to 'free'."""
-    row = await db.execute(
-        text(
-            "SELECT tier FROM billing.subscriptions"
-            " WHERE user_id = :uid AND status = 'active'"
-            " LIMIT 1"
-        ),
-        {"uid": str(user_id)},
-    )
-    result = row.scalar_one_or_none()
-    return result if result is not None else "free"
+    try:
+        row = await db.execute(
+            text(
+                "SELECT tier FROM billing.subscriptions"
+                " WHERE user_id = :uid AND status = 'active'"
+                " LIMIT 1"
+            ),
+            {"uid": str(user_id)},
+        )
+        result = row.scalar_one_or_none()
+        return result if result is not None else "free"
+    except Exception:
+        logger.warning("Failed to fetch subscription tier for user %s — defaulting to free", user_id)
+        return "free"
 
 
 def _set_session_cookie(
@@ -68,7 +72,7 @@ def _set_session_cookie(
         httponly=True,
         secure=settings.SESSION_COOKIE_SECURE,
         samesite="lax",
-        domain=settings.SESSION_COOKIE_DOMAIN or None,
+        domain=settings.SESSION_COOKIE_DOMAIN if settings.SESSION_COOKIE_DOMAIN else None,
         path="/",
     )
 
@@ -106,7 +110,7 @@ async def clear_session(response: Response) -> Response:
     """
     response.delete_cookie(
         key=settings.SESSION_COOKIE_NAME,
-        domain=settings.SESSION_COOKIE_DOMAIN or None,
+        domain=settings.SESSION_COOKIE_DOMAIN if settings.SESSION_COOKIE_DOMAIN else None,
         path="/",
     )
     response.status_code = 204

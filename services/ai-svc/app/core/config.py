@@ -26,7 +26,7 @@ class Settings(BaseSharedSettings):
 
     # ── Auth (JWKS from Keycloak) ─────────────────────────────────────────────
     KEYCLOAK_URL: str = ""
-    KEYCLOAK_REALM: str = "fixmytext"
+    KEYCLOAK_REALM: str = "Velobits-Dev"
     KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
     # Expected token issuer (Keycloak realm URL). REQUIRED in prod (startup
     # assert); empty disables issuer checks (dev only).

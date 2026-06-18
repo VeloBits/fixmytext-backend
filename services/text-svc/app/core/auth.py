@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fixmytext_shared.config.validation import is_production_like
 from jwt.exceptions import PyJWTError as JWTError
 
 from app.core.config import settings
@@ -19,6 +20,8 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+_REQUIRE_AUDIENCE = is_production_like(settings.ENVIRONMENT)
 
 
 @dataclass
@@ -45,6 +48,7 @@ async def get_optional_user(
             jwks_url=settings.KEYCLOAK_JWKS_URL,
             audience=settings.KEYCLOAK_AUDIENCE or None,
             issuer=settings.KEYCLOAK_ISSUER or None,
+            require_audience=_REQUIRE_AUDIENCE,
         )
     except (JWTError, ValueError):
         logger.debug("text-svc: invalid token — treating request as anonymous")

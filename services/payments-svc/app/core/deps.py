@@ -10,8 +10,10 @@ import uuid
 
 from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fixmytext_shared.config.validation import is_production_like
 from fixmytext_shared.security.jwt import verify_jwt_raw
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -19,6 +21,8 @@ from app.db.models.user import User
 from app.db.session import get_db
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+_REQUIRE_AUDIENCE = is_production_like(settings.ENVIRONMENT)
 
 
 async def verify_internal_secret(
@@ -54,6 +58,7 @@ async def get_current_user(
             jwks_url=settings.KEYCLOAK_JWKS_URL,
             audience=settings.KEYCLOAK_AUDIENCE or None,
             issuer=settings.KEYCLOAK_ISSUER or None,
+            require_audience=_REQUIRE_AUDIENCE,
         )
         keycloak_id = uuid.UUID(payload.get("sub"))
     except Exception as exc:
@@ -71,8 +76,14 @@ async def get_current_user(
             hashed_password=None,
             is_email_verified=bool(payload.get("email_verified", False)),
         )
-        db.add(user)
-        await db.flush()
+        try:
+            db.add(user)
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            user = await db.scalar(select(User).where(User.keycloak_id == keycloak_id))
+            if user is None or user.keycloak_id != keycloak_id:
+                raise HTTPException(status_code=401, detail="Not authenticated")
     elif not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
 

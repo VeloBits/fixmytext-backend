@@ -378,7 +378,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DEV_DB_PASSWORD in .env}}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:?set KEYCLOAK_DEV_DB_PASSWORD in .env}
       POSTGRES_DB: keycloak_dev_db
     volumes:
       - keycloak-dev-pgdata:/var/lib/postgresql/data
@@ -392,7 +392,7 @@ services:
 
   keycloak-dev:
     profiles: ["dev"]
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.0.0
     container_name: keycloak-dev
     restart: unless-stopped
     command: ["start-dev", "--import-realm"]
@@ -400,7 +400,7 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-dev-db:5432/keycloak_dev_db
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DEV_DB_PASSWORD in .env}}
+      KC_DB_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:?set KEYCLOAK_DEV_DB_PASSWORD in .env}
       # localhost makes OIDC discovery return http://localhost:8080 URLs, which
       # the browser can reach via the published port 8080 without /etc/hosts.
       # Switch to auth-dev.velobits.dev once you add the /etc/hosts entry (see README).
@@ -425,7 +425,7 @@ services:
     # and ships curl. We probe the realm OIDC config on 8080 (served once the
     # realm import completes), which is what keycloak-bootstrap waits on too.
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080; echo -e 'GET /realms/Velobits-Dev/.well-known/openid-configuration HTTP/1.0\\r\\n\\r\\n' >&3; grep -q '200 OK' <&3"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/realms/Velobits-Dev/.well-known/openid-configuration > /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 30

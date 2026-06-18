@@ -123,6 +123,7 @@ async def lifespan(app: FastAPI):
 
     assert_required_in_prod(
         settings.ENVIRONMENT,
+        KEYCLOAK_REALM=settings.KEYCLOAK_REALM,
         KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
         KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
         KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,

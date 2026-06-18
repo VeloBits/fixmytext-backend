@@ -73,6 +73,30 @@ async def test_register_short_password_returns_422(async_client):
     assert resp.status_code == 422
 
 
+async def test_register_verification_email_failure_still_returns_201(async_client):
+    """T5: If send_verification_email raises, POST /auth/register still returns 201.
+
+    The exception is swallowed (lines 69-74 of auth_register.py). The user account
+    was already created in Keycloak; a failed verification email is non-fatal.
+    """
+    with (
+        patch(
+            "app.api.v1.endpoints.auth_register.create_keycloak_user",
+            new=AsyncMock(return_value=str(uuid.uuid4())),
+        ),
+        patch(
+            "app.api.v1.endpoints.auth_register.send_verification_email",
+            new=AsyncMock(side_effect=RuntimeError("SMTP down")),
+        ),
+    ):
+        resp = await async_client.post(
+            REGISTER,
+            json={**VALID, "email": "smtp-fail@example.com"},
+            headers=_hdr("198.51.100.20"),
+        )
+    assert resp.status_code == 201
+
+
 async def test_register_rate_limited_after_cap(async_client):
     """M-8: the (cap+1)-th registration from one IP is throttled with 429."""
     ip = "198.51.100.99"

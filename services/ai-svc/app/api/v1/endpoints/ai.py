@@ -19,6 +19,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import PyJWTError as JWTError
 from pydantic import BaseModel
 
+from fixmytext_shared.config.validation import is_production_like
+
 from app.core.config import settings
 from app.core.rate_limit import ai_limiter
 from app.services import ai_service
@@ -80,6 +82,8 @@ class AuthenticatedUser:
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
+_REQUIRE_AUDIENCE = is_production_like(settings.ENVIRONMENT)
+
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
@@ -99,6 +103,7 @@ async def get_current_user(
             jwks_url=settings.KEYCLOAK_JWKS_URL,
             audience=settings.KEYCLOAK_AUDIENCE or None,
             issuer=settings.KEYCLOAK_ISSUER or None,
+            require_audience=_REQUIRE_AUDIENCE,
         )
     except (JWTError, ValueError) as exc:
         raise HTTPException(status_code=401, detail="Token expired or invalid") from exc

@@ -134,6 +134,82 @@ def test_session_cookie_skipped_without_keycloak_id(monkeypatch):
     assert "set-cookie" not in {k.lower() for k in response.headers}
 
 
+def test_email_field_wrong_type_returns_none():
+    """T7: verify_session returns None when the email field is not a string.
+
+    session_cookie.py requires both sub and email to be strings. A cookie with
+    email=123 passes JSON decoding but fails the type check.
+    """
+    claims = _claims()
+    claims["email"] = 123  # integer, not a string
+    token = sign_session(claims, SECRET)
+    assert verify_session(token, SECRET) is None
+
+
+def test_build_claims_exp_minus_iat_equals_max_age():
+    """T8: exp - iat == max_age_seconds within a 2-second tolerance."""
+    max_age = 7200
+    claims = build_claims(
+        sub="11111111-1111-1111-1111-111111111111",
+        email="user@example.com",
+        email_verified=True,
+        roles=["user"],
+        max_age_seconds=max_age,
+    )
+    delta = claims["exp"] - claims["iat"]
+    assert abs(delta - max_age) <= 2
+
+
+@pytest.mark.asyncio
+async def test_set_session_cookie_no_secret_no_cookie(async_client):
+    """T6: GET /auth/me with valid Bearer but empty SESSION_COOKIE_SECRET → 200,
+    no Set-Cookie header."""
+    import uuid
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from app.db.session import get_db
+    from main import app
+
+    kc_id = uuid.uuid4()
+    fake_user = MagicMock()
+    fake_user.id = uuid.uuid4()
+    fake_user.keycloak_id = kc_id
+    fake_user.email = "user@example.com"
+    fake_user.display_name = "Test"
+    fake_user.is_active = True
+    fake_user.is_email_verified = True
+
+    mock_db = AsyncMock()
+    mock_db.scalar = AsyncMock(return_value=fake_user)
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+    )
+
+    async def override_get_db():
+        yield mock_db
+
+    _MOCK_TARGET = "app.core.deps.verify_jwt_raw"
+    payload = {"sub": str(kc_id), "email": "user@example.com", "email_verified": True}
+
+    with patch(_MOCK_TARGET, return_value=payload):
+        with patch("app.api.v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.SESSION_COOKIE_SECRET = ""
+            mock_settings.SESSION_COOKIE_NAME = "fixmytext_session"
+            mock_settings.SESSION_COOKIE_MAX_AGE = 3600
+            mock_settings.SESSION_COOKIE_SECURE = False
+            mock_settings.SESSION_COOKIE_DOMAIN = ""
+            app.dependency_overrides[get_db] = override_get_db
+            try:
+                response = await async_client.get(
+                    "/api/v1/auth/me",
+                    headers={"Authorization": "Bearer valid.jwt.token"},
+                )
+                assert response.status_code == 200
+                assert "fixmytext_session" not in response.headers.get("set-cookie", "")
+            finally:
+                app.dependency_overrides.clear()
+
+
 @pytest.mark.asyncio
 async def test_clear_session_endpoint_returns_204_with_expired_cookie(async_client):
     """POST /api/v1/auth/session/clear → 204 + Set-Cookie with Max-Age=0."""

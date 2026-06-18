@@ -24,7 +24,7 @@ def _get_jwk_client(jwks_url: str) -> PyJWKClient:
     """Return a cached PyJWKClient for the given JWKS URL."""
     client = _JWK_CLIENT_CACHE.get(jwks_url)
     if client is None:
-        client = PyJWKClient(jwks_url, cache_jwk_set=True, lifespan=600)
+        client = PyJWKClient(jwks_url, cache_jwk_set=True, lifespan=600, timeout=5)
         _JWK_CLIENT_CACHE[jwks_url] = client
     return client
 
