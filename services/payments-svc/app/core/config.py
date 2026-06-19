@@ -34,13 +34,8 @@ class Settings(BaseSharedSettings):
     DB_SCHEMA_BILLING: str = "billing"
 
     # ── Auth (JWKS from Keycloak) ─────────────────────────────────────────────
-    KEYCLOAK_URL: str = ""
-    KEYCLOAK_REALM: str = "Velobits-Dev"
-    KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
-    # Expected token issuer (Keycloak realm URL). REQUIRED in prod (startup
-    # assert); empty disables issuer checks (dev only).
-    KEYCLOAK_ISSUER: str = ""
-    KEYCLOAK_JWKS_URL: str = ""
+    # KEYCLOAK_REALM, KEYCLOAK_AUDIENCE, KEYCLOAK_ISSUER, KEYCLOAK_JWKS_URL
+    # are inherited from BaseSharedSettings.
 
     # ── Razorpay ──────────────────────────────────────────────────────────────
     RAZORPAY_KEY_ID: str = ""
@@ -53,6 +48,13 @@ class Settings(BaseSharedSettings):
 
     # Anti-abuse: max referral payouts a single referrer can earn (M-10).
     REFERRAL_MAX_PER_REFERRER: int = 20
+
+    # Webhook body size cap — Razorpay payloads are well under 16 KB;
+    # 64 KB gives ample headroom while blocking memory-exhaustion attacks.
+    WEBHOOK_MAX_BODY_BYTES: int = 65536
+
+    # Order-creation rate limit — max Razorpay order calls per user per minute.
+    ORDER_RATE_LIMIT_PER_MINUTE: int = 10
 
 
 settings = Settings()

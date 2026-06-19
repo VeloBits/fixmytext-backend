@@ -5,8 +5,15 @@ pointing ``KEYCLOAK_JWKS_URL`` at a running Keycloak realm. Fetches the
 JWKS document from the issuer's `.well-known` endpoint and caches public
 keys in-process. On `kid` cache-miss the limiter forces a refresh once
 before failing.
+
+``verify()`` is async: the JWKS key fetch (``urllib.request`` inside
+``PyJWKClient``) is blocking network I/O. Wrapping it in
+``asyncio.to_thread()`` keeps the event loop free for other requests
+during the (infrequent) Keycloak round-trip on cache miss.
 """
 
+import asyncio
+import logging
 from typing import Any
 
 import httpx
@@ -14,10 +21,17 @@ import jwt
 from cachetools import TTLCache
 from jwt import PyJWKClient
 
+logger = logging.getLogger(__name__)
+
 # In-process JWK cache. Key: jwks_url; value: PyJWKClient.
 # 10-minute TTL strikes a balance between (a) avoiding excess JWKS fetches
 # and (b) picking up Keycloak's key rotation without manual intervention.
 _JWK_CLIENT_CACHE: TTLCache[str, PyJWKClient] = TTLCache(maxsize=8, ttl=600)
+
+# Serialises cache-refresh operations: prevents multiple coroutines from
+# simultaneously popping and re-creating the same PyJWKClient on a
+# cache-miss (thundering herd on key rotation / cold start).
+_JWK_CACHE_LOCK = asyncio.Lock()
 
 
 def _get_jwk_client(jwks_url: str) -> PyJWKClient:
@@ -29,7 +43,7 @@ def _get_jwk_client(jwks_url: str) -> PyJWKClient:
     return client
 
 
-def verify(
+async def verify(
     token: str,
     *,
     jwks_url: str,
@@ -60,21 +74,32 @@ def verify(
 
     client = _get_jwk_client(jwks_url)
     try:
-        signing_key = client.get_signing_key_from_jwt(token)
+        # get_signing_key_from_jwt() may call urllib.request.urlopen() on cache
+        # miss — blocking network I/O that must not run on the event loop thread.
+        signing_key = await asyncio.to_thread(client.get_signing_key_from_jwt, token)
     except jwt.exceptions.PyJWKClientError:
-        # kid not found in cache — drop cached client and retry once
-        _JWK_CLIENT_CACHE.pop(jwks_url, None)
-        client = _get_jwk_client(jwks_url)
-        signing_key = client.get_signing_key_from_jwt(token)
+        # kid not found in cache — drop cached client and retry once.
+        # Lock prevents multiple concurrent coroutines from all racing to
+        # recreate the client simultaneously (thundering herd on key rotation).
+        async with _JWK_CACHE_LOCK:
+            _JWK_CLIENT_CACHE.pop(jwks_url, None)
+            client = _get_jwk_client(jwks_url)
+        signing_key = await asyncio.to_thread(client.get_signing_key_from_jwt, token)
 
     options: dict[str, Any] = {}
+    # Allow 30 s of clock skew between the token issuer (Keycloak) and this
+    # service. leeway must be a top-level kwarg (not in options) in PyJWT 2.x.
     decode_kwargs: dict[str, Any] = {
         "key": signing_key.key,
         "algorithms": ["RS256"],
+        "leeway": 30,
     }
     if audience is not None:
         decode_kwargs["audience"] = audience
     else:
+        logger.warning(
+            "jwks.verify: audience verification DISABLED — set KEYCLOAK_AUDIENCE in production"
+        )
         options["verify_aud"] = False
     if issuer is not None:
         decode_kwargs["issuer"] = issuer
@@ -82,8 +107,3 @@ def verify(
         decode_kwargs["options"] = options
 
     return jwt.decode(token, **decode_kwargs)
-
-
-def _http_client_for_tests() -> httpx.Client:
-    """Hook used by `respx` tests to inject a custom transport."""
-    return httpx.Client(timeout=2.0)

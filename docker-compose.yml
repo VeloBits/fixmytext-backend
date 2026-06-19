@@ -22,7 +22,7 @@ services:
 
   traefik:
     profiles: ["dev"]
-    image: traefik:v3.2
+    image: traefik:latest
     container_name: velobits-traefik
     restart: unless-stopped
     command:
@@ -39,6 +39,10 @@ services:
     ports:
       - "80:80"
       - "127.0.0.1:8090:8080"   # dashboard, localhost-only
+    environment:
+      # Pin Docker API version so Traefik's SDK doesn't fall back to 1.24,
+      # which newer Docker Engine daemons (min 1.40) reject.
+      DOCKER_API_VERSION: "1.47"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./gateway/traefik/rules:/etc/traefik/rules:ro
@@ -170,6 +174,7 @@ services:
       - PORT=8000
       - DEBUG=true
       - OTEL_SERVICE_NAME=fixmytext-ai-svc
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
     depends_on:
       redis-service:
         condition: service_started
@@ -198,6 +203,7 @@ services:
       - .env
     environment:
       - OTEL_SERVICE_NAME=fixmytext-ai-worker
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
     depends_on:
       redis-service:
         condition: service_started
@@ -229,6 +235,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-text-svc
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
     networks:
       - fixmytext-net
     healthcheck:
@@ -257,6 +264,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-payments-svc
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
       - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
     depends_on:
       db-service:
@@ -292,6 +300,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-account-svc
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
       - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
       - SESSION_COOKIE_SECRET=${SESSION_COOKIE_SECRET}
       - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-fixmytext_session}
@@ -300,7 +309,7 @@ services:
       - SESSION_COOKIE_DOMAIN=${SESSION_COOKIE_DOMAIN:-}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://auth-dev.velobits.dev}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits-Dev}
-      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/Velobits-Dev/protocol/openid-connect/certs}
+      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/${KEYCLOAK_REALM:-Velobits-Dev}/protocol/openid-connect/certs}
     depends_on:
       db-service:
         condition: service_healthy
@@ -385,16 +394,17 @@ services:
     networks:
       - fixmytext-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak_dev_db"]
       interval: 5s
       timeout: 3s
       retries: 5
 
   keycloak-dev:
     profiles: ["dev"]
-    image: quay.io/keycloak/keycloak:26.0.0
+    image: quay.io/keycloak/keycloak:26.0.8
     container_name: keycloak-dev
     restart: unless-stopped
+    mem_limit: 1g
     command: ["start-dev", "--import-realm"]
     environment:
       KC_DB: postgres
@@ -415,17 +425,17 @@ services:
       - ./infrastructure/keycloak/realm-export-dev.json:/opt/keycloak/data/import/realm.json:ro
       - ./infrastructure/keycloak/themes/fixmytext:/opt/keycloak/themes/fixmytext:ro
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       keycloak-dev-db:
         condition: service_healthy
     networks:
       - fixmytext-net
-    # KC_HEALTH_ENABLED=true exposes /health/ready. The KC 26 image is UBI-based
-    # and ships curl. We probe the realm OIDC config on 8080 (served once the
-    # realm import completes), which is what keycloak-bootstrap waits on too.
+    # KC_HEALTH_ENABLED=true exposes /health/ready on management port 9000.
+    # The KC 26 UBI-micro image omits curl, so we use bash /dev/tcp to hit
+    # the management health endpoint instead.
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/realms/Velobits-Dev/.well-known/openid-configuration > /dev/null"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && cat <&3 | grep -q UP"]
       interval: 10s
       timeout: 5s
       retries: 30

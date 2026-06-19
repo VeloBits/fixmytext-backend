@@ -7,6 +7,7 @@ fields (Groq, Keycloak JWKS) live below.
 """
 
 from fixmytext_shared.config.base import BaseSharedSettings
+from fixmytext_shared.config.validation import is_production_like
 
 
 class Settings(BaseSharedSettings):
@@ -25,13 +26,8 @@ class Settings(BaseSharedSettings):
     AI_BACKEND: str = "auto"
 
     # ── Auth (JWKS from Keycloak) ─────────────────────────────────────────────
-    KEYCLOAK_URL: str = ""
-    KEYCLOAK_REALM: str = "Velobits-Dev"
-    KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
-    # Expected token issuer (Keycloak realm URL). REQUIRED in prod (startup
-    # assert); empty disables issuer checks (dev only).
-    KEYCLOAK_ISSUER: str = ""
-    KEYCLOAK_JWKS_URL: str = ""
+    # KEYCLOAK_REALM, KEYCLOAK_AUDIENCE, KEYCLOAK_ISSUER, KEYCLOAK_JWKS_URL
+    # are inherited from BaseSharedSettings.
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
     RATE_LIMIT_MAX_REQUESTS: int = 25
@@ -42,3 +38,4 @@ class Settings(BaseSharedSettings):
 
 
 settings = Settings()
+REQUIRE_AUDIENCE = is_production_like(settings.ENVIRONMENT)

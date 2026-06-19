@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
+_COOKIE_DOMAIN = settings.SESSION_COOKIE_DOMAIN or None
+
 
 async def _get_subscription_tier(user_id: uuid.UUID, db: AsyncSession) -> str:
     """Return the active subscription tier for a user, defaulting to 'free'."""
@@ -72,7 +74,7 @@ def _set_session_cookie(
         httponly=True,
         secure=settings.SESSION_COOKIE_SECURE,
         samesite="lax",
-        domain=settings.SESSION_COOKIE_DOMAIN if settings.SESSION_COOKIE_DOMAIN else None,
+        domain=_COOKIE_DOMAIN,
         path="/",
     )
 
@@ -110,8 +112,11 @@ async def clear_session(response: Response) -> Response:
     """
     response.delete_cookie(
         key=settings.SESSION_COOKIE_NAME,
-        domain=settings.SESSION_COOKIE_DOMAIN if settings.SESSION_COOKIE_DOMAIN else None,
+        domain=_COOKIE_DOMAIN,
         path="/",
+        httponly=True,
+        secure=settings.SESSION_COOKIE_SECURE,
+        samesite="lax",
     )
     response.status_code = 204
     return response

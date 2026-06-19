@@ -23,7 +23,7 @@ class Subscription(Base):
         ),
         CheckConstraint("tier IN ('free', 'pro')", name="ck_subscription_tier"),
         CheckConstraint(
-            "status IN ('active', 'cancelled', 'expired', 'pending')",
+            "status IN ('active', 'cancelled', 'expired', 'pending', 'halted')",
             name="ck_subscription_status",
         ),
         {"schema": settings.DB_SCHEMA_BILLING},

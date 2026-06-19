@@ -171,3 +171,24 @@ def test_pro_missing_amount_rejected():
 )
 def test_region_for_currency(currency, expected):
     assert region_for_currency(currency) == expected
+
+
+# ── Pass consumption ordering (H-2) ──────────────────────────────────────────
+
+
+def test_check_passes_consumes_soonest_expiring_pass_first():
+    """_check_passes must ORDER BY expires_at ASC so a 1-day pass is consumed
+    before a 30-day pass when both cover the same tool (H-2).
+
+    Source-level check (no DB) — the atomicity of the actual query ordering is
+    exercised by the integration test in test_entitlement_atomic.py at runtime.
+    """
+    import inspect
+
+    from app.services import pass_service
+
+    src = inspect.getsource(pass_service._check_passes)
+    assert "order_by" in src and "expires_at" in src, (
+        "_check_passes must ORDER BY expires_at so the soonest-expiring pass "
+        "is consumed first, not an arbitrary DB-order pass (H-2)"
+    )

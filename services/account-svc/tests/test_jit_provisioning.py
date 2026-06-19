@@ -329,6 +329,9 @@ async def test_jit_sets_display_name_from_preferred_username(async_client):
         finally:
             app.dependency_overrides.clear()
 
+    # Clear cookies so Case 1's session cookie doesn't interfere with Case 2.
+    async_client.cookies.clear()
+
     # --- Case 2: no preferred_username → display_name = email ---
     async def override_get_db_b():
         yield mock_db_b

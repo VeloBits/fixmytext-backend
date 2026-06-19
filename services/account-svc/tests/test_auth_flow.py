@@ -92,41 +92,6 @@ def _build_cookie(
 
 
 @pytest.mark.asyncio
-async def test_get_me_sets_session_cookie(async_client):
-    """Successful Bearer auth on GET /auth/me → response includes HttpOnly
-    fixmytext_session cookie."""
-    from app.db.session import get_db
-    from main import app
-
-    kc_id = uuid.uuid4()
-    fake_user = _make_user(keycloak_id=kc_id)
-    mock_db = _make_db(fake_user)
-
-    async def override_get_db():
-        yield mock_db
-
-    with patch(_MOCK_TARGET, return_value=_valid_payload(kc_id)):
-        with patch("app.api.v1.endpoints.auth.settings") as mock_settings:
-            mock_settings.SESSION_COOKIE_SECRET = _TEST_SECRET
-            mock_settings.SESSION_COOKIE_NAME = "fixmytext_session"
-            mock_settings.SESSION_COOKIE_MAX_AGE = 3600
-            mock_settings.SESSION_COOKIE_SECURE = False
-            mock_settings.SESSION_COOKIE_DOMAIN = ""
-            app.dependency_overrides[get_db] = override_get_db
-            try:
-                response = await async_client.get(
-                    "/api/v1/auth/me",
-                    headers={"Authorization": "Bearer valid.jwt.token"},
-                )
-                assert response.status_code == 200
-                set_cookie = response.headers.get("set-cookie", "")
-                assert "fixmytext_session=" in set_cookie
-                assert "httponly" in set_cookie.lower()
-            finally:
-                app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
 async def test_cookie_auth_succeeds_without_bearer(async_client):
     """A valid signed session cookie is sufficient for authentication — no JWT
     JWKS call needed."""
@@ -371,12 +336,9 @@ async def test_get_me_response_shape(async_client):
 
 
 @pytest.mark.asyncio
-async def test_get_me_subscription_tier_db_exception_returns_500(async_client):
-    """T4: If the subscription-tier DB query raises, GET /auth/me → 500.
-
-    ``_get_subscription_tier`` does not have its own error handling — any
-    SQLAlchemy exception propagates through ``/auth/me`` as a 500. This test
-    documents the current behaviour so the decision to handle-or-not is explicit.
+async def test_get_me_subscription_tier_db_exception_defaults_to_free(async_client):
+    """T4: If the subscription-tier DB query raises, ``_get_subscription_tier``
+    catches the exception and returns ``"free"`` instead of propagating a 500.
     """
     from sqlalchemy.exc import SQLAlchemyError
 

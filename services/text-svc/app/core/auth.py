@@ -10,6 +10,7 @@ here — it simply downgrades to the visitor quota.
 import logging
 from dataclasses import dataclass
 
+import httpx
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fixmytext_shared.config.validation import is_production_like
@@ -42,7 +43,7 @@ async def get_optional_user(
     try:
         from fixmytext_shared.security.jwt import verify_jwt_raw
 
-        payload = verify_jwt_raw(
+        payload = await verify_jwt_raw(
             credentials.credentials,
             algorithm="RS256",
             jwks_url=settings.KEYCLOAK_JWKS_URL,
@@ -50,6 +51,9 @@ async def get_optional_user(
             issuer=settings.KEYCLOAK_ISSUER or None,
             require_audience=_REQUIRE_AUDIENCE,
         )
+    except httpx.HTTPError as exc:
+        logger.warning("text-svc: JWKS fetch failed — treating request as anonymous: %s", exc)
+        return None
     except (JWTError, ValueError):
         logger.debug("text-svc: invalid token — treating request as anonymous")
         return None

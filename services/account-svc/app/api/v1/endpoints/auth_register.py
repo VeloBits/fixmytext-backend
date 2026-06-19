@@ -1,4 +1,7 @@
-"""Thin /auth/register endpoint — proxies user creation to Keycloak Admin API."""
+"""Thin /auth/register endpoint — proxies user creation to Keycloak Admin API.
+
+Frontend follows with a standard Authorization Code + PKCE login flow.
+"""
 
 import logging
 
@@ -30,19 +33,24 @@ class RegisterRequest(BaseModel):
     def password_min_length(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters.")
+        if len(v) > 128:
+            raise ValueError("Password must be at most 128 characters.")
         return v
 
     @field_validator("display_name")
     @classmethod
     def display_name_not_empty(cls, v: str) -> str:
-        if not v.strip():
+        stripped = v.strip()
+        if not stripped:
             raise ValueError("Display name cannot be empty.")
-        return v.strip()
+        if len(stripped) > 100:
+            raise ValueError("Display name must be at most 100 characters.")
+        return stripped
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(payload: RegisterRequest, request: Request):
-    """Create a new user in Keycloak. Frontend follows with a Direct Grant login."""
+    """Create a new user in Keycloak via Admin API. Frontend follows with Authorization Code + PKCE login."""
     # Throttle per client IP before touching the Keycloak Admin API (M-8).
     await register_limiter.check(request, user_id=f"ip:{_client_ip(request)}")
 

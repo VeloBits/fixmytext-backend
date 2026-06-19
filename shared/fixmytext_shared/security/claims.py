@@ -33,15 +33,23 @@ class ClaimSchema:
 
         Unknown extra keys are ignored; missing optional fields use defaults.
         """
+        sub = str(payload.get("sub", "")).strip()
+        if not sub:
+            raise ValueError("JWT claim 'sub' is required and must not be empty")
         roles = payload.get("roles") or payload.get("realm_access", {}).get("roles", [])
         if not isinstance(roles, list):
             roles = []
         aud = payload.get("aud")
         if isinstance(aud, list):
-            aud = aud[0] if aud else None
+            aud = next((a for a in aud if isinstance(a, str)), None)
+        elif not isinstance(aud, str):
+            aud = None
+        exp_raw = payload.get("exp")
+        if exp_raw is None:
+            raise ValueError("JWT claim 'exp' is required")
         return cls(
-            sub=str(payload.get("sub", "")),
-            exp=int(payload.get("exp", 0)),
+            sub=sub,
+            exp=int(exp_raw),
             iat=int(payload.get("iat", 0)),
             type=str(payload.get("type", "access")),
             email=payload.get("email"),
@@ -62,7 +70,7 @@ class ClaimSchema:
             "type": self.type,
             "email": self.email,
             "email_verified": self.email_verified,
-            "roles": self.roles,
+            "roles": list(self.roles),
             "org_id": self.org_id,
             "iss": self.iss,
             "aud": self.aud,

@@ -46,11 +46,10 @@ def _mock_create_response(*, status: int, location: str | None = None) -> MagicM
 
 @pytest.mark.asyncio
 async def test_create_keycloak_user_missing_location_header():
-    """Keycloak returns 201 but no Location header → keycloak_id is empty string.
+    """Keycloak returns 201 but no Location header → RuntimeError raised.
 
-    This is a silent bug: the admin call succeeded but we can't extract the ID.
-    The test documents the current (broken) behaviour so it can be detected and
-    fixed (should raise RuntimeError on missing Location).
+    Silent data corruption fix: an absent Location header means we cannot
+    extract the user UUID, so we raise rather than store an empty string.
     """
     from app.services.keycloak_admin import create_keycloak_user
 
@@ -65,16 +64,12 @@ async def test_create_keycloak_user_missing_location_header():
 
     with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
         with patch("httpx.AsyncClient", return_value=mock_client):
-            keycloak_id = await create_keycloak_user(
-                email="test@example.com",
-                password="secure123",
-                display_name="Test",
-            )
-
-    # Document current behaviour: missing Location → empty string keycloak_id.
-    # This is the bug we're surfacing; once fixed, this test should be updated
-    # to assert a RuntimeError is raised instead.
-    assert keycloak_id == ""
+            with pytest.raises(RuntimeError, match="Location header"):
+                await create_keycloak_user(
+                    email="test@example.com",
+                    password="secure123",
+                    display_name="Test",
+                )
 
 
 @pytest.mark.asyncio
@@ -188,3 +183,67 @@ async def test_get_admin_token_uses_cache():
 
     assert result == "cached-admin-token"
     mock_cls.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# H4: _get_admin_token missing access_token key in 200 response
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_admin_token_missing_access_token_key_raises():
+    """Keycloak returns 200 but response body lacks 'access_token' → RuntimeError.
+
+    Guards against H4: a KeyError would propagate as an unexpected 500 instead
+    of a clear auth-failure message.
+    """
+    from app.services.keycloak_admin import _get_admin_token
+
+    bad_resp = MagicMock()
+    bad_resp.status_code = 200
+    bad_resp.json.return_value = {"token_type": "Bearer"}  # no access_token
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(return_value=bad_resp)
+
+    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(RuntimeError, match="no access_token"):
+                await _get_admin_token()
+
+
+# ---------------------------------------------------------------------------
+# M6: create_keycloak_user UUID validation on Location header
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_keycloak_user_invalid_uuid_in_location_raises():
+    """Location header path segment that isn't a valid UUID → RuntimeError.
+
+    Guards against M6: a malformed Location URL would return a garbage string
+    instead of a UUID, silently corrupting keycloak_id in the application.
+    """
+    from app.services.keycloak_admin import create_keycloak_user
+
+    token_resp = _mock_token_response()
+    bad_location_resp = _mock_create_response(
+        status=201,
+        location="http://keycloak/admin/realms/Velobits-Dev/users/not-a-uuid",
+    )
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(side_effect=[token_resp, bad_location_resp])
+
+    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(RuntimeError, match="invalid UUID"):
+                await create_keycloak_user(
+                    email="test@example.com",
+                    password="secure123",
+                    display_name="Test",
+                )

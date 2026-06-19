@@ -11,20 +11,24 @@ for token-refresh flows.
 when no (or invalid) auth is provided — used by the share endpoints.
 """
 
+import logging
 import uuid
 
+import httpx
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fixmytext_shared.auth.jit import jit_provision_user
 from fixmytext_shared.config.validation import is_production_like
 from fixmytext_shared.security.jwt import verify_jwt_raw
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.session_cookie import verify_session
 from app.db.models.user import User
 from app.db.session import get_db
+
+logger = logging.getLogger(__name__)
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -39,11 +43,15 @@ _REQUIRE_AUDIENCE = is_production_like(settings.ENVIRONMENT)
 async def _resolve_user_id(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None,
-) -> uuid.UUID | None:
-    """Return the authenticated user's Keycloak UUID from EITHER source.
+) -> tuple[uuid.UUID | None, dict | None]:
+    """Return (keycloak_id, jwt_payload) from EITHER cookie OR Bearer.
 
-    Tries the session cookie first (faster — no JWKS round-trip), then falls
-    back to Bearer JWT. Returns ``None`` if neither yields a valid identity.
+    Cookie path: returns (uuid, None) — no raw JWT payload; faster (no JWKS).
+    Bearer path: returns (uuid, payload) — payload already verified once.
+    Neither/invalid: returns (None, None).
+
+    Returning the payload avoids a second ``verify_jwt_raw`` call in
+    ``get_current_user`` when JIT provisioning is needed.
     """
     # Path A: session cookie (set by /auth/me previously)
     cookie_value = request.cookies.get(settings.SESSION_COOKIE_NAME)
@@ -51,14 +59,16 @@ async def _resolve_user_id(
         claims = verify_session(cookie_value, settings.SESSION_COOKIE_SECRET)
         if claims and isinstance(claims.get("sub"), str):
             try:
-                return uuid.UUID(claims["sub"])
-            except (ValueError, KeyError):
+                logger.debug("auth: resolved via session cookie")
+                return uuid.UUID(claims["sub"]), None
+            except ValueError:
+                logger.warning("auth: session cookie sub is not a valid UUID — ignoring cookie")
                 pass  # fall through to Bearer
 
     # Path B: Bearer JWT (Keycloak-issued)
     if credentials:
         try:
-            payload = verify_jwt_raw(
+            payload = await verify_jwt_raw(
                 credentials.credentials,
                 algorithm="RS256",
                 jwks_url=settings.KEYCLOAK_JWKS_URL,
@@ -66,11 +76,16 @@ async def _resolve_user_id(
                 issuer=settings.KEYCLOAK_ISSUER or None,
                 require_audience=_REQUIRE_AUDIENCE,
             )
-            return uuid.UUID(payload["sub"])
-        except Exception:
-            return None
+            logger.debug("auth: resolved via Bearer JWT")
+            return uuid.UUID(payload["sub"]), payload
+        except httpx.HTTPError as exc:
+            logger.warning("auth: JWKS fetch failed — treating as 401: %s", exc)
+            return None, None
+        except Exception as exc:
+            logger.debug("auth: Bearer JWT invalid: %s", exc)
+            return None, None
 
-    return None
+    return None, None
 
 
 async def get_current_user(
@@ -84,48 +99,22 @@ async def get_current_user(
     in the DB yet, a minimal User record is created and flushed (not
     committed) so callers can extend it within the same transaction.
     """
-    keycloak_id = await _resolve_user_id(request, credentials)
+    keycloak_id, jwt_payload = await _resolve_user_id(request, credentials)
     if not keycloak_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     user = await db.scalar(select(User).where(User.keycloak_id == keycloak_id))
 
-    if user is None and credentials is not None:
-        # JIT provisioning — only from Bearer (the cookie's claims are
-        # echo-of-DB; the cookie is never a source of truth for new users).
-        try:
-            payload = verify_jwt_raw(
-                credentials.credentials,
-                algorithm="RS256",
-                jwks_url=settings.KEYCLOAK_JWKS_URL,
-                audience=settings.KEYCLOAK_AUDIENCE or None,
-                issuer=settings.KEYCLOAK_ISSUER or None,
-                require_audience=_REQUIRE_AUDIENCE,
-            )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=401, detail="Token expired or invalid"
-            ) from exc
-        email = payload.get("email", "")
-        user = User(
-            keycloak_id=keycloak_id,
-            email=email,
-            display_name=payload.get("preferred_username") or email,
-            hashed_password=None,
-            is_email_verified=bool(payload.get("email_verified", False)),
-        )
-        try:
-            db.add(user)
-            await db.flush()
-        except IntegrityError:
-            await db.rollback()
-            user = await db.scalar(select(User).where(User.keycloak_id == keycloak_id))
-            if user is None or user.keycloak_id != keycloak_id:
-                raise HTTPException(status_code=401, detail="Not authenticated")
+    if user is None and jwt_payload is not None:
+        # JIT provisioning — only when the Bearer was verified (jwt_payload
+        # present). Cookie-only auth means the session cookie is stale (user
+        # deleted from DB); that case falls through to 401 below.
+        user = await jit_provision_user(db, User, keycloak_id, jwt_payload)
     elif user is None:
         # Cookie pointed at a user that doesn't exist in DB — treat as 401.
         raise HTTPException(status_code=401, detail="Not authenticated")
     elif not user.is_active:
+        logger.info("auth: inactive user keycloak_id=%s rejected", keycloak_id)
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
     return user
@@ -137,7 +126,7 @@ async def get_optional_user(
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
     """Optional auth — returns User if valid cookie OR Bearer, None otherwise. Never raises."""
-    keycloak_id = await _resolve_user_id(request, credentials)
+    keycloak_id, _ = await _resolve_user_id(request, credentials)
     if not keycloak_id:
         return None
 

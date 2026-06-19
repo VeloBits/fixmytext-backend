@@ -29,8 +29,9 @@ Use **Keycloak** as the identity provider.
   with cached public keys — no per-request roundtrip to Keycloak.
 - **Storage**: Keycloak runs its own PostgreSQL (`keycloak-db` service in
   docker-compose), separate from the monolith's `db-service`.
-- **Realm**: `fixmytext`. Two clients: `fixmytext-frontend` (public, PKCE)
-  and `fixmytext-backend` (confidential, service account for Admin API).
+- **Realms**: `Velobits-Dev` (dev) and `Velobits-Prod` (prod). Two clients per realm:
+  `develop-fixmytext` / `fixmytext` (public, PKCE — frontend) and `fixmytext-backend`
+  (confidential, service account for Admin API).
 - **Migration path**: TODO — read `auth.users` from the monolith DB and
   push each row into Keycloak via the Admin API; bcrypt hashes are
   imported as opaque credentials so users keep their existing passwords.

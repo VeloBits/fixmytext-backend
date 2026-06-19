@@ -114,10 +114,12 @@ async def lifespan(app: FastAPI):
 
     assert_required_in_prod(
         settings.ENVIRONMENT,
+        KEYCLOAK_URL=settings.KEYCLOAK_URL,
         KEYCLOAK_REALM=settings.KEYCLOAK_REALM,
         KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
         KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
         KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
+        KEYCLOAK_ADMIN_PASSWORD=settings.KEYCLOAK_ADMIN_PASSWORD,
         SESSION_COOKIE_SECRET=settings.SESSION_COOKIE_SECRET,
         # Required so the registration rate limit holds across replicas (M-4, M-8).
         REDIS_URL=settings.REDIS_URL,

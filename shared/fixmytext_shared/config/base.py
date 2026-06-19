@@ -43,6 +43,14 @@ class BaseSharedSettings(BaseSettings):
     RATE_LIMIT_MAX_REQUESTS: int = 25
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
+    # Keycloak (shared across all services)
+    KEYCLOAK_REALM: str = "Velobits-Dev"
+    KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
+    # Expected token issuer (Keycloak realm URL). REQUIRED in prod — empty
+    # disables issuer checks (dev only).
+    KEYCLOAK_ISSUER: str = ""
+    KEYCLOAK_JWKS_URL: str = ""
+
     @property
     def allowed_origins_list(self) -> list[str]:
         v = self.ALLOWED_ORIGINS

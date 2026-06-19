@@ -57,7 +57,7 @@ async def get_tool_use_count_today(user_id: str, tool_id: str, db: AsyncSession)
             and_(
                 UserToolUsage.user_id == user_id,
                 UserToolUsage.tool_id == tool_id,
-                UserToolUsage.usage_date == date.today(),
+                UserToolUsage.usage_date == datetime.now(UTC).date(),
             )
         )
     )
@@ -72,7 +72,7 @@ async def increment_tool_usage(user_id: str, tool_id: str, db: AsyncSession) -> 
         .values(
             user_id=user_id,
             tool_id=tool_id,
-            usage_date=date.today(),
+            usage_date=datetime.now(UTC).date(),
             use_count=1,
         )
         .on_conflict_do_update(
@@ -94,7 +94,7 @@ async def get_all_tool_uses_today(user_id: str, db: AsyncSession) -> dict[str, i
         select(UserToolUsage.tool_id, UserToolUsage.use_count).where(
             and_(
                 UserToolUsage.user_id == user_id,
-                UserToolUsage.usage_date == date.today(),
+                UserToolUsage.usage_date == datetime.now(UTC).date(),
             )
         )
     )
@@ -110,7 +110,7 @@ async def get_visitor_tool_use_count_today(
             and_(
                 VisitorToolUsage.visitor_id == visitor_id,
                 VisitorToolUsage.tool_id == tool_id,
-                VisitorToolUsage.usage_date == date.today(),
+                VisitorToolUsage.usage_date == datetime.now(UTC).date(),
             )
         )
     )
@@ -127,7 +127,7 @@ async def increment_visitor_tool_usage(
         .values(
             visitor_id=visitor_id,
             tool_id=tool_id,
-            usage_date=date.today(),
+            usage_date=datetime.now(UTC).date(),
             use_count=1,
         )
         .on_conflict_do_update(
@@ -149,7 +149,7 @@ async def has_logged_in_today(user_id, db: AsyncSession) -> bool:
         select(UserDailyLogin).where(
             and_(
                 UserDailyLogin.user_id == user_id,
-                UserDailyLogin.login_date == date.today(),
+                UserDailyLogin.login_date == datetime.now(UTC).date(),
             )
         )
     )
@@ -157,7 +157,12 @@ async def has_logged_in_today(user_id, db: AsyncSession) -> bool:
 
 
 async def record_tool_discovery(user_id: str, tool_id: str, db: AsyncSession) -> None:
-    """Record that a user discovered a tool. Fire-and-forget, ignores duplicates."""
+    """Record that a user discovered a tool. Fire-and-forget, ignores duplicates.
+
+    OWNS ITS COMMIT — do not call from within an active transaction, because
+    this function commits the session, which will also commit any pending work
+    the caller has not yet committed.
+    """
     stmt = (
         pg_insert(UserDiscoveredTool)
         .values(
@@ -281,7 +286,7 @@ async def _check_passes(user: User, tool_id: str, db: AsyncSession) -> dict | No
     BE-PAY-06). No commit here; the caller owns the transaction.
     """
     now = datetime.now(UTC)
-    today = date.today()
+    today = now.date()
     result = await db.execute(
         select(BillingUserPass)
         .options(selectinload(BillingUserPass.tools))
@@ -292,6 +297,9 @@ async def _check_passes(user: User, tool_id: str, db: AsyncSession) -> dict | No
                 BillingUserPass.expires_at > now,
             )
         )
+        # Consume soonest-expiring pass first so long-duration passes are not
+        # burned before short-duration ones expire.
+        .order_by(BillingUserPass.expires_at.asc())
     )
     passes = result.scalars().all()
 
@@ -631,8 +639,13 @@ async def get_active_credits(user: User, db: AsyncSession) -> list[BillingUserCr
 
 
 async def record_daily_login(user: User, db: AsyncSession) -> bool:
-    """Record daily login. Returns True if this is the first login today (bonus granted)."""
-    today = date.today()
+    """Record daily login. Returns True if this is the first login today.
+
+    OWNS ITS COMMIT — do not call from within an active transaction, because
+    this function commits the session, which will also commit any pending work
+    the caller has not yet committed.
+    """
+    today = datetime.now(UTC).date()
 
     stmt = (
         pg_insert(UserDailyLogin)
@@ -658,7 +671,7 @@ async def spin_wheel(user: User, db: AsyncSession) -> dict:
     Each user gets one spin per ISO week. Returns a dict describing the
     reward (credits or a pass), or an ``{"error": ...}`` dict if already spun.
     """
-    today = date.today()
+    today = datetime.now(UTC).date()
     iso_cal = today.isocalendar()
 
     # Check if already spun this week

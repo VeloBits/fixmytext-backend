@@ -1,6 +1,7 @@
 """OpenTelemetry Logs SDK init — ships log records over OTLP HTTP to a Loki backend."""
 
 import logging
+from urllib.parse import unquote
 
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
@@ -41,7 +42,7 @@ def init_logs_otel(settings: BaseSharedSettings) -> None:
         for part in raw_headers.split(","):
             if "=" in part:
                 k, _, v = part.partition("=")
-                headers[k.strip()] = v.strip()
+                headers[k.strip()] = unquote(v.strip())
 
     resource = Resource.create(
         {

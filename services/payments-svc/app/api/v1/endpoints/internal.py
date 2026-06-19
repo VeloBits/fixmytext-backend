@@ -14,7 +14,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import verify_internal_secret
@@ -63,6 +63,8 @@ async def check_access(
             if user is None:
                 # JIT provisioning — mirror deps.get_current_user so first-time
                 # users are tracked. Placeholder email keeps the UNIQUE intact.
+                # IntegrityError handling covers the race where two simultaneous
+                # first-requests both attempt to insert the same keycloak_id.
                 user = User(
                     keycloak_id=keycloak_id,
                     email=req.email or f"{keycloak_id}@users.noreply",
@@ -71,7 +73,15 @@ async def check_access(
                     is_email_verified=req.email_verified,
                 )
                 db.add(user)
-                await db.flush()
+                try:
+                    await db.flush()
+                except IntegrityError:
+                    await db.rollback()
+                    user = await db.scalar(
+                        select(User).where(User.keycloak_id == keycloak_id)
+                    )
+                    if user is None:
+                        raise HTTPException(503, "entitlement service unavailable")
 
             result = await check_tool_access(
                 user, req.tool_id, req.tool_type, db, auto_commit=False

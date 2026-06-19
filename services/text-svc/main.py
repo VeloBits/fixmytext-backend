@@ -111,6 +111,11 @@ async def lifespan(app: FastAPI):
     assert_required_in_prod(
         settings.ENVIRONMENT,
         KEYCLOAK_REALM=settings.KEYCLOAK_REALM,
+        KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
+        # Empty KEYCLOAK_ISSUER/AUDIENCE silently disable JWT validation checks;
+        # require them in production so misconfiguration fails loudly.
+        KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
+        KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
         INTERNAL_SHARED_SECRET=settings.INTERNAL_SHARED_SECRET,
         # Required so the text rate limit holds across replicas (M-4, H-4).
         REDIS_URL=settings.REDIS_URL,

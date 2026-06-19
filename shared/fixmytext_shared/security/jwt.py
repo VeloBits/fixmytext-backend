@@ -4,6 +4,11 @@
 env var (default ``HS256``) and routes to the appropriate adapter.
 Only the HS256 path is exercised today; the JWKS adapter exists for code
 locality but is gated behind the ``JWT_ALGORITHM=RS256`` env flip.
+
+Both ``verify_jwt`` and ``verify_jwt_raw`` are **async** because the RS256
+path (``jwks.verify``) performs blocking network I/O on JWKS cache miss and
+must run off the event-loop thread via ``asyncio.to_thread``. The HS256 path
+is synchronous CPU work that runs inline without yielding.
 """
 
 import os
@@ -13,7 +18,7 @@ from fixmytext_shared.security import hs256, jwks
 from fixmytext_shared.security.claims import ClaimSchema
 
 
-def verify_jwt(
+async def verify_jwt(
     token: str,
     *,
     algorithm: Literal["HS256", "RS256"] | None = None,
@@ -52,7 +57,7 @@ def verify_jwt(
     elif algo == "RS256":
         if not jwks_url:
             raise ValueError("verify_jwt: RS256 requires `jwks_url`")
-        payload = jwks.verify(
+        payload = await jwks.verify(
             token,
             jwks_url=jwks_url,
             audience=audience,
@@ -66,7 +71,7 @@ def verify_jwt(
 
 
 # Re-export raw payload helper for callers that prefer dict access
-def verify_jwt_raw(
+async def verify_jwt_raw(
     token: str,
     *,
     algorithm: Literal["HS256", "RS256"] | None = None,
@@ -77,7 +82,7 @@ def verify_jwt_raw(
     require_audience: bool = False,
 ) -> dict[str, Any]:
     """Same as verify_jwt but returns the raw payload dict."""
-    claims = verify_jwt(
+    claims = await verify_jwt(
         token,
         algorithm=algorithm,
         secret=secret,

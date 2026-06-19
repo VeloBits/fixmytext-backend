@@ -33,16 +33,10 @@ class Settings(BaseSharedSettings):
     DB_SCHEMA_ACTIVITY: str = "activity"
     DB_SCHEMA_BILLING: str = "billing"
 
-    # ── Auth (JWKS from Keycloak) ─────────────────────────────────────────────
-    KEYCLOAK_URL: str = ""
-    # Default is now the dev realm; prod overrides via env var.
-    KEYCLOAK_REALM: str = "Velobits-Dev"
-    KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
-    # Expected token issuer (Keycloak realm URL, e.g.
-    # https://auth.example.com/realms/<realm>). REQUIRED in prod — see the
-    # startup assert in main.lifespan. Empty disables issuer checks (dev only).
-    KEYCLOAK_ISSUER: str = ""
-    KEYCLOAK_JWKS_URL: str = ""
+    # ── Auth (JWKS / Admin API) ───────────────────────────────────────────────
+    # KEYCLOAK_REALM, KEYCLOAK_AUDIENCE, KEYCLOAK_ISSUER, KEYCLOAK_JWKS_URL
+    # are inherited from BaseSharedSettings.
+    KEYCLOAK_URL: str = ""            # Admin API base (account-svc only)
     KEYCLOAK_ADMIN: str = "admin"
     KEYCLOAK_ADMIN_PASSWORD: str = ""
 

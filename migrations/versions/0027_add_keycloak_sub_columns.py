@@ -7,13 +7,15 @@ then make the columns NOT NULL once all rows are populated.
 Tables affected (schema.table):
   activity.user_gamification
   activity.user_templates
-  auth.user_passes
-  auth.user_credits
   billing.subscriptions
   billing.payment_events
   billing.user_passes
   billing.user_credits
   billing.payment_fulfillments
+
+Note: auth.user_passes and auth.user_credits were dropped in migration 0016.
+The billing schema equivalents (billing.user_passes, billing.user_credits) are
+the live tables and are handled here.
 
 Revision ID: 0027
 Revises: 0026
@@ -44,18 +46,6 @@ def upgrade() -> None:
         "user_templates",
         sa.Column("keycloak_sub", sa.String(255), nullable=True),
         schema="activity",
-    )
-
-    # auth schema
-    op.add_column(
-        "user_passes",
-        sa.Column("keycloak_sub", sa.String(255), nullable=True),
-        schema="auth",
-    )
-    op.add_column(
-        "user_credits",
-        sa.Column("keycloak_sub", sa.String(255), nullable=True),
-        schema="auth",
     )
 
     # billing schema
@@ -93,10 +83,6 @@ def downgrade() -> None:
     op.drop_column("user_passes", "keycloak_sub", schema="billing")
     op.drop_column("payment_events", "keycloak_sub", schema="billing")
     op.drop_column("subscriptions", "keycloak_sub", schema="billing")
-
-    # auth schema
-    op.drop_column("user_credits", "keycloak_sub", schema="auth")
-    op.drop_column("user_passes", "keycloak_sub", schema="auth")
 
     # activity schema
     op.drop_column("user_templates", "keycloak_sub", schema="activity")

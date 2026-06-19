@@ -19,9 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import PyJWTError as JWTError
 from pydantic import BaseModel
 
-from fixmytext_shared.config.validation import is_production_like
-
-from app.core.config import settings
+from app.core.config import REQUIRE_AUDIENCE, settings
 from app.core.rate_limit import ai_limiter
 from app.services import ai_service
 from app.services.entitlement_client import check_access as check_entitlement
@@ -82,8 +80,6 @@ class AuthenticatedUser:
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
-_REQUIRE_AUDIENCE = is_production_like(settings.ENVIRONMENT)
-
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
@@ -97,18 +93,21 @@ async def get_current_user(
     try:
         from fixmytext_shared.security.jwt import verify_jwt_raw
 
-        payload = verify_jwt_raw(
+        payload = await verify_jwt_raw(
             credentials.credentials,
             algorithm="RS256",
             jwks_url=settings.KEYCLOAK_JWKS_URL,
             audience=settings.KEYCLOAK_AUDIENCE or None,
             issuer=settings.KEYCLOAK_ISSUER or None,
-            require_audience=_REQUIRE_AUDIENCE,
+            require_audience=REQUIRE_AUDIENCE,
         )
     except (JWTError, ValueError) as exc:
         raise HTTPException(status_code=401, detail="Token expired or invalid") from exc
+    sub = payload.get("sub", "")
+    if not sub:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     return AuthenticatedUser(
-        id=payload.get("sub", ""),
+        id=sub,
         email=payload.get("email", ""),
         is_email_verified=bool(payload.get("email_verified", False)),
     )
@@ -371,15 +370,20 @@ async def get_job_status(
     if job is None:
         return JobStatusResponse(job_id=job_id, status="not_found")
 
+    # Fetch job metadata first to verify ownership before returning any data.
+    # args layout: (tool_id, text, user_id, options) — set by enqueue_ai_tool.
+    info = await job.info()
+    if info is None:
+        return JobStatusResponse(job_id=job_id, status="not_found")
+
+    if len(info.args) < 3 or str(info.args[2]) != str(user.id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     try:
         job_result = await job.result(timeout=0.1, poll_delay=0.05)
         return JobStatusResponse(job_id=job_id, status="complete", result=job_result)
     except Exception:
         pass
-
-    info = await job.info()
-    if info is None:
-        return JobStatusResponse(job_id=job_id, status="not_found")
 
     status = "queued"
     if info.start_ms is not None and info.finish_ms is None:

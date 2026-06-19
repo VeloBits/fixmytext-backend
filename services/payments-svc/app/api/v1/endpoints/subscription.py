@@ -34,6 +34,7 @@ from app.services.pass_service import (
     maybe_grant_welcome_gift,
     record_daily_login,
 )
+from app.services.rate_limit import check_rate_limit
 from app.services.razorpay_service import (
     PRO_PLAN_PRICES,
     create_order,
@@ -104,6 +105,9 @@ async def create_pro_checkout(
     """Create a Razorpay order for upgrading to Pro (one-time monthly payment)."""
     if not payments_configured():
         raise HTTPException(503, "Payments not configured")
+    await check_rate_limit(
+        f"ratelimit:order:{user.id}", settings.ORDER_RATE_LIMIT_PER_MINUTE
+    )
 
     if await get_subscription_tier(user.id, db) == "pro":
         raise HTTPException(400, "Already subscribed to Pro")
@@ -265,7 +269,13 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     Idempotent — duplicate events (same razorpay_event_id) are acknowledged
     but not reprocessed.
     """
+    # Reject oversized payloads before reading — protects against memory exhaustion.
+    _cl = request.headers.get("content-length")
+    if _cl and int(_cl) > settings.WEBHOOK_MAX_BODY_BYTES:
+        raise HTTPException(413, "Webhook payload too large")
     body = await request.body()
+    if len(body) > settings.WEBHOOK_MAX_BODY_BYTES:
+        raise HTTPException(413, "Webhook payload too large")
     signature = request.headers.get("x-razorpay-signature", "")
 
     if not settings.RAZORPAY_WEBHOOK_SECRET:
@@ -331,7 +341,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 item_id=item_id,
                 amount_subunits=amount,
                 currency=currency,
-                status="error",
+                status="failed",
                 raw_payload=event,
             )
             db.add(pe)
@@ -405,12 +415,12 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
             logger.error(
                 "payment.captured missing user_id in notes: order=%s", safe_order_id
             )
-            pe.status = "error"
+            pe.status = "failed"
             await db.commit()
             raise HTTPException(400, "Missing user_id in order notes")
 
         # Validate amount/scope BEFORE granting; a mismatch now BLOCKS
-        # fulfillment (BE-PAY-03) and records an 'error' event for audit.
+        # fulfillment (BE-PAY-03) and records a 'failed' event for audit.
         tool_ids: list[str] = []
         try:
             if item_type == "pro_subscription":
@@ -432,7 +442,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 await db.commit()
                 return {"status": "ok"}
         except HTTPException:
-            pe.status = "error"
+            pe.status = "failed"
             await db.commit()
             raise
 
@@ -444,7 +454,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
             user = user_result.scalars().first()
             if not user:
                 logger.error("Webhook user not found: user_id=%s", user_id)
-                pe.status = "error"
+                pe.status = "failed"
                 await db.commit()
                 raise HTTPException(400, "User not found")
 
@@ -482,6 +492,30 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 "Duplicate payment fulfillment ignored (webhook): payment=%s",
                 safe_payment_id,
             )
+            # The 'received' pe was rolled back; insert a 'duplicate' row in a
+            # new transaction so the audit trail shows this late delivery arrived.
+            try:
+                dup_pe = PaymentEvent(
+                    event_type=event_type,
+                    razorpay_event_id=razorpay_event_id,
+                    razorpay_payment_id=payment_id,
+                    razorpay_order_id=order_id,
+                    user_id=user_id,
+                    item_type=item_type,
+                    item_id=item_id,
+                    amount_subunits=amount,
+                    currency=currency,
+                    status="duplicate",
+                    raw_payload=event,
+                )
+                db.add(dup_pe)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                logger.warning(
+                    "Could not record duplicate webhook audit event: payment=%s",
+                    safe_payment_id,
+                )
             return {"status": "ok", "detail": "already_fulfilled"}
         except HTTPException:
             raise

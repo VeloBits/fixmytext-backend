@@ -104,6 +104,21 @@ logger = logging.getLogger("fixmytext.ai-svc")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize/cleanup shared clients on startup/shutdown."""
+    init_logs_otel()
+
+    # Fail fast in prod if JWT audience/issuer verification would be disabled.
+    from fixmytext_shared.config.validation import assert_required_in_prod
+
+    assert_required_in_prod(
+        settings.ENVIRONMENT,
+        KEYCLOAK_REALM=settings.KEYCLOAK_REALM,
+        KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
+        KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
+        KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
+        # Required so the AI rate limit holds across replicas.
+        REDIS_URL=settings.REDIS_URL,
+    )
+
     # Fake backends are E2E-test seams — refuse to start in production.
     if settings.AI_BACKEND.lower() == "fake":
         if settings.ENVIRONMENT == "production":
@@ -114,22 +129,6 @@ async def lifespan(app: FastAPI):
         logger.warning(
             "AI_BACKEND=fake active — E2E test mode, never deploy to prod"
         )
-
-    init_logs_otel()
-
-    # Fail fast in prod if JWT audience/issuer verification would be disabled
-    # (M-6, BE-AUTH-01).
-    from fixmytext_shared.config.validation import assert_required_in_prod
-
-    assert_required_in_prod(
-        settings.ENVIRONMENT,
-        KEYCLOAK_REALM=settings.KEYCLOAK_REALM,
-        KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
-        KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
-        KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
-        # Required so the AI rate limit holds across replicas (M-4).
-        REDIS_URL=settings.REDIS_URL,
-    )
 
     init_groq_client()
     logger.info("Groq client initialized")

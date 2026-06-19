@@ -10,7 +10,6 @@ from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.pass_catalog import (
     CREDIT_PACKS,
-    DEFAULT_REGION,
     PASSES,
     REGIONS,
     get_credit_pack,
@@ -48,6 +47,7 @@ from app.services.pass_service import (
     spin_wheel,
 )
 from app.services.payment_service import verify_razorpay_payment
+from app.services.rate_limit import check_rate_limit
 from app.services.razorpay_service import create_order, payments_configured
 
 logger = logging.getLogger(__name__)
@@ -69,8 +69,8 @@ async def get_catalog(request: Request, region: str = ""):
 
         ip = request.client.host if request.client else ""
         region = await detect_region(ip)
-    if region not in REGIONS:
-        region = DEFAULT_REGION
+        # detect_region() always returns a REGIONS-valid code or its own
+        # DEFAULT_REGION ("US"), so no second fallback guard is needed here.
 
     currency = get_currency(region)
     symbol = get_symbol(region)
@@ -166,6 +166,9 @@ async def create_pass_order(
     """
     if not payments_configured():
         raise HTTPException(503, "Payments not configured")
+    await check_rate_limit(
+        f"ratelimit:order:{user.id}", settings.ORDER_RATE_LIMIT_PER_MINUTE
+    )
 
     pass_def = get_pass(req.pass_id)
     if not pass_def:
@@ -217,6 +220,9 @@ async def create_credit_order(
     """
     if not payments_configured():
         raise HTTPException(503, "Payments not configured")
+    await check_rate_limit(
+        f"ratelimit:order:{user.id}", settings.ORDER_RATE_LIMIT_PER_MINUTE
+    )
 
     pack = get_credit_pack(req.pack_id)
     if not pack:

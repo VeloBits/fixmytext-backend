@@ -15,12 +15,8 @@ class BillingUserPass(Base):
     __tablename__ = "user_passes"
     __table_args__ = (
         Index("ix_billing_user_passes_user_id", "user_id"),
-        Index(
-            "ix_billing_user_passes_active",
-            "user_id",
-            "expires_at",
-            postgresql_where=text("is_active = true"),
-        ),
+        # Canonical partial index used by _check_passes(); ix_billing_user_passes_active
+        # (created in migration 0008) duplicated this and was dropped in 0030.
         Index(
             "ix_user_passes_active_lookup",
             "user_id",

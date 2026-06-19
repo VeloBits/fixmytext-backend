@@ -99,10 +99,10 @@ def patched_jwk_fetch(monkeypatch):
 
 
 class TestVerifyJwtJWKS:
-    def test_roundtrip_rs256(self, patched_jwk_fetch):
+    async def test_roundtrip_rs256(self, patched_jwk_fetch):
         private_pem, _ = patched_jwk_fetch
         token = _make_token(private_pem, _base_payload())
-        claims = verify_jwt(
+        claims = await verify_jwt(
             token,
             algorithm="RS256",
             jwks_url=JWKS_URL,
@@ -117,11 +117,11 @@ class TestVerifyJwtJWKS:
         assert claims.iss == ISSUER
         assert claims.aud == AUDIENCE
 
-    def test_rejects_wrong_audience(self, patched_jwk_fetch):
+    async def test_rejects_wrong_audience(self, patched_jwk_fetch):
         private_pem, _ = patched_jwk_fetch
         token = _make_token(private_pem, _base_payload())
         with pytest.raises(jwt.InvalidAudienceError):
-            verify_jwt(
+            await verify_jwt(
                 token,
                 algorithm="RS256",
                 jwks_url=JWKS_URL,
@@ -129,12 +129,12 @@ class TestVerifyJwtJWKS:
                 issuer=ISSUER,
             )
 
-    def test_rejects_wrong_issuer(self, patched_jwk_fetch):
+    async def test_rejects_wrong_issuer(self, patched_jwk_fetch):
         """Issuer is verified when passed — cross-realm tokens are rejected (BE-AUTH-01)."""
         private_pem, _ = patched_jwk_fetch
         token = _make_token(private_pem, _base_payload())
         with pytest.raises(jwt.InvalidIssuerError):
-            verify_jwt(
+            await verify_jwt(
                 token,
                 algorithm="RS256",
                 jwks_url=JWKS_URL,
@@ -142,11 +142,11 @@ class TestVerifyJwtJWKS:
                 issuer="http://evil-keycloak:8080/realms/other",
             )
 
-    def test_requires_jwks_url(self):
+    async def test_requires_jwks_url(self):
         with pytest.raises(ValueError, match="RS256 requires"):
-            verify_jwt("anytoken", algorithm="RS256")
+            await verify_jwt("anytoken", algorithm="RS256")
 
-    def test_require_audience_raises_when_audience_missing(self, patched_jwk_fetch):
+    async def test_require_audience_raises_when_audience_missing(self, patched_jwk_fetch):
         """require_audience=True forbids the implicit fail-open: no audience => error.
 
         Guards against an empty KEYCLOAK_AUDIENCE silently disabling ``aud``
@@ -155,7 +155,7 @@ class TestVerifyJwtJWKS:
         private_pem, _ = patched_jwk_fetch
         token = _make_token(private_pem, _base_payload())
         with pytest.raises(ValueError, match="audience verification is required"):
-            verify_jwt(
+            await verify_jwt(
                 token,
                 algorithm="RS256",
                 jwks_url=JWKS_URL,
@@ -164,11 +164,11 @@ class TestVerifyJwtJWKS:
                 require_audience=True,
             )
 
-    def test_require_audience_passes_when_audience_present(self, patched_jwk_fetch):
+    async def test_require_audience_passes_when_audience_present(self, patched_jwk_fetch):
         """require_audience=True with a concrete audience verifies normally."""
         private_pem, _ = patched_jwk_fetch
         token = _make_token(private_pem, _base_payload())
-        claims = verify_jwt(
+        claims = await verify_jwt(
             token,
             algorithm="RS256",
             jwks_url=JWKS_URL,
@@ -179,12 +179,12 @@ class TestVerifyJwtJWKS:
         assert claims.aud == AUDIENCE
         assert claims.sub == "kc-user-1"
 
-    def test_missing_audience_allowed_by_default(self, patched_jwk_fetch):
+    async def test_missing_audience_allowed_by_default(self, patched_jwk_fetch):
         """Default (require_audience=False) preserves the lenient dev behaviour:
         with no audience supplied, the ``aud`` claim is not verified."""
         private_pem, _ = patched_jwk_fetch
         token = _make_token(private_pem, _base_payload())
-        claims = verify_jwt(
+        claims = await verify_jwt(
             token,
             algorithm="RS256",
             jwks_url=JWKS_URL,
@@ -195,3 +195,42 @@ class TestVerifyJwtJWKS:
         # still surfaced from the payload.
         assert claims.aud == AUDIENCE
         assert claims.sub == "kc-user-1"
+
+    async def test_clock_skew_leeway_accepts_slightly_expired_token(self, patched_jwk_fetch):
+        """Tokens expired by up to 30 s (clock skew window) are still accepted.
+
+        Guards against M4: multi-host deployments where Keycloak's clock is
+        slightly ahead of the service clock.
+        """
+        private_pem, _ = patched_jwk_fetch
+        now = datetime.now(UTC)
+        # Token expired 20 seconds ago — within the 30 s leeway window.
+        payload = _base_payload()
+        payload["exp"] = int((now - timedelta(seconds=20)).timestamp())
+        payload["iat"] = int((now - timedelta(minutes=5)).timestamp())
+        token = _make_token(private_pem, payload)
+        claims = await verify_jwt(
+            token,
+            algorithm="RS256",
+            jwks_url=JWKS_URL,
+            audience=AUDIENCE,
+            issuer=ISSUER,
+        )
+        assert claims.sub == "kc-user-1"
+
+    async def test_rejects_token_expired_beyond_leeway(self, patched_jwk_fetch):
+        """Tokens expired by more than 30 s are rejected even with leeway."""
+        private_pem, _ = patched_jwk_fetch
+        now = datetime.now(UTC)
+        payload = _base_payload()
+        payload["exp"] = int((now - timedelta(seconds=60)).timestamp())
+        payload["iat"] = int((now - timedelta(minutes=10)).timestamp())
+        token = _make_token(private_pem, payload)
+        with pytest.raises(jwt.ExpiredSignatureError):
+            await verify_jwt(
+                token,
+                algorithm="RS256",
+                jwks_url=JWKS_URL,
+                audience=AUDIENCE,
+                issuer=ISSUER,
+            )
