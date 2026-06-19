@@ -66,6 +66,7 @@ async def test_webhook_invalid_signature_returns_400(async_client):
         patch("app.api.v1.endpoints.subscription.settings") as mock_settings,
     ):
         mock_settings.RAZORPAY_WEBHOOK_SECRET = "test-secret"
+        mock_settings.WEBHOOK_MAX_BODY_BYTES = 65536
         response = await async_client.post(
             "/api/v1/subscription/webhook",
             content=b'{"event": "payment.captured"}',

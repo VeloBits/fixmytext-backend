@@ -442,3 +442,30 @@ async def test_get_me_subscription_tier_defaults_to_free(async_client):
             assert data["subscription_tier"] == "free"
         finally:
             app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_get_me_response_has_cache_control_no_store(async_client):
+    """GET /auth/me must include Cache-Control: no-store so proxies and CDNs
+    never cache the response and silently drop the Set-Cookie header."""
+    from app.db.session import get_db
+    from main import app
+
+    kc_id = uuid.uuid4()
+    fake_user = _make_user(keycloak_id=kc_id)
+    mock_db = _make_db(fake_user)
+
+    async def override_get_db():
+        yield mock_db
+
+    with patch(_MOCK_TARGET, return_value=_valid_payload(kc_id)):
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            response = await async_client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": "Bearer valid.jwt.token"},
+            )
+            assert response.status_code == 200
+            assert response.headers.get("cache-control") == "no-store"
+        finally:
+            app.dependency_overrides.clear()

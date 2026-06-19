@@ -120,3 +120,57 @@ async def test_register_rate_limited_after_cap(async_client):
             REGISTER, json={**VALID, "email": "over@example.com"}, headers=_hdr(ip)
         )
     assert over.status_code == 429
+
+
+async def test_register_password_min_length_enforced_via_config(async_client):
+    """KEYCLOAK_PASSWORD_MIN_LENGTH is honoured: an 8-char password must fail
+    when the config is raised to 12 (matching the production Keycloak realm)."""
+    from app.api.v1.endpoints import auth_register
+
+    original = settings.KEYCLOAK_PASSWORD_MIN_LENGTH
+    settings.KEYCLOAK_PASSWORD_MIN_LENGTH = 12
+    try:
+        resp = await async_client.post(
+            REGISTER,
+            json={**VALID, "password": "Abcdefg1", "email": "minlen@example.com"},
+            headers=_hdr("198.51.100.50"),
+        )
+        assert resp.status_code == 422
+        detail = str(resp.json())
+        assert "12" in detail
+    finally:
+        settings.KEYCLOAK_PASSWORD_MIN_LENGTH = original
+
+
+async def test_register_password_at_configured_min_length_accepted(async_client):
+    """A password of exactly KEYCLOAK_PASSWORD_MIN_LENGTH chars passes validation."""
+    with (
+        patch(
+            "app.api.v1.endpoints.auth_register.create_keycloak_user",
+            new=AsyncMock(return_value=str(uuid.uuid4())),
+        ),
+        patch(
+            "app.api.v1.endpoints.auth_register.send_verification_email",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        min_len = settings.KEYCLOAK_PASSWORD_MIN_LENGTH
+        exact_password = "A" * min_len
+        resp = await async_client.post(
+            REGISTER,
+            json={**VALID, "password": exact_password, "email": "exact@example.com"},
+            headers=_hdr("198.51.100.51"),
+        )
+    assert resp.status_code == 201
+
+
+async def test_register_password_one_below_min_length_rejected(async_client):
+    """A password one char below KEYCLOAK_PASSWORD_MIN_LENGTH is rejected with 422."""
+    min_len = settings.KEYCLOAK_PASSWORD_MIN_LENGTH
+    short_password = "A" * (min_len - 1)
+    resp = await async_client.post(
+        REGISTER,
+        json={**VALID, "password": short_password, "email": "short@example.com"},
+        headers=_hdr("198.51.100.52"),
+    )
+    assert resp.status_code == 422

@@ -69,5 +69,11 @@ class Settings(BaseSharedSettings):
     REGISTER_RATE_LIMIT_MAX_REQUESTS: int = 10
     REGISTER_RATE_LIMIT_WINDOW_SECONDS: int = 3600
 
+    # ── Password policy ───────────────────────────────────────────────────────
+    # Must match the Keycloak realm's `length()` policy. Dev realm uses 8;
+    # production realm uses 12. Set this to match whichever realm is active so
+    # the 422 from our validator fires before the round-trip to Keycloak Admin.
+    KEYCLOAK_PASSWORD_MIN_LENGTH: int = 8
+
 
 settings = Settings()

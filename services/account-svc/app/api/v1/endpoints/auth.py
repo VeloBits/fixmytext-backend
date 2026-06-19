@@ -92,6 +92,7 @@ async def me(
     for authentication on subsequent requests (Bearer JWT is still accepted in
     parallel for the transition window — see ``get_current_user``).
     """
+    response.headers["Cache-Control"] = "no-store"
     _set_session_cookie(response, user)
     return UserResponse(
         id=str(user.id),

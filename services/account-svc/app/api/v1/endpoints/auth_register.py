@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, field_validator
 
+from app.core.config import settings
 from app.core.rate_limit import register_limiter
 from app.services.keycloak_admin import create_keycloak_user, send_verification_email
 
@@ -31,8 +32,9 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def password_min_length(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters.")
+        min_len = settings.KEYCLOAK_PASSWORD_MIN_LENGTH
+        if len(v) < min_len:
+            raise ValueError(f"Password must be at least {min_len} characters.")
         if len(v) > 128:
             raise ValueError("Password must be at most 128 characters.")
         return v
