@@ -22,7 +22,7 @@ services:
 
   traefik:
     profiles: ["dev"]
-    image: traefik:latest
+    image: traefik:v3.2
     container_name: velobits-traefik
     restart: unless-stopped
     command:
@@ -61,7 +61,7 @@ services:
     container_name: velobits-dev-db
     restart: unless-stopped
     ports:
-      - "${DB_HOST_PORT:-5433}:5432"
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     environment:
       POSTGRES_USER: fixmytext
       # Fail fast if unset rather than booting with a known weak default (M-13).
@@ -90,7 +90,7 @@ services:
     container_name: fixmytext-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     networks:
       - fixmytext-net
     healthcheck:
@@ -109,7 +109,7 @@ services:
   # ══════════════════════════════════════════════════════════════════════════
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: edoburu/pgbouncer:1.23.1
     profiles: ["dev"]
     container_name: fixmytext-pgbouncer
     environment:
@@ -122,7 +122,7 @@ services:
       - MAX_CLIENT_CONN=200
       - DEFAULT_POOL_SIZE=20
     ports:
-      - "6432:6432"
+      - "127.0.0.1:6432:6432"
     depends_on:
       db-service:
         condition: service_healthy
@@ -172,7 +172,6 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8000
-      - DEBUG=true
       - OTEL_SERVICE_NAME=fixmytext-ai-svc
       - OTEL_EXPORTER_OTLP_ENDPOINT=
     depends_on:
@@ -210,7 +209,7 @@ services:
     networks:
       - fixmytext-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import redis; redis.from_url('redis://redis-service:6379/0').ping()"]
+      test: ["CMD-SHELL", "python -c 'import redis, os; redis.from_url(os.environ[\"REDIS_URL\"]).ping()'"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -304,7 +303,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
       - SESSION_COOKIE_SECRET=${SESSION_COOKIE_SECRET}
       - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-fixmytext_session}
-      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
       - SESSION_COOKIE_MAX_AGE=${SESSION_COOKIE_MAX_AGE:-604800}
       - SESSION_COOKIE_DOMAIN=${SESSION_COOKIE_DOMAIN:-}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://auth-dev.velobits.dev}
@@ -346,11 +345,12 @@ services:
       KONG_ADMIN_LISTEN: "127.0.0.1:8001"
     volumes:
       - ./gateway/kong/kong.yml:/etc/kong/kong.yml:ro
-    # Port 8000 is published to the host so the browser can reach Kong directly
-    # at http://localhost:8000 (used by VITE_API_URL in local dev).
+    # Port 8000 is published to localhost only so the browser can reach Kong at
+    # http://localhost:8000 (VITE_API_URL in local dev). Binding to 127.0.0.1
+    # prevents Kong's proxy from being reachable on LAN/shared networks.
     # Traefik also routes Host=api-dev.velobits.dev → this container on port 80.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       ai-svc:
         condition: service_started

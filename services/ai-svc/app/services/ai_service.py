@@ -53,6 +53,8 @@ async def _groq_chat(
 ) -> str:
     """Send a single chat completion to Groq and return the assistant text."""
     client = _groq_client
+    if client is None:
+        raise RuntimeError("Groq client not initialized")
     response = await client.chat.completions.create(
         model=settings.GROQ_MODEL,
         messages=[

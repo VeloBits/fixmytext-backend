@@ -172,7 +172,7 @@ async def verify_pro_payment(
     try:
         order = fetch_order(req.razorpay_order_id)
     except Exception as e:
-        logger.exception("Failed to fetch order %s", req.razorpay_order_id)
+        logger.exception("Failed to fetch order %s", _s(req.razorpay_order_id))
         raise HTTPException(502, "Could not verify order details") from e
 
     notes = order.get("notes", {})

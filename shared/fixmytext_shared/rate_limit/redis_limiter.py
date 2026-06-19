@@ -112,4 +112,5 @@ class RedisRateLimiter:
             raise HTTPException(
                 status_code=429,
                 detail="Rate limit exceeded. Please try again shortly.",
+                headers={"Retry-After": str(self.window_seconds)},
             )

@@ -28,7 +28,9 @@ async def init_redis() -> None:
             socket_connect_timeout=5,
         )
         await _pool.ping()
-        logger.info("Redis connected: %s", settings.REDIS_URL)
+        # Log only host:port — URL may contain credentials in redis://:pass@host form.
+        safe_url = settings.REDIS_URL.split("@")[-1] if "@" in settings.REDIS_URL else settings.REDIS_URL
+        logger.info("Redis connected: %s", safe_url)
     except Exception:
         logger.warning(
             "Redis connection failed — falling back to in-memory", exc_info=True

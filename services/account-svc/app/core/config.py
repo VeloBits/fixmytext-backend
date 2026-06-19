@@ -46,8 +46,9 @@ class Settings(BaseSharedSettings):
     SESSION_COOKIE_NAME: str = "fixmytext_session"
     SESSION_COOKIE_SECRET: str = ""
     # secure=True forces the browser to send the cookie only over HTTPS.
-    # Local dev runs over http://, so default is False and prod overrides.
-    SESSION_COOKIE_SECURE: bool = False
+    # Default is True (safe). Local dev over http:// must set
+    # SESSION_COOKIE_SECURE=false explicitly in .env.
+    SESSION_COOKIE_SECURE: bool = True
     SESSION_COOKIE_MAX_AGE: int = 604800  # 7 days
     # Empty Domain attribute = host-only (intentional). The cookie scopes to
     # the exact host it was set on, preventing cross-subdomain leakage.

@@ -73,7 +73,7 @@ def _set_session_cookie(
         max_age=settings.SESSION_COOKIE_MAX_AGE,
         httponly=True,
         secure=settings.SESSION_COOKIE_SECURE,
-        samesite="lax",
+        samesite="strict",
         domain=_COOKIE_DOMAIN,
         path="/",
     )
@@ -116,7 +116,7 @@ async def clear_session(response: Response) -> Response:
         path="/",
         httponly=True,
         secure=settings.SESSION_COOKIE_SECURE,
-        samesite="lax",
+        samesite="strict",
     )
     response.status_code = 204
     return response
