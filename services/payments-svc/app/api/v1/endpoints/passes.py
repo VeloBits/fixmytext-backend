@@ -182,18 +182,22 @@ async def create_pass_order(
     currency = get_currency(region)
 
     idempotency_key = f"pass_{req.pass_id}_{user.id}"
-    order = create_order(
-        amount=amount,
-        currency=currency,
-        receipt=f"pass_{req.pass_id}_{str(user.id)[:8]}",
-        notes={
-            "user_id": str(user.id),
-            "item_id": req.pass_id,
-            "item_type": "pass",
-            "tool_ids": ",".join(req.tool_ids),
-        },
-        idempotency_key=idempotency_key,
-    )
+    try:
+        order = create_order(
+            amount=amount,
+            currency=currency,
+            receipt=f"pass_{req.pass_id}_{str(user.id)[:8]}",
+            notes={
+                "user_id": str(user.id),
+                "item_id": req.pass_id,
+                "item_type": "pass",
+                "tool_ids": ",".join(req.tool_ids),
+            },
+            idempotency_key=idempotency_key,
+        )
+    except Exception:
+        logger.exception("Failed to create Razorpay order for pass %s, user %s", req.pass_id, user.id)
+        raise HTTPException(502, "Failed to start checkout — please try again later")
     return RazorpayOrderResponse(
         order_id=order["id"],
         amount=order["amount"],
@@ -236,13 +240,17 @@ async def create_credit_order(
     currency = get_currency(region)
 
     idempotency_key = f"credit_{req.pack_id}_{user.id}"
-    order = create_order(
-        amount=amount,
-        currency=currency,
-        receipt=f"credit_{req.pack_id}_{str(user.id)[:8]}",
-        notes={"user_id": str(user.id), "item_id": req.pack_id, "item_type": "credit"},
-        idempotency_key=idempotency_key,
-    )
+    try:
+        order = create_order(
+            amount=amount,
+            currency=currency,
+            receipt=f"credit_{req.pack_id}_{str(user.id)[:8]}",
+            notes={"user_id": str(user.id), "item_id": req.pack_id, "item_type": "credit"},
+            idempotency_key=idempotency_key,
+        )
+    except Exception:
+        logger.exception("Failed to create Razorpay order for credit pack %s, user %s", req.pack_id, user.id)
+        raise HTTPException(502, "Failed to start checkout — please try again later")
     return RazorpayOrderResponse(
         order_id=order["id"],
         amount=order["amount"],

@@ -17,10 +17,12 @@ router = APIRouter()
 
 
 def _client_ip(request: Request) -> str:
-    """Best-effort real client IP (first X-Forwarded-For hop, else peer)."""
-    xff = request.headers.get("x-forwarded-for", "")
-    if xff:
-        return xff.split(",")[0].strip()
+    """Real client IP as set by ProxyHeadersMiddleware from trusted upstreams.
+
+    Reads request.client.host rather than the raw X-Forwarded-For header so
+    that only upstreams in TRUSTED_PROXY_HOSTS can influence the IP used for
+    rate-limit keying. Prevents spoofed XFF headers from bypassing per-IP limits.
+    """
     return request.client.host if request.client else "unknown"
 
 

@@ -10,10 +10,11 @@ here — it simply downgrades to the visitor quota.
 import logging
 from dataclasses import dataclass
 
-import httpx
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fixmytext_shared.config.validation import is_production_like
+from fixmytext_shared.security.jwt import verify_jwt_raw
+from jwt.exceptions import PyJWKClientConnectionError
 from jwt.exceptions import PyJWTError as JWTError
 
 from app.core.config import settings
@@ -41,8 +42,6 @@ async def get_optional_user(
     if not credentials or not settings.KEYCLOAK_JWKS_URL:
         return None
     try:
-        from fixmytext_shared.security.jwt import verify_jwt_raw
-
         payload = await verify_jwt_raw(
             credentials.credentials,
             algorithm="RS256",
@@ -51,7 +50,7 @@ async def get_optional_user(
             issuer=settings.KEYCLOAK_ISSUER or None,
             require_audience=_REQUIRE_AUDIENCE,
         )
-    except httpx.HTTPError as exc:
+    except PyJWKClientConnectionError as exc:
         logger.warning("text-svc: JWKS fetch failed — treating request as anonymous: %s", exc)
         return None
     except (JWTError, ValueError):

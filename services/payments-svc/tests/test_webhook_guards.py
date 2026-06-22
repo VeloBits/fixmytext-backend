@@ -93,19 +93,15 @@ def test_rate_limit_check_rate_limit_exists():
     from app.services.rate_limit import check_rate_limit  # noqa: F401
 
 
-def test_rate_limit_allows_when_redis_unavailable():
+@pytest.mark.asyncio
+async def test_rate_limit_allows_when_redis_unavailable():
     """check_rate_limit must not raise when Redis is None (graceful degradation)."""
-    import asyncio
-
     from unittest.mock import patch
 
     from app.services.rate_limit import check_rate_limit
 
-    async def _run():
-        with patch("app.services.rate_limit.get_redis", return_value=None):
-            await check_rate_limit("test:key", max_count=1)  # should not raise
-
-    asyncio.get_event_loop().run_until_complete(_run())
+    with patch("app.services.rate_limit.get_redis", return_value=None):
+        await check_rate_limit("test:key", max_count=1)  # should not raise
 
 
 @pytest.mark.asyncio
@@ -171,6 +167,62 @@ def test_order_endpoints_reference_rate_limit():
         assert "check_rate_limit" in src, (
             f"{ep_name} must call check_rate_limit (M-2)"
         )
+
+
+# ── B-1: Malformed Content-Length header ─────────────────────────────────────
+
+
+def test_webhook_content_length_guard_handles_non_numeric_values():
+    """The Content-Length guard must use try/except ValueError so a non-numeric
+    header value (e.g. 'chunked') returns 413 rather than crashing with 500 (B-1)."""
+    import inspect
+
+    from app.api.v1.endpoints import subscription as sub_ep
+
+    src = inspect.getsource(sub_ep.razorpay_webhook)
+    assert "except ValueError" in src, (
+        "razorpay_webhook Content-Length guard must catch ValueError from int() "
+        "conversion — a non-numeric value must return 413 not 500 (B-1)"
+    )
+
+
+# ── B-2: Startup validation for Razorpay secrets ─────────────────────────────
+
+
+def test_lifespan_validates_razorpay_secrets():
+    """The lifespan startup must include Razorpay credentials in the
+    assert_required_in_prod call so missing secrets fail at startup, not at the
+    first webhook invocation in production (B-2)."""
+    import inspect
+
+    import main
+
+    src = inspect.getsource(main.lifespan)
+    assert "RAZORPAY_WEBHOOK_SECRET" in src, (
+        "lifespan must pass RAZORPAY_WEBHOOK_SECRET to assert_required_in_prod (B-2)"
+    )
+    assert "RAZORPAY_KEY_ID" in src, (
+        "lifespan must pass RAZORPAY_KEY_ID to assert_required_in_prod (B-2)"
+    )
+    assert "RAZORPAY_KEY_SECRET" in src, (
+        "lifespan must pass RAZORPAY_KEY_SECRET to assert_required_in_prod (B-2)"
+    )
+
+
+# ── B-4: Empty tool_ids guard in webhook pass fulfillment ─────────────────────
+
+
+def test_webhook_pass_fulfillment_guards_against_empty_tool_ids():
+    """The webhook handler must reject pass fulfillment when tool_ids is empty
+    after validation, preventing a pass being granted with no tool coverage (B-4)."""
+    import inspect
+
+    from app.api.v1.endpoints import subscription as sub_ep
+
+    src = inspect.getsource(sub_ep.razorpay_webhook)
+    assert "missing tool_ids for pass" in src, (
+        "razorpay_webhook must guard against empty tool_ids for pass items (B-4)"
+    )
 
 
 # ── M-5: DEFAULT_REGION dead-code removal ─────────────────────────────────────

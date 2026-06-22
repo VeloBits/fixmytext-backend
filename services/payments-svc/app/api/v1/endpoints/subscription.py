@@ -271,8 +271,12 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     """
     # Reject oversized payloads before reading — protects against memory exhaustion.
     _cl = request.headers.get("content-length")
-    if _cl and int(_cl) > settings.WEBHOOK_MAX_BODY_BYTES:
-        raise HTTPException(413, "Webhook payload too large")
+    if _cl:
+        try:
+            if int(_cl) > settings.WEBHOOK_MAX_BODY_BYTES:
+                raise HTTPException(413, "Webhook payload too large")
+        except ValueError:
+            raise HTTPException(413, "Webhook payload too large")
     body = await request.body()
     if len(body) > settings.WEBHOOK_MAX_BODY_BYTES:
         raise HTTPException(413, "Webhook payload too large")
@@ -431,6 +435,12 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                     expected_item_id=item_id,
                     expected_item_type=item_type,
                 )
+                if item_type == "pass" and not tool_ids:
+                    logger.error(
+                        "Webhook: pass fulfillment with empty tool_ids, aborting: order=%s",
+                        safe_order_id,
+                    )
+                    raise HTTPException(400, "Invalid order notes: missing tool_ids for pass")
             else:
                 logger.warning(
                     "Unknown item_type in webhook: %s order=%s",

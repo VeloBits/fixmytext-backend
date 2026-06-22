@@ -25,6 +25,7 @@ init_sentry()
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from fixmytext_shared.middleware import (
     CorrelationIdMiddleware,
     RequestLoggingMiddleware,
@@ -125,6 +126,24 @@ async def lifespan(app: FastAPI):
         REDIS_URL=settings.REDIS_URL,
     )
 
+    from fixmytext_shared.config.validation import is_production_like
+
+    # Wildcard proxy trust lets any upstream inject X-Forwarded-For, enabling
+    # IP spoofing that bypasses the registration rate limiter. Require a specific
+    # CIDR in production (set to the Kong/load-balancer internal subnet).
+    if is_production_like(settings.ENVIRONMENT) and settings.TRUSTED_PROXY_HOSTS.strip() == "*":
+        raise RuntimeError(
+            "Refusing to start: TRUSTED_PROXY_HOSTS='*' is unsafe in production. "
+            "Set it to the Kong/proxy internal subnet CIDR (e.g. '10.0.0.0/8')."
+        )
+
+    # SESSION_COOKIE_SECURE must be True in production — cookies sent over plain
+    # HTTP allow session theft on the network.
+    if is_production_like(settings.ENVIRONMENT) and not settings.SESSION_COOKIE_SECURE:
+        raise RuntimeError(
+            "Refusing to start: SESSION_COOKIE_SECURE must be True in production."
+        )
+
     from app.core.redis import close_redis, init_redis
 
     await init_redis()
@@ -154,7 +173,7 @@ app = FastAPI(
 
 # ── Cross-cutting middleware ──────────────────────────────────────────────────
 # Order matters: starlette runs middleware in REVERSE registration order.
-# request → CorrelationId → SecurityHeaders → RequestLogging → app
+# request → ProxyHeaders → CORS → RequestLogging → SecurityHeaders → CorrelationId → app
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,
@@ -170,6 +189,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Visitor-Id", "X-Request-ID"],
 )
+
+# ── Proxy headers — must be outermost so real client IP is visible to all ─────
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.TRUSTED_PROXY_HOSTS)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(api_router, prefix="/api/v1")

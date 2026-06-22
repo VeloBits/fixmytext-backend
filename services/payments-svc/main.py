@@ -24,6 +24,7 @@ init_sentry()
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from fixmytext_shared.middleware import (
     CorrelationIdMiddleware,
     RequestLoggingMiddleware,
@@ -122,6 +123,9 @@ async def lifespan(app: FastAPI):
         KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
         KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
         INTERNAL_SHARED_SECRET=settings.INTERNAL_SHARED_SECRET,
+        RAZORPAY_KEY_ID=settings.RAZORPAY_KEY_ID,
+        RAZORPAY_KEY_SECRET=settings.RAZORPAY_KEY_SECRET,
+        RAZORPAY_WEBHOOK_SECRET=settings.RAZORPAY_WEBHOOK_SECRET,
     )
     # BE-PAY-09: the fake backend bypasses Razorpay signature verification —
     # it must never run in a production environment.
@@ -163,7 +167,7 @@ app = FastAPI(
 
 # ── Cross-cutting middleware ──────────────────────────────────────────────────
 # Order matters: starlette runs middleware in REVERSE registration order.
-# request → CorrelationId → SecurityHeaders → RequestLogging → app
+# request → ProxyHeaders → CORS → RequestLogging → SecurityHeaders → CorrelationId → app
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,
@@ -179,6 +183,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Visitor-Id", "X-Request-ID"],
 )
+
+# ── Proxy headers — must be outermost so real client IP is visible to all ─────
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(api_router, prefix="/api/v1")

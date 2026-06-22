@@ -89,6 +89,10 @@ async def test_generate_hashtags_returns_200(client):
     app.dependency_overrides[get_verified_user] = lambda: verified_user
 
     with patch(
+        "app.api.v1.endpoints.ai.check_entitlement",
+        new_callable=AsyncMock,
+        return_value=None,
+    ), patch(
         "app.services.ai_service.run_ai_tool",
         new=AsyncMock(return_value="#Python #FastAPI #Testing"),
     ):

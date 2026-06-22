@@ -87,11 +87,15 @@ def create_order(
 
     client = get_client()
 
+    # Razorpay limits receipt to 40 chars. Truncate consistently so the lookup
+    # and creation always use the same value.
+    receipt_value = (idempotency_key or receipt)[:40]
+
     # Check for an existing unpaid order with the same receipt to avoid
     # duplicate orders on network retries or double-clicks.
     if idempotency_key:
         try:
-            existing_orders = client.order.all({"receipt": idempotency_key})
+            existing_orders = client.order.all({"receipt": receipt_value})
             for order in existing_orders.get("items", []):
                 if (
                     order.get("status") == "created"
@@ -102,7 +106,7 @@ def create_order(
                     logger.debug(
                         "Returning existing order %s for receipt=%s",
                         str(order["id"]).replace("\n", "").replace("\r", ""),
-                        str(idempotency_key).replace("\n", "").replace("\r", ""),
+                        str(receipt_value).replace("\n", "").replace("\r", ""),
                     )
                     return order
         except Exception:
@@ -112,7 +116,7 @@ def create_order(
         {
             "amount": amount,
             "currency": currency.upper(),
-            "receipt": idempotency_key or receipt,
+            "receipt": receipt_value,
             "notes": notes,
         }
     )

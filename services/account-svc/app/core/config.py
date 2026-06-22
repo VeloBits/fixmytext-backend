@@ -39,6 +39,14 @@ class Settings(BaseSharedSettings):
     KEYCLOAK_URL: str = ""            # Admin API base (account-svc only)
     KEYCLOAK_ADMIN: str = "admin"
     KEYCLOAK_ADMIN_PASSWORD: str = ""
+    # OIDC client ID used in the verification-email link so Keycloak generates
+    # a redirect back to the correct frontend app (not the default account console).
+    KEYCLOAK_CLIENT_ID: str = ""
+    # Dedicated service account for Keycloak Admin API calls. When both are set,
+    # keycloak_admin.py uses client_credentials grant in the product realm instead
+    # of the master-realm admin-cli password grant. Created by bootstrap.sh.
+    KEYCLOAK_SERVICE_ACCOUNT_ID: str = ""
+    KEYCLOAK_SERVICE_ACCOUNT_SECRET: str = ""
 
     # ── Session cookie (per-app, host-only, set by account-svc) ───────────────
     # Issued on successful auth so that cross-framework apps (Vite + Next.js)
@@ -74,6 +82,14 @@ class Settings(BaseSharedSettings):
     # production realm uses 12. Set this to match whichever realm is active so
     # the 422 from our validator fires before the round-trip to Keycloak Admin.
     KEYCLOAK_PASSWORD_MIN_LENGTH: int = 8
+
+    # ── Reverse proxy trust ───────────────────────────────────────────────────
+    # Hosts/CIDRs whose X-Forwarded-For header is trusted by ProxyHeadersMiddleware.
+    # "*" trusts every upstream — safe only in local compose where Kong is the
+    # sole network entry point. Production MUST set this to the Kong container's
+    # internal subnet (e.g. "10.0.0.0/8") so IP spoofing via injected XFF headers
+    # cannot bypass the rate limiter. Enforced by the startup assert in main.py.
+    TRUSTED_PROXY_HOSTS: str = "*"
 
 
 settings = Settings()

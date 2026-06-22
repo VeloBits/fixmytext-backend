@@ -89,12 +89,17 @@ services:
     image: redis:8-alpine
     container_name: fixmytext-redis
     restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    mem_limit: 128m
+    cpus: "0.25"
     ports:
       - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     networks:
       - fixmytext-net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -165,6 +170,8 @@ services:
       context: .
       dockerfile: services/ai-svc/Dockerfile
     container_name: fixmytext-ai-svc
+    mem_limit: 512m
+    cpus: "0.5"
     expose:
       - "8000"
     env_file:
@@ -197,6 +204,8 @@ services:
       context: .
       dockerfile: services/ai-svc/Dockerfile
     container_name: fixmytext-ai-worker
+    mem_limit: 256m
+    cpus: "0.25"
     command: ["python", "-m", "arq", "app.worker.main.WorkerSettings"]
     env_file:
       - .env
@@ -226,6 +235,8 @@ services:
       context: .
       dockerfile: services/text-svc/Dockerfile
     container_name: fixmytext-text-svc
+    mem_limit: 256m
+    cpus: "0.25"
     expose:
       - "8000"
     env_file:
@@ -255,6 +266,8 @@ services:
       context: .
       dockerfile: services/payments-svc/Dockerfile
     container_name: fixmytext-payments-svc
+    mem_limit: 256m
+    cpus: "0.25"
     expose:
       - "8000"
     env_file:
@@ -291,6 +304,8 @@ services:
       context: .
       dockerfile: services/account-svc/Dockerfile
     container_name: fixmytext-account-svc
+    mem_limit: 512m
+    cpus: "0.5"
     expose:
       - "8000"
     env_file:
@@ -309,6 +324,8 @@ services:
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://auth-dev.velobits.dev}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits-Dev}
       - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/${KEYCLOAK_REALM:-Velobits-Dev}/protocol/openid-connect/certs}
+      - KEYCLOAK_SERVICE_ACCOUNT_ID=${KEYCLOAK_SERVICE_ACCOUNT_ID:-account-svc}
+      - KEYCLOAK_SERVICE_ACCOUNT_SECRET=${KEYCLOAK_SERVICE_ACCOUNT_SECRET:-}
     depends_on:
       db-service:
         condition: service_healthy
@@ -334,6 +351,8 @@ services:
     image: kong:3.8-ubuntu
     container_name: fixmytext-kong
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: "0.25"
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
@@ -465,6 +484,8 @@ services:
     image: alpine:3
     container_name: keycloak-bootstrap
     restart: "no"
+    mem_limit: 128m
+    cpus: "0.25"
     entrypoint:
       - /bin/sh
       - -c
@@ -487,6 +508,15 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # Dedicated service account for account-svc Admin API calls (optional).
+      # Bootstrap creates/updates the client; account-svc reads the same values.
+      KEYCLOAK_SERVICE_ACCOUNT_ID: ${KEYCLOAK_SERVICE_ACCOUNT_ID:-account-svc}
+      KEYCLOAK_SERVICE_ACCOUNT_SECRET: ${KEYCLOAK_SERVICE_ACCOUNT_SECRET:-}
+      # Backchannel logout: URL Keycloak calls on SLO, and the frontend OIDC
+      # client that issued the user sessions (MUST match the public client used
+      # for Authorization Code + PKCE — NOT the service-account client).
+      BACKCHANNEL_LOGOUT_URL: ${BACKCHANNEL_LOGOUT_URL:-http://kong:8000/api/v1/auth/backchannel-logout}
+      KEYCLOAK_FRONTEND_CLIENT_ID: ${KEYCLOAK_FRONTEND_CLIENT_ID:-develop-fixmytext}
     volumes:
       - ./infrastructure/keycloak/bootstrap.sh:/scripts/bootstrap.sh:ro
       - ./infrastructure/keycloak/realm-export-dev.json:/scripts/realm-export-dev.json:ro

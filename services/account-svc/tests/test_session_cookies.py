@@ -71,7 +71,8 @@ def test_wrong_secret_returns_none():
 
 
 def test_expired_token_returns_none():
-    claims = _claims(exp=int(time.time()) - 1)
+    # Use 10 seconds in the past — well beyond the 5-second leeway added by B2 fix.
+    claims = _claims(exp=int(time.time()) - 10)
     token = sign_session(claims, SECRET)
     assert verify_session(token, SECRET) is None
 

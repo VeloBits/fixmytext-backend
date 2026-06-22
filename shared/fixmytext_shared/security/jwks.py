@@ -1,10 +1,9 @@
 """RS256 + JWKS JWT adapter.
 
-Currently dormant — activated by setting ``JWT_ALGORITHM=RS256`` and
-pointing ``KEYCLOAK_JWKS_URL`` at a running Keycloak realm. Fetches the
-JWKS document from the issuer's `.well-known` endpoint and caches public
-keys in-process. On `kid` cache-miss the limiter forces a refresh once
-before failing.
+Active in production — Keycloak issues RS256 tokens; all services verify
+them via this module. Fetches the JWKS document from the issuer's
+`.well-known` endpoint and caches public keys in-process. On `kid`
+cache-miss the limiter forces a refresh once before failing.
 
 ``verify()`` is async: the JWKS key fetch (``urllib.request`` inside
 ``PyJWKClient``) is blocking network I/O. Wrapping it in
@@ -16,7 +15,6 @@ import asyncio
 import logging
 from typing import Any
 
-import httpx
 import jwt
 from cachetools import TTLCache
 from jwt import PyJWKClient
@@ -62,7 +60,7 @@ async def verify(
 
     Raises ``ValueError`` if ``require_audience`` is True but ``audience`` is None.
     Raises ``jwt.PyJWTError`` on signature/audience/issuer mismatch.
-    Raises ``httpx.HTTPError`` if JWKS fetch fails on cache miss.
+    Raises ``jwt.exceptions.PyJWKClientConnectionError`` if JWKS fetch fails on cache miss.
     """
     if audience is None and require_audience:
         raise ValueError(
@@ -97,9 +95,11 @@ async def verify(
     if audience is not None:
         decode_kwargs["audience"] = audience
     else:
-        logger.warning(
-            "jwks.verify: audience verification DISABLED — set KEYCLOAK_AUDIENCE in production"
-        )
+        # Production safety is enforced by the require_audience=True + ValueError path above.
+        # When audience=None is intentional (e.g. backchannel logout tokens whose aud is
+        # client_id, not the resource-server audience), this is an explicit opt-out — log at
+        # DEBUG to avoid polluting production logs with false-alarm warnings.
+        logger.debug("jwks.verify: audience verification skipped (audience=None, require_audience=False)")
         options["verify_aud"] = False
     if issuer is not None:
         decode_kwargs["issuer"] = issuer

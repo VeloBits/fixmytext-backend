@@ -12,10 +12,11 @@ starts with::
 """
 
 import logging
-import os
 from typing import Any
 
 from arq.connections import RedisSettings
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(
-        os.environ.get("REDIS_URL", "redis://redis-service:6379/0")
+        settings.REDIS_URL or "redis://redis-service:6379/0"
     )
     # Keep job results in Redis for 1 hour so callers can poll /jobs/{job_id}
     keep_result = 3600

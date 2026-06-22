@@ -25,6 +25,32 @@ ALWAYS_FREE_TOOL_IDS = frozenset(
 
 _TIMEOUT = httpx.Timeout(1.5, connect=0.5)
 
+# Shared persistent client — reuses TCP connections across requests.
+# Initialized by init_http_client() in the FastAPI lifespan.
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+def init_http_client() -> None:
+    """Open the shared HTTP client (call once from FastAPI lifespan)."""
+    global _HTTP_CLIENT
+    _HTTP_CLIENT = httpx.AsyncClient(timeout=_TIMEOUT)
+
+
+async def close_http_client() -> None:
+    """Close the shared HTTP client (call from FastAPI lifespan on shutdown)."""
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is not None:
+        await _HTTP_CLIENT.aclose()
+        _HTTP_CLIENT = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Return the shared client, creating it lazily if lifespan init was skipped."""
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None:
+        _HTTP_CLIENT = httpx.AsyncClient(timeout=_TIMEOUT)
+    return _HTTP_CLIENT
+
 
 def client_ip(request: Request) -> str:
     """Best-effort real client IP (first X-Forwarded-For hop, else peer)."""
@@ -82,8 +108,7 @@ async def check_access(
     url = f"{settings.PAYMENTS_INTERNAL_URL}/internal/v1/check-access"
     headers = {"X-Internal-Secret": settings.INTERNAL_SHARED_SECRET}
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(url, json=payload, headers=headers)
+        resp = await _get_http_client().post(url, json=payload, headers=headers)
     except (httpx.HTTPError, OSError) as exc:
         _fail_closed(tool_id, tool_type, f"unreachable: {exc}")
         return

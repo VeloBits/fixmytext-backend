@@ -1,9 +1,9 @@
 """JWT verification dispatcher.
 
 `verify_jwt()` reads the algorithm from the kwarg or the `JWT_ALGORITHM`
-env var (default ``HS256``) and routes to the appropriate adapter.
-Only the HS256 path is exercised today; the JWKS adapter exists for code
-locality but is gated behind the ``JWT_ALGORITHM=RS256`` env flip.
+env var (default ``RS256``) and routes to the appropriate adapter.
+RS256/JWKS is the production path (Keycloak-issued tokens). HS256 is the
+legacy fallback and is no longer used by any service in normal operation.
 
 Both ``verify_jwt`` and ``verify_jwt_raw`` are **async** because the RS256
 path (``jwks.verify``) performs blocking network I/O on JWKS cache miss and
@@ -48,7 +48,7 @@ async def verify_jwt(
     Raises ``jwt.PyJWTError`` (or subclasses) on invalid signature,
     expired tokens, or claim mismatches.
     """
-    algo = algorithm or os.getenv("JWT_ALGORITHM", "HS256").upper()
+    algo = algorithm or os.getenv("JWT_ALGORITHM", "RS256").upper()
 
     if algo == "HS256":
         if not secret:
@@ -70,7 +70,6 @@ async def verify_jwt(
     return ClaimSchema.from_payload(payload)
 
 
-# Re-export raw payload helper for callers that prefer dict access
 async def verify_jwt_raw(
     token: str,
     *,
@@ -81,14 +80,25 @@ async def verify_jwt_raw(
     issuer: str | None = None,
     require_audience: bool = False,
 ) -> dict[str, Any]:
-    """Same as verify_jwt but returns the raw payload dict."""
-    claims = await verify_jwt(
-        token,
-        algorithm=algorithm,
-        secret=secret,
-        jwks_url=jwks_url,
-        audience=audience,
-        issuer=issuer,
-        require_audience=require_audience,
-    )
-    return claims.to_dict()
+    """Verify a JWT and return the full decoded payload dict as-is from PyJWT.
+
+    Unlike ``verify_jwt``, this bypasses ``ClaimSchema`` so non-standard claims
+    (e.g. ``events`` in OIDC backchannel logout tokens) are preserved.
+    """
+    algo = algorithm or os.getenv("JWT_ALGORITHM", "RS256").upper()
+    if algo == "HS256":
+        if not secret:
+            raise ValueError("verify_jwt: HS256 requires `secret`")
+        return hs256.verify(token, secret)
+    elif algo == "RS256":
+        if not jwks_url:
+            raise ValueError("verify_jwt: RS256 requires `jwks_url`")
+        return await jwks.verify(
+            token,
+            jwks_url=jwks_url,
+            audience=audience,
+            issuer=issuer,
+            require_audience=require_audience,
+        )
+    else:
+        raise ValueError(f"verify_jwt: unsupported algorithm: {algo!r}")

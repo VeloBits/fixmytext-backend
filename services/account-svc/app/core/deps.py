@@ -14,16 +14,17 @@ when no (or invalid) auth is provided — used by the share endpoints.
 import logging
 import uuid
 
-import httpx
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fixmytext_shared.auth.jit import jit_provision_user
 from fixmytext_shared.config.validation import is_production_like
 from fixmytext_shared.security.jwt import verify_jwt_raw
+from jwt.exceptions import PyJWKClientConnectionError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.redis import is_session_revoked
 from app.core.session_cookie import verify_session
 from app.db.models.user import User
 from app.db.session import get_db
@@ -59,11 +60,16 @@ async def _resolve_user_id(
         claims = verify_session(cookie_value, settings.SESSION_COOKIE_SECRET)
         if claims and isinstance(claims.get("sub"), str):
             try:
-                logger.debug("auth: resolved via session cookie")
-                return uuid.UUID(claims["sub"]), None
+                keycloak_id = uuid.UUID(claims["sub"])
+                iat = claims.get("iat", 0)
+                if await is_session_revoked(claims["sub"], iat):
+                    logger.info("auth: session cookie revoked for sub=%s — falling through to Bearer", claims["sub"])
+                else:
+                    logger.debug("auth: resolved via session cookie")
+                    return keycloak_id, None
             except ValueError:
                 logger.warning("auth: session cookie sub is not a valid UUID — ignoring cookie")
-                pass  # fall through to Bearer
+            # fall through to Bearer
 
     # Path B: Bearer JWT (Keycloak-issued)
     if credentials:
@@ -78,7 +84,7 @@ async def _resolve_user_id(
             )
             logger.debug("auth: resolved via Bearer JWT")
             return uuid.UUID(payload["sub"]), payload
-        except httpx.HTTPError as exc:
+        except PyJWKClientConnectionError as exc:
             logger.warning("auth: JWKS fetch failed — treating as 401: %s", exc)
             return None, None
         except Exception as exc:
@@ -125,12 +131,19 @@ async def get_optional_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
-    """Optional auth — returns User if valid cookie OR Bearer, None otherwise. Never raises."""
-    keycloak_id, _ = await _resolve_user_id(request, credentials)
+    """Optional auth — returns User if valid cookie OR Bearer, None otherwise. Never raises.
+
+    JIT-provisions a new user when a valid Bearer JWT is present and no DB row
+    exists yet — same contract as get_current_user. Cookie-only auth cannot
+    provision (no jwt_payload) so it returns None for unknown subjects.
+    """
+    keycloak_id, jwt_payload = await _resolve_user_id(request, credentials)
     if not keycloak_id:
         return None
 
     user = await db.scalar(select(User).where(User.keycloak_id == keycloak_id))
+    if user is None and jwt_payload is not None:
+        user = await jit_provision_user(db, User, keycloak_id, jwt_payload)
     if not user or not user.is_active:
         return None
     return user

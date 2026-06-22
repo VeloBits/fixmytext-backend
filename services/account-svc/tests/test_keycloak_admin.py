@@ -130,7 +130,11 @@ async def test_create_keycloak_user_duplicate_email_raises_value_error():
 
 @pytest.mark.asyncio
 async def test_get_admin_token_keycloak_unreachable_raises():
-    """httpx.ConnectError during token fetch → RuntimeError propagates to caller."""
+    """httpx.ConnectError during token fetch → RuntimeError raised with clear message.
+
+    Wrapping the network error as RuntimeError ensures callers (create_keycloak_user
+    → auth_register) always see RuntimeError and return 502, never an unhandled 500.
+    """
     from app.services.keycloak_admin import _get_admin_token
 
     mock_client = AsyncMock()
@@ -142,7 +146,7 @@ async def test_get_admin_token_keycloak_unreachable_raises():
 
     with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
         with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(httpx.ConnectError):
+            with pytest.raises(RuntimeError, match="network error"):
                 await _get_admin_token()
 
 
@@ -247,3 +251,125 @@ async def test_create_keycloak_user_invalid_uuid_in_location_raises():
                     password="secure123",
                     display_name="Test",
                 )
+
+
+# ---------------------------------------------------------------------------
+# Network error paths — must raise RuntimeError so callers return 502, not 500
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_keycloak_user_network_error_raises_runtime_error():
+    """httpx.ConnectError on user-creation call → RuntimeError (not raw httpx error).
+
+    The register endpoint only catches ValueError and RuntimeError. A raw network
+    error would produce an unhandled 500; wrapping it ensures a proper 502.
+    """
+    from app.services.keycloak_admin import create_keycloak_user
+
+    token_resp = _mock_token_response()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    # First call returns token; second call (user creation) throws network error.
+    mock_client.post = AsyncMock(
+        side_effect=[token_resp, httpx.ConnectError("Connection refused")]
+    )
+
+    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(RuntimeError, match="network error"):
+                await create_keycloak_user(
+                    email="test@example.com",
+                    password="secure123",
+                    display_name="Test",
+                )
+
+
+# ---------------------------------------------------------------------------
+# send_verification_email — verify client_id + redirect_uri params are sent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_send_verification_email_passes_client_id_and_redirect_uri():
+    """send_verification_email passes KEYCLOAK_CLIENT_ID + FRONTEND_URL as query params.
+
+    Without these, Keycloak generates a verification link that redirects to the
+    account console instead of the frontend app.
+    """
+    from unittest.mock import MagicMock
+
+    from app.services.keycloak_admin import send_verification_email
+
+    token_resp = _mock_token_response()
+    verify_resp = MagicMock()
+    verify_resp.status_code = 204
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(return_value=token_resp)
+    mock_client.put = AsyncMock(return_value=verify_resp)
+
+    keycloak_id = str(uuid.uuid4())
+    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch(
+                "app.services.keycloak_admin.settings",
+                KEYCLOAK_URL="http://keycloak:8080",
+                KEYCLOAK_REALM="Velobits-Dev",
+                KEYCLOAK_CLIENT_ID="fixmytext-frontend",
+                FRONTEND_URL="https://app.velobits.dev",
+                KEYCLOAK_SERVICE_ACCOUNT_ID="",
+                KEYCLOAK_SERVICE_ACCOUNT_SECRET="",
+                KEYCLOAK_ADMIN="admin",
+                KEYCLOAK_ADMIN_PASSWORD="pass",
+            ):
+                await send_verification_email(keycloak_id)
+
+    mock_client.put.assert_awaited_once()
+    call_kwargs = mock_client.put.call_args[1]
+    params = call_kwargs.get("params") or {}
+    assert params.get("client_id") == "fixmytext-frontend"
+    assert params.get("redirect_uri") == "https://app.velobits.dev"
+
+
+@pytest.mark.asyncio
+async def test_send_verification_email_omits_params_when_not_configured():
+    """send_verification_email sends no query params when client_id/redirect_uri unset."""
+    from unittest.mock import MagicMock
+
+    from app.services.keycloak_admin import send_verification_email
+
+    token_resp = _mock_token_response()
+    verify_resp = MagicMock()
+    verify_resp.status_code = 204
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(return_value=token_resp)
+    mock_client.put = AsyncMock(return_value=verify_resp)
+
+    keycloak_id = str(uuid.uuid4())
+    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch(
+                "app.services.keycloak_admin.settings",
+                KEYCLOAK_URL="http://keycloak:8080",
+                KEYCLOAK_REALM="Velobits-Dev",
+                KEYCLOAK_CLIENT_ID="",
+                FRONTEND_URL="",
+                KEYCLOAK_SERVICE_ACCOUNT_ID="",
+                KEYCLOAK_SERVICE_ACCOUNT_SECRET="",
+                KEYCLOAK_ADMIN="admin",
+                KEYCLOAK_ADMIN_PASSWORD="pass",
+            ):
+                await send_verification_email(keycloak_id)
+
+    mock_client.put.assert_awaited_once()
+    call_kwargs = mock_client.put.call_args[1]
+    # params=None when no client_id/redirect_uri configured
+    assert call_kwargs.get("params") is None

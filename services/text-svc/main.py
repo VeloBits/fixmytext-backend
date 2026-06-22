@@ -22,6 +22,7 @@ init_sentry()
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from fixmytext_shared.middleware import (
     CorrelationIdMiddleware,
     RequestLoggingMiddleware,
@@ -30,6 +31,7 @@ from fixmytext_shared.middleware import (
 
 from app.api.v1.endpoints.text import router as text_router
 from app.core.config import settings
+from app.services.entitlement_client import close_http_client, init_http_client
 
 # ── Logging configuration ────────────────────────────────────────────────────
 
@@ -121,6 +123,8 @@ async def lifespan(app: FastAPI):
         REDIS_URL=settings.REDIS_URL,
     )
 
+    init_http_client()
+
     from app.core.redis import close_redis, init_redis
 
     await init_redis()
@@ -133,6 +137,7 @@ async def lifespan(app: FastAPI):
     sentry_sdk.flush(timeout=2.0)
     shutdown_logs_otel(timeout_millis=5000)
     await close_redis()
+    await close_http_client()
 
 
 # ── Application ───────────────────────────────────────────────────────────────
@@ -150,7 +155,7 @@ app = FastAPI(
 
 # ── Cross-cutting middleware ──────────────────────────────────────────────────
 # Order matters: starlette runs middleware in REVERSE registration order.
-# request → CorrelationId → SecurityHeaders → RequestLogging → app
+# request → ProxyHeaders → CORS → RequestLogging → SecurityHeaders → CorrelationId → app
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,
@@ -166,6 +171,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Visitor-Id", "X-Request-ID"],
 )
+
+# ── Proxy headers — must be outermost so real client IP is visible to all ─────
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(text_router, prefix="/api/v1")

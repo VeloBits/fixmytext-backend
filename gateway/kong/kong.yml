@@ -20,6 +20,14 @@ services:
       - name: request-size-limiting
         config:
           allowed_payload_size: 1
+      # Coarse anti-abuse limit — in-app per-user AI quota is the enforcement layer.
+      - name: rate-limiting
+        config:
+          minute: 30
+          hour: 300
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
 
   # ── text-svc (local text-transform tools) ────────────────────────────────
   - name: text-svc
@@ -33,6 +41,13 @@ services:
       - name: request-size-limiting
         config:
           allowed_payload_size: 1
+      - name: rate-limiting
+        config:
+          minute: 120
+          hour: 1200
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
 
   # ── payments-svc (Razorpay subscriptions, passes) ─────────────────────────
   - name: payments-svc
@@ -50,6 +65,13 @@ services:
       - name: request-size-limiting
         config:
           allowed_payload_size: 1
+      - name: rate-limiting
+        config:
+          minute: 30
+          hour: 300
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
 
   # ── account-svc (auth, user data, history, share) ─────────────────────────
   - name: account-svc
@@ -79,6 +101,13 @@ services:
       - name: request-size-limiting
         config:
           allowed_payload_size: 1
+      - name: rate-limiting
+        config:
+          minute: 60
+          hour: 600
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
 
 plugins:
   # Inject / echo X-Request-ID on every request so it appears in service
@@ -115,8 +144,8 @@ plugins:
       credentials: true
       max_age: 3600
 
-# Rate-limit plugin intentionally NOT enabled at the gateway yet.
-# In-app rate limiting (fixmytext_shared.rate_limit) remains source-of-truth
-# so behaviour is identical pre- and post-gateway. TODO: migrate to Kong's
-# rate-limit plugin when a service splits out (the AI quota check has the
-# most to gain from edge-side enforcement).
+# Note: Kong rate-limiting above uses policy=local (per-node counters).
+# In a multi-node Kong deployment, switch to policy=redis and configure
+# redis_host/redis_port to share counters across instances. The in-app
+# per-user quota (fixmytext_shared.rate_limit) remains the enforcement layer;
+# Kong limits are a coarse anti-abuse guard.

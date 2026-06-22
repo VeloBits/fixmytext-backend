@@ -38,7 +38,7 @@ class _Client:
 
 
 def _patch(monkeypatch, resp=None, exc=None):
-    monkeypatch.setattr(ec.httpx, "AsyncClient", lambda *a, **k: _Client(resp, exc))
+    monkeypatch.setattr(ec, "_HTTP_CLIENT", _Client(resp, exc))
 
 
 async def test_allowed_returns_none(monkeypatch):

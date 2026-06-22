@@ -8,7 +8,6 @@ Rate limiting: shared ``rl:ai`` prefix in Redis (cross-service with monolith).
 """
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +21,7 @@ from pydantic import BaseModel
 from app.core.config import REQUIRE_AUDIENCE, settings
 from app.core.rate_limit import ai_limiter
 from app.services import ai_service
+from fixmytext_shared.security.jwt import verify_jwt_raw
 from app.services.entitlement_client import check_access as check_entitlement
 from app.tool_registry import get_tool
 
@@ -82,7 +82,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> AuthenticatedUser:
     """Verify Keycloak JWT and return a lightweight AuthenticatedUser.
 
@@ -91,8 +91,6 @@ async def get_current_user(
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        from fixmytext_shared.security.jwt import verify_jwt_raw
-
         payload = await verify_jwt_raw(
             credentials.credentials,
             algorithm="RS256",
@@ -281,9 +279,7 @@ async def _get_arq_pool() -> ArqRedis:
     global _arq_pool
     if _arq_pool is None:
         _arq_pool = await create_pool(
-            RedisSettings.from_dsn(
-                os.environ.get("REDIS_URL", "redis://redis-service:6379/0")
-            )
+            RedisSettings.from_dsn(settings.REDIS_URL or "redis://redis-service:6379/0")
         )
     return _arq_pool
 

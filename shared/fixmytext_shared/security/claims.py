@@ -8,11 +8,10 @@ from typing import Any
 class ClaimSchema:
     """Strongly-typed view of a JWT payload.
 
-    Tokens issued by the legacy HS256 path carry only ``sub``, ``exp``,
-    ``iat``, ``type``. Tokens issued by Keycloak (once the auth cutover
-    lands) carry ``email``, ``email_verified``, ``roles``, plus standard
-    OIDC claims (``iss``, ``aud``). ``org_id`` is the B2B-ready hook —
-    None today.
+    Tokens issued by Keycloak (RS256) carry ``email``, ``email_verified``,
+    ``roles``, plus standard OIDC claims (``iss``, ``aud``). The legacy HS256
+    path only carries ``sub``, ``exp``, ``iat``, ``type`` — it is no longer
+    used in normal operation. ``org_id`` is the B2B-ready hook — None today.
     """
 
     sub: str

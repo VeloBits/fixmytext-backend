@@ -18,6 +18,32 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = httpx.Timeout(1.5, connect=0.5)
 _UNAVAILABLE = "Service temporarily unavailable. Please try again shortly."
 
+# Shared persistent client — reuses TCP connections across requests.
+# Initialized by init_http_client() in the FastAPI lifespan.
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+def init_http_client() -> None:
+    """Open the shared HTTP client (call once from FastAPI lifespan)."""
+    global _HTTP_CLIENT
+    _HTTP_CLIENT = httpx.AsyncClient(timeout=_TIMEOUT)
+
+
+async def close_http_client() -> None:
+    """Close the shared HTTP client (call from FastAPI lifespan on shutdown)."""
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is not None:
+        await _HTTP_CLIENT.aclose()
+        _HTTP_CLIENT = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Return the shared client, creating it lazily if lifespan init was skipped."""
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None:
+        _HTTP_CLIENT = httpx.AsyncClient(timeout=_TIMEOUT)
+    return _HTTP_CLIENT
+
 
 async def check_access(
     *,
@@ -42,8 +68,7 @@ async def check_access(
     headers = {"X-Internal-Secret": settings.INTERNAL_SHARED_SECRET}
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(url, json=payload, headers=headers)
+        resp = await _get_http_client().post(url, json=payload, headers=headers)
     except (httpx.HTTPError, OSError) as exc:
         logger.error(
             "entitlement gate unreachable (%s) — blocking AI tool %s", exc, tool_id
@@ -70,4 +95,4 @@ async def check_access(
         )
 
 
-__all__ = ["check_access"]
+__all__ = ["check_access", "init_http_client", "close_http_client"]
