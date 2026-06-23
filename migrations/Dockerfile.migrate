@@ -3,6 +3,7 @@ WORKDIR /app
 # Apply available OS security patches (e.g. openssl) so the base image's fixable
 # CVEs don't trip the CI Trivy gate.
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel --quiet
 RUN pip install --no-cache-dir \
     alembic \
     asyncpg \
@@ -17,7 +18,7 @@ COPY services/payments-svc/ ./services/payments-svc/
 # account-svc source needed so migrations/env.py can import activity-schema models
 COPY services/account-svc/ ./services/account-svc/
 COPY shared/ ./shared/
-RUN pip install --no-cache-dir -e ./shared
+RUN pip install --no-cache-dir --no-build-isolation -e ./shared
 
 # Run migrations as a non-root user (DO-06). Alembic only needs DB access +
 # read access to /app (root-owned files are world-readable), not root.

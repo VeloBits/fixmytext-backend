@@ -17,7 +17,7 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════
   # TRAEFIK — edge reverse proxy for all *.velobits.dev subdomains.
-  # Owns external port :80. Routes by Host header to the right container.
+  # Owns external port :80. Dev routes live in gateway/traefik/rules/.
   # ══════════════════════════════════════════════════════════════════════════
 
   traefik:
@@ -28,10 +28,7 @@ services:
     command:
       - --api.dashboard=true
       - --api.insecure=true
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=fixmytext-net
-      # file provider activates path-prefix routing for content-app vs web-app
+      # File provider avoids Docker API compatibility issues on newer daemons.
       - --providers.file.directory=/etc/traefik/rules
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
@@ -39,12 +36,9 @@ services:
     ports:
       - "80:80"
       - "127.0.0.1:8090:8080"   # dashboard, localhost-only
-    environment:
-      # Pin Docker API version so Traefik's SDK doesn't fall back to 1.24,
-      # which newer Docker Engine daemons (min 1.40) reject.
-      DOCKER_API_VERSION: "1.47"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./gateway/traefik/rules:/etc/traefik/rules:ro
     networks:
       - fixmytext-net
@@ -387,12 +381,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.kong-dev.rule=Host(`api-dev.velobits.dev`)"
-      - "traefik.http.routers.kong-dev.entrypoints=web"
-      - "traefik.http.services.kong-dev.loadbalancer.server.port=8000"
-
   # ══════════════════════════════════════════════════════════════════════════
   # KEYCLOAK DEV  —  identity provider for the Velobits-Dev realm.
   # Dev realm export is at infrastructure/keycloak/realm-export-dev.json.
@@ -459,12 +447,6 @@ services:
       timeout: 5s
       retries: 30
       start_period: 40s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.keycloak-dev.rule=Host(`auth-dev.velobits.dev`)"
-      - "traefik.http.routers.keycloak-dev.entrypoints=web"
-      - "traefik.http.services.keycloak-dev.loadbalancer.server.port=8080"
-
   # ══════════════════════════════════════════════════════════════════════════
   # KEYCLOAK BOOTSTRAP  —  one-shot init that provisions identity providers
   # (Google / GitHub) and SMTP on the Velobits-Dev realm via the Admin API.
