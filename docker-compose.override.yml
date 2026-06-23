@@ -1,0 +1,26 @@
+# Dev-only host port mappings so each FastAPI service's Swagger UI is reachable
+# from the host. Auto-merged by `docker compose` (no -f needed), so the base
+# docker-compose.yml stays clean for prod/CI. Each service is hit directly at
+# its own root, so Swagger UI's relative /openapi.json fetch is same-origin and
+# needs no CORS/root_path config. Bound to 127.0.0.1 like Kong (loopback only).
+#
+#   ai-svc       -> http://localhost:8011/docs
+#   text-svc     -> http://localhost:8012/docs
+#   payments-svc -> http://localhost:8013/docs
+#   account-svc  -> http://localhost:8014/docs
+#
+# Docs are served only when ENVIRONMENT=development (the shared-config default),
+# so they are off in prod-like environments regardless of these mappings.
+services:
+  ai-svc:
+    ports:
+      - "127.0.0.1:8011:8000"
+  text-svc:
+    ports:
+      - "127.0.0.1:8012:8000"
+  payments-svc:
+    ports:
+      - "127.0.0.1:8013:8000"
+  account-svc:
+    ports:
+      - "127.0.0.1:8014:8000"

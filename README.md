@@ -82,6 +82,23 @@ docker compose --profile dev up backend-dev db-service redis-service migrate-dev
 # Then add a temporary `ports: ["8000:8000"]` to backend-dev locally.
 ```
 
+### API docs (Swagger) in dev
+
+`docker-compose.override.yml` publishes each service on a loopback host port so
+its interactive docs are reachable directly (Kong on `:8000` only routes
+`/api/v1/*`, not `/docs`). The override is auto-merged by `docker compose` — no
+extra flags needed. After `docker compose --profile dev up`:
+
+| Service | Swagger UI | ReDoc | OpenAPI schema |
+|---------|------------|-------|----------------|
+| ai-svc | http://localhost:8011/docs | http://localhost:8011/redoc | http://localhost:8011/openapi.json |
+| text-svc | http://localhost:8012/docs | http://localhost:8012/redoc | http://localhost:8012/openapi.json |
+| payments-svc | http://localhost:8013/docs | http://localhost:8013/redoc | http://localhost:8013/openapi.json |
+| account-svc | http://localhost:8014/docs | http://localhost:8014/redoc | http://localhost:8014/openapi.json |
+
+Docs are served only when `ENVIRONMENT=development` (the default); they return
+404 in prod-like environments regardless of the port mapping.
+
 **Manual (single service, e.g. account-svc):**
 ```bash
 cd backend
