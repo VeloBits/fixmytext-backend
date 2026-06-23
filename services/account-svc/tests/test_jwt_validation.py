@@ -53,7 +53,9 @@ def _make_db(user: MagicMock | None) -> AsyncMock:
     """Return an async DB mock whose scalar() returns *user*."""
     mock_db = AsyncMock()
     mock_db.scalar = AsyncMock(return_value=user)
-    mock_db.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value="free")))
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value="free"))
+    )
     mock_db.add = MagicMock()
     mock_db.flush = AsyncMock()
     return mock_db
@@ -99,7 +101,9 @@ async def test_expired_token_returns_401(async_client):
     async def override_get_db():
         yield _make_db(None)
 
-    with patch(_MOCK_TARGET, side_effect=jwt.exceptions.ExpiredSignatureError("expired")):
+    with patch(
+        _MOCK_TARGET, side_effect=jwt.exceptions.ExpiredSignatureError("expired")
+    ):
         app.dependency_overrides[get_db] = override_get_db
         try:
             response = await async_client.get(
@@ -120,7 +124,9 @@ async def test_invalid_signature_returns_401(async_client):
     async def override_get_db():
         yield _make_db(None)
 
-    with patch(_MOCK_TARGET, side_effect=jwt.exceptions.InvalidSignatureError("bad sig")):
+    with patch(
+        _MOCK_TARGET, side_effect=jwt.exceptions.InvalidSignatureError("bad sig")
+    ):
         app.dependency_overrides[get_db] = override_get_db
         try:
             response = await async_client.get(
@@ -141,7 +147,9 @@ async def test_wrong_audience_returns_401(async_client):
     async def override_get_db():
         yield _make_db(None)
 
-    with patch(_MOCK_TARGET, side_effect=jwt.exceptions.InvalidAudienceError("bad aud")):
+    with patch(
+        _MOCK_TARGET, side_effect=jwt.exceptions.InvalidAudienceError("bad aud")
+    ):
         app.dependency_overrides[get_db] = override_get_db
         try:
             response = await async_client.get(

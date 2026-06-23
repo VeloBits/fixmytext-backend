@@ -48,15 +48,15 @@ def upgrade() -> None:
         batch_op.drop_constraint(CONSTRAINT, type_="check")
         batch_op.create_check_constraint(
             CONSTRAINT,
-            sa.text("status IN ('active', 'cancelled', 'expired', 'pending', 'halted')"),
+            sa.text(
+                "status IN ('active', 'cancelled', 'expired', 'pending', 'halted')"
+            ),
         )
 
 
 def downgrade() -> None:
     # Remove any halted rows before reinstating the narrower constraint.
-    op.execute(
-        f"UPDATE {SCHEMA}.{TABLE} SET status='cancelled' WHERE status='halted'"
-    )
+    op.execute(f"UPDATE {SCHEMA}.{TABLE} SET status='cancelled' WHERE status='halted'")
     with op.batch_alter_table(TABLE, schema=SCHEMA) as batch_op:
         batch_op.drop_constraint(CONSTRAINT, type_="check")
         batch_op.create_check_constraint(

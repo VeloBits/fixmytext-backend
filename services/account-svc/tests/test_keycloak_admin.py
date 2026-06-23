@@ -22,7 +22,9 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def _mock_token_response(token: str = "test-admin-token", expires_in: int = 300) -> MagicMock:
+def _mock_token_response(
+    token: str = "test-admin-token", expires_in: int = 300
+) -> MagicMock:
     resp = MagicMock()
     resp.status_code = 200
     resp.json.return_value = {"access_token": token, "expires_in": expires_in}
@@ -140,9 +142,7 @@ async def test_get_admin_token_keycloak_unreachable_raises():
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
-    mock_client.post = AsyncMock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
     with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
         with patch("httpx.AsyncClient", return_value=mock_client):

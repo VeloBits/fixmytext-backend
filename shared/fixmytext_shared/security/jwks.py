@@ -99,7 +99,9 @@ async def verify(
         # When audience=None is intentional (e.g. backchannel logout tokens whose aud is
         # client_id, not the resource-server audience), this is an explicit opt-out — log at
         # DEBUG to avoid polluting production logs with false-alarm warnings.
-        logger.debug("jwks.verify: audience verification skipped (audience=None, require_audience=False)")
+        logger.debug(
+            "jwks.verify: audience verification skipped (audience=None, require_audience=False)"
+        )
         options["verify_aud"] = False
     if issuer is not None:
         decode_kwargs["issuer"] = issuer

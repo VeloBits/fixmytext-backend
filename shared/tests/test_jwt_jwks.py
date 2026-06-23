@@ -146,7 +146,9 @@ class TestVerifyJwtJWKS:
         with pytest.raises(ValueError, match="RS256 requires"):
             await verify_jwt("anytoken", algorithm="RS256")
 
-    async def test_require_audience_raises_when_audience_missing(self, patched_jwk_fetch):
+    async def test_require_audience_raises_when_audience_missing(
+        self, patched_jwk_fetch
+    ):
         """require_audience=True forbids the implicit fail-open: no audience => error.
 
         Guards against an empty KEYCLOAK_AUDIENCE silently disabling ``aud``
@@ -164,7 +166,9 @@ class TestVerifyJwtJWKS:
                 require_audience=True,
             )
 
-    async def test_require_audience_passes_when_audience_present(self, patched_jwk_fetch):
+    async def test_require_audience_passes_when_audience_present(
+        self, patched_jwk_fetch
+    ):
         """require_audience=True with a concrete audience verifies normally."""
         private_pem, _ = patched_jwk_fetch
         token = _make_token(private_pem, _base_payload())
@@ -196,7 +200,9 @@ class TestVerifyJwtJWKS:
         assert claims.aud == AUDIENCE
         assert claims.sub == "kc-user-1"
 
-    async def test_clock_skew_leeway_accepts_slightly_expired_token(self, patched_jwk_fetch):
+    async def test_clock_skew_leeway_accepts_slightly_expired_token(
+        self, patched_jwk_fetch
+    ):
         """Tokens expired by up to 30 s (clock skew window) are still accepted.
 
         Guards against M4: multi-host deployments where Keycloak's clock is

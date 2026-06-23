@@ -55,6 +55,11 @@ async def _groq_chat(
     client = _groq_client
     if client is None:
         raise RuntimeError("Groq client not initialized")
+    # TODO(audit:M-5): medium — prompt-injection: user_text is passed straight into
+    # the chat as a user message with no fencing/delimiting, and the assistant output
+    # is returned verbatim with no post-generation validation. A crafted document can
+    # override or exfiltrate the per-tool system prompt. Add output validation + hard
+    # fencing of user text; document that output is attacker-influenceable.
     response = await client.chat.completions.create(
         model=settings.GROQ_MODEL,
         messages=[

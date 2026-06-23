@@ -45,7 +45,10 @@ async def _get_subscription_tier(user_id: uuid.UUID, db: AsyncSession) -> str:
         result = row.scalar_one_or_none()
         return result if result is not None else "free"
     except Exception:
-        logger.warning("Failed to fetch subscription tier for user %s — defaulting to free", user_id)
+        logger.warning(
+            "Failed to fetch subscription tier for user %s — defaulting to free",
+            user_id,
+        )
         return "free"
 
 
@@ -162,11 +165,15 @@ async def backchannel_logout(
     if settings.BACKCHANNEL_SECRET:
         provided = request.headers.get("X-Backchannel-Secret", "")
         if not hmac.compare_digest(provided, settings.BACKCHANNEL_SECRET):
-            logger.warning("backchannel-logout: invalid or missing X-Backchannel-Secret")
+            logger.warning(
+                "backchannel-logout: invalid or missing X-Backchannel-Secret"
+            )
             raise HTTPException(status_code=400, detail="Invalid backchannel secret")
 
     if not settings.KEYCLOAK_JWKS_URL:
-        logger.warning("backchannel-logout: KEYCLOAK_JWKS_URL not configured — rejecting")
+        logger.warning(
+            "backchannel-logout: KEYCLOAK_JWKS_URL not configured — rejecting"
+        )
         raise HTTPException(status_code=400, detail="IdP not configured")
 
     try:

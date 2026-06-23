@@ -68,10 +68,14 @@ async def test_optional_user_jit_provisions_new_bearer_user():
     mock_request = MagicMock()
     mock_request.cookies.get = MagicMock(return_value=None)
 
-    mock_creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid.jwt.token")
+    mock_creds = HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="valid.jwt.token"
+    )
 
     with patch(_MOCK_JWT, return_value=payload):
-        with patch("app.core.deps.jit_provision_user", return_value=provisioned_user) as mock_jit:
+        with patch(
+            "app.core.deps.jit_provision_user", return_value=provisioned_user
+        ) as mock_jit:
             result = await get_optional_user(mock_request, mock_creds, mock_db)
 
     assert result is provisioned_user
@@ -135,7 +139,9 @@ async def test_optional_user_returns_existing_user():
     mock_request = MagicMock()
     mock_request.cookies.get = MagicMock(return_value=None)
 
-    mock_creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid.jwt.token")
+    mock_creds = HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="valid.jwt.token"
+    )
 
     with patch(_MOCK_JWT, return_value=payload):
         with patch("app.core.deps.jit_provision_user") as mock_jit:
@@ -161,7 +167,9 @@ async def test_optional_user_inactive_user_returns_none():
     mock_request = MagicMock()
     mock_request.cookies.get = MagicMock(return_value=None)
 
-    mock_creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid.jwt.token")
+    mock_creds = HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="valid.jwt.token"
+    )
 
     with patch(_MOCK_JWT, return_value=_valid_payload(kc_id)):
         result = await get_optional_user(mock_request, mock_creds, mock_db)

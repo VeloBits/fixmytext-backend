@@ -128,9 +128,7 @@ async def lifespan(app: FastAPI):
                 "Refusing to start: AI_BACKEND=fake is for E2E tests only "
                 "and must not be set in production."
             )
-        logger.warning(
-            "AI_BACKEND=fake active — E2E test mode, never deploy to prod"
-        )
+        logger.warning("AI_BACKEND=fake active — E2E test mode, never deploy to prod")
 
     init_groq_client()
     logger.info("Groq client initialized")
@@ -205,7 +203,11 @@ async def readiness_check():
     """Readiness probe — verifies Groq client is initialised."""
     from app.services.ai_service import _groq_client
 
-    groq_status = "ready" if (_groq_client is not None or not settings.GROQ_API_KEY) else "not ready"
+    groq_status = (
+        "ready"
+        if (_groq_client is not None or not settings.GROQ_API_KEY)
+        else "not ready"
+    )
     if groq_status == "not ready":
         raise HTTPException(
             status_code=503,

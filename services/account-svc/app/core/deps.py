@@ -63,12 +63,17 @@ async def _resolve_user_id(
                 keycloak_id = uuid.UUID(claims["sub"])
                 iat = claims.get("iat", 0)
                 if await is_session_revoked(claims["sub"], iat):
-                    logger.info("auth: session cookie revoked for sub=%s — falling through to Bearer", claims["sub"])
+                    logger.info(
+                        "auth: session cookie revoked for sub=%s — falling through to Bearer",
+                        claims["sub"],
+                    )
                 else:
                     logger.debug("auth: resolved via session cookie")
                     return keycloak_id, None
             except ValueError:
-                logger.warning("auth: session cookie sub is not a valid UUID — ignoring cookie")
+                logger.warning(
+                    "auth: session cookie sub is not a valid UUID — ignoring cookie"
+                )
             # fall through to Bearer
 
     # Path B: Bearer JWT (Keycloak-issued)
@@ -79,6 +84,10 @@ async def _resolve_user_id(
                 algorithm="RS256",
                 jwks_url=settings.KEYCLOAK_JWKS_URL,
                 audience=settings.KEYCLOAK_AUDIENCE or None,
+                # TODO(audit:BE-AUTH-01 follow-up): issuer is validated only when
+                # KEYCLOAK_ISSUER is set; unlike audience there is no prod guard, so an
+                # empty value silently skips `iss` checking. Force a non-empty issuer in
+                # production (mirror _REQUIRE_AUDIENCE) and fail closed at startup.
                 issuer=settings.KEYCLOAK_ISSUER or None,
                 require_audience=_REQUIRE_AUDIENCE,
             )
@@ -90,7 +99,9 @@ async def _resolve_user_id(
             iat = int(payload.get("iat", 0))
             if sub and await is_session_revoked(sub, iat):
                 logger.info(
-                    "auth: Bearer JWT revoked for sub=%s (iat=%s) — treating as 401", sub, iat
+                    "auth: Bearer JWT revoked for sub=%s (iat=%s) — treating as 401",
+                    sub,
+                    iat,
                 )
                 return None, None
             logger.debug("auth: resolved via Bearer JWT")

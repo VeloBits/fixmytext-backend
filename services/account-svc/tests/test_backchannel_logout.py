@@ -20,9 +20,7 @@ _VALID_PAYLOAD = {
     "sub": "user-keycloak-uuid-1234",
     "iss": "http://keycloak:8080/realms/Velobits-Dev",
     "aud": "fixmytext-backend",
-    "events": {
-        "http://schemas.openid.net/event/backchannel-logout": {}
-    },
+    "events": {"http://schemas.openid.net/event/backchannel-logout": {}},
 }
 
 
@@ -96,7 +94,9 @@ async def test_invalid_token_signature_returns_400(async_client):
     import jwt
 
     with patch(_SETTINGS, new=_mock_settings()):
-        with patch(_VERIFY, new=AsyncMock(side_effect=jwt.InvalidSignatureError("bad sig"))):
+        with patch(
+            _VERIFY, new=AsyncMock(side_effect=jwt.InvalidSignatureError("bad sig"))
+        ):
             resp = await _post_logout(async_client)
 
     assert resp.status_code == 400
@@ -109,7 +109,9 @@ async def test_expired_token_returns_400(async_client):
     import jwt
 
     with patch(_SETTINGS, new=_mock_settings()):
-        with patch(_VERIFY, new=AsyncMock(side_effect=jwt.ExpiredSignatureError("expired"))):
+        with patch(
+            _VERIFY, new=AsyncMock(side_effect=jwt.ExpiredSignatureError("expired"))
+        ):
             resp = await _post_logout(async_client)
 
     assert resp.status_code == 400

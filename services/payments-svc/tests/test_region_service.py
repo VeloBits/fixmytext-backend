@@ -62,7 +62,9 @@ async def test_detect_region_only_calls_http_once_per_ip():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.get = AsyncMock(return_value=mock_resp)
 
-    with patch("app.services.region_service.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "app.services.region_service.httpx.AsyncClient", return_value=mock_client
+    ):
         r1 = await region_service.detect_region("203.0.113.1")
         r2 = await region_service.detect_region("203.0.113.1")
 
@@ -91,7 +93,9 @@ async def test_detect_region_calls_http_for_each_distinct_ip():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.get = AsyncMock(side_effect=responses)
 
-    with patch("app.services.region_service.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "app.services.region_service.httpx.AsyncClient", return_value=mock_client
+    ):
         r1 = await region_service.detect_region("1.1.1.1")
         r2 = await region_service.detect_region("8.8.8.8")
 
@@ -114,7 +118,9 @@ async def test_detect_region_returns_default_on_http_failure():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.get = AsyncMock(side_effect=Exception("network error"))
 
-    with patch("app.services.region_service.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "app.services.region_service.httpx.AsyncClient", return_value=mock_client
+    ):
         result = await region_service.detect_region("1.2.3.4")
 
     assert result == region_service.DEFAULT_REGION
@@ -138,7 +144,9 @@ async def test_detect_region_caches_local_ip_under_sentinel_key():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.get = AsyncMock(return_value=mock_resp)
 
-    with patch("app.services.region_service.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "app.services.region_service.httpx.AsyncClient", return_value=mock_client
+    ):
         await region_service.detect_region("127.0.0.1")
         await region_service.detect_region("localhost")
 

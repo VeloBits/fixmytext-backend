@@ -440,7 +440,9 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                         "Webhook: pass fulfillment with empty tool_ids, aborting: order=%s",
                         safe_order_id,
                     )
-                    raise HTTPException(400, "Invalid order notes: missing tool_ids for pass")
+                    raise HTTPException(
+                        400, "Invalid order notes: missing tool_ids for pass"
+                    )
             else:
                 logger.warning(
                     "Unknown item_type in webhook: %s order=%s",

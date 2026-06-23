@@ -44,7 +44,9 @@ def _make_user(
     return user
 
 
-def _make_db(user: MagicMock | None, *, subscription_tier: str | None = None) -> AsyncMock:
+def _make_db(
+    user: MagicMock | None, *, subscription_tier: str | None = None
+) -> AsyncMock:
     mock_db = AsyncMock()
     mock_db.scalar = AsyncMock(return_value=user)
     mock_db.execute = AsyncMock(
@@ -408,7 +410,9 @@ async def test_get_me_cookie_value_is_validly_signed(async_client):
                 set_cookie = response.headers.get("set-cookie", "")
                 assert "fixmytext_session=" in set_cookie
                 # Extract the raw cookie value and verify it cryptographically
-                cookie_value = set_cookie.split("fixmytext_session=", 1)[1].split(";", 1)[0]
+                cookie_value = set_cookie.split("fixmytext_session=", 1)[1].split(
+                    ";", 1
+                )[0]
                 claims = verify_session(cookie_value, _TEST_SECRET)
                 assert claims is not None
                 assert claims["sub"] == str(kc_id)

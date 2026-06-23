@@ -129,7 +129,10 @@ async def lifespan(app: FastAPI):
     )
     # BE-PAY-09: the fake backend bypasses Razorpay signature verification —
     # it must never run in a production environment.
-    if is_production_like(settings.ENVIRONMENT) and settings.PAYMENTS_BACKEND.lower() == "fake":
+    if (
+        is_production_like(settings.ENVIRONMENT)
+        and settings.PAYMENTS_BACKEND.lower() == "fake"
+    ):
         raise RuntimeError(
             "Refusing to start: PAYMENTS_BACKEND=fake in a production environment "
             "(bypasses payment signature verification — BE-PAY-09)."

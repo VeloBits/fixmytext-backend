@@ -191,6 +191,10 @@ async def health_check():
 @app.get("/health/ready", tags=["health"])
 async def readiness_check():
     """Readiness probe — always ready (no external AI dependency)."""
+    # TODO: stub — unconditionally returns ready. text-svc now initializes Redis
+    # (rate limiter) and calls payments-svc for entitlements in its lifespan, so a
+    # true readiness check should probe Redis connectivity. Acceptable while those
+    # deps fail-closed at request time; tighten when adding k8s readiness gating.
     return {"status": "ready"}
 
 

@@ -379,6 +379,10 @@ async def get_job_status(
         job_result = await job.result(timeout=0.1, poll_delay=0.05)
         return JobStatusResponse(job_id=job_id, status="complete", result=job_result)
     except Exception:
+        # FIXME: bare except swallows real errors. Only the 0.1s poll TimeoutError
+        # ("not done yet") should fall through to status derivation below; a failed
+        # job or arq backend error is masked here. Catch asyncio.TimeoutError (and
+        # arq's ResultNotFound) specifically and surface other exceptions.
         pass
 
     status = "queued"

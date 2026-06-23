@@ -164,9 +164,7 @@ def test_order_endpoints_reference_rate_limit():
         ("create_pro_checkout", sub_ep.create_pro_checkout),
     ]:
         src = inspect.getsource(fn)
-        assert "check_rate_limit" in src, (
-            f"{ep_name} must call check_rate_limit (M-2)"
-        )
+        assert "check_rate_limit" in src, f"{ep_name} must call check_rate_limit (M-2)"
 
 
 # ── B-1: Malformed Content-Length header ─────────────────────────────────────
@@ -234,9 +232,7 @@ def test_passes_catalog_endpoint_no_longer_imports_default_region():
     import ast
     import pathlib
 
-    src = pathlib.Path(
-        "app/api/v1/endpoints/passes.py"
-    ).read_text()
+    src = pathlib.Path("app/api/v1/endpoints/passes.py").read_text()
     tree = ast.parse(src)
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "app.core.pass_catalog":

@@ -34,7 +34,11 @@ async def init_redis() -> None:
         )
         await _pool.ping()
         # Log only host:port — URL may contain credentials in redis://:pass@host form.
-        safe_url = settings.REDIS_URL.split("@")[-1] if "@" in settings.REDIS_URL else settings.REDIS_URL
+        safe_url = (
+            settings.REDIS_URL.split("@")[-1]
+            if "@" in settings.REDIS_URL
+            else settings.REDIS_URL
+        )
         logger.info("Redis connected: %s", safe_url)
     except Exception:
         logger.warning(
@@ -66,7 +70,10 @@ async def revoke_session(sub: str, ttl_seconds: int) -> None:
     """
     redis = get_redis()
     if redis is None:
-        logger.warning("revoke_session: Redis unavailable — revocation not persisted for sub=%s", sub)
+        logger.warning(
+            "revoke_session: Redis unavailable — revocation not persisted for sub=%s",
+            sub,
+        )
         return
     await redis.set(
         f"{_SESSION_REVOKE_PREFIX}{sub}",

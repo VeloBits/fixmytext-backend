@@ -42,7 +42,10 @@ async def _get_admin_token() -> str:
 
     # Fetch outside the lock — concurrent coroutines may all fetch here, but
     # only one will write (second lock below).
-    if settings.KEYCLOAK_SERVICE_ACCOUNT_ID and settings.KEYCLOAK_SERVICE_ACCOUNT_SECRET:
+    if (
+        settings.KEYCLOAK_SERVICE_ACCOUNT_ID
+        and settings.KEYCLOAK_SERVICE_ACCOUNT_SECRET
+    ):
         # Preferred: dedicated service account with minimal permissions.
         url = f"{settings.KEYCLOAK_URL}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/token"
         token_data: dict = {
@@ -63,20 +66,24 @@ async def _get_admin_token() -> str:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(url, data=token_data)
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"Keycloak admin auth failed: network error — {exc}") from exc
+        raise RuntimeError(
+            f"Keycloak admin auth failed: network error — {exc}"
+        ) from exc
     if resp.status_code != 200:
         # Avoid leaking Keycloak response body (may contain sensitive info).
-        raise RuntimeError(
-            f"Keycloak admin auth failed with status {resp.status_code}"
-        )
+        raise RuntimeError(f"Keycloak admin auth failed with status {resp.status_code}")
     data = resp.json()
     token_value = data.get("access_token")
     if not token_value:
-        raise RuntimeError("Keycloak admin auth succeeded but response contains no access_token")
+        raise RuntimeError(
+            "Keycloak admin auth succeeded but response contains no access_token"
+        )
     now = time.time()  # recalculate after HTTP round-trip
     async with _TOKEN_LOCK:
         # Double-check: another coroutine may have refreshed while we fetched.
-        if not (_TOKEN_CACHE.get("token") and _TOKEN_CACHE.get("expires_at", 0) > now + 30):
+        if not (
+            _TOKEN_CACHE.get("token") and _TOKEN_CACHE.get("expires_at", 0) > now + 30
+        ):
             _TOKEN_CACHE["token"] = token_value
             _TOKEN_CACHE["expires_at"] = now + data.get("expires_in", 60)
     return _TOKEN_CACHE["token"]
@@ -145,7 +152,9 @@ async def create_keycloak_user(email: str, password: str, display_name: str) -> 
                 },
             )
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"Keycloak user creation failed: network error — {exc}") from exc
+        raise RuntimeError(
+            f"Keycloak user creation failed: network error — {exc}"
+        ) from exc
 
     if resp.status_code == 409:
         raise ValueError("An account with this email already exists.")

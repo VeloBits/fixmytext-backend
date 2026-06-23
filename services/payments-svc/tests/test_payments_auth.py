@@ -33,7 +33,11 @@ def _make_user(region: str | None = "IN") -> MagicMock:
 def _mock_db() -> AsyncMock:
     db = AsyncMock()
     db.scalar = AsyncMock(return_value=None)
-    db.execute = AsyncMock(return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))))
+    db.execute = AsyncMock(
+        return_value=MagicMock(
+            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+        )
+    )
     db.commit = AsyncMock()
     db.flush = AsyncMock()
     db.add = MagicMock()

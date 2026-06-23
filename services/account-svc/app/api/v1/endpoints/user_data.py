@@ -153,12 +153,18 @@ async def update_gamification(
             try:
                 gam.streak_last_date = date.fromisoformat(value)
             except ValueError:
-                raise HTTPException(status_code=422, detail="Invalid date format for streak_last_date; expected YYYY-MM-DD")
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid date format for streak_last_date; expected YYYY-MM-DD",
+                )
         elif key == "daily_quest_date" and value:
             try:
                 gam.daily_quest_date = date.fromisoformat(value)
             except ValueError:
-                raise HTTPException(status_code=422, detail="Invalid date format for daily_quest_date; expected YYYY-MM-DD")
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid date format for daily_quest_date; expected YYYY-MM-DD",
+                )
         elif key not in ("streak_last_date", "daily_quest_date"):
             setattr(gam, key, value)
 

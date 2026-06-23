@@ -128,7 +128,10 @@ async def lifespan(app: FastAPI):
         # Required so the registration rate limit holds across replicas (M-4, M-8).
         REDIS_URL=settings.REDIS_URL,
     )
-    if not (settings.KEYCLOAK_SERVICE_ACCOUNT_ID and settings.KEYCLOAK_SERVICE_ACCOUNT_SECRET):
+    if not (
+        settings.KEYCLOAK_SERVICE_ACCOUNT_ID
+        and settings.KEYCLOAK_SERVICE_ACCOUNT_SECRET
+    ):
         _prod_checks["KEYCLOAK_ADMIN_PASSWORD"] = settings.KEYCLOAK_ADMIN_PASSWORD
     assert_required_in_prod(settings.ENVIRONMENT, **_prod_checks)
 
@@ -137,7 +140,10 @@ async def lifespan(app: FastAPI):
     # Wildcard proxy trust lets any upstream inject X-Forwarded-For, enabling
     # IP spoofing that bypasses the registration rate limiter. Require a specific
     # CIDR in production (set to the Kong/load-balancer internal subnet).
-    if is_production_like(settings.ENVIRONMENT) and settings.TRUSTED_PROXY_HOSTS.strip() == "*":
+    if (
+        is_production_like(settings.ENVIRONMENT)
+        and settings.TRUSTED_PROXY_HOSTS.strip() == "*"
+    ):
         raise RuntimeError(
             "Refusing to start: TRUSTED_PROXY_HOSTS='*' is unsafe in production. "
             "Set it to the Kong/proxy internal subnet CIDR (e.g. '10.0.0.0/8')."

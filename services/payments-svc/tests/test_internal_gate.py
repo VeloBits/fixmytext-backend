@@ -85,7 +85,9 @@ async def test_check_access_user_allowed_returns_200(async_client, app):
 
 
 @pytest.mark.asyncio
-async def test_check_access_user_quota_exhausted_returns_allowed_false(async_client, app):
+async def test_check_access_user_quota_exhausted_returns_allowed_false(
+    async_client, app
+):
     """Quota exhausted → 200 with allowed=False (not a 4xx; caller decides UX)."""
     from app.core.deps import verify_internal_secret
     from app.db.session import get_db

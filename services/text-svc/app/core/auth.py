@@ -51,7 +51,9 @@ async def get_optional_user(
             require_audience=_REQUIRE_AUDIENCE,
         )
     except PyJWKClientConnectionError as exc:
-        logger.warning("text-svc: JWKS fetch failed — treating request as anonymous: %s", exc)
+        logger.warning(
+            "text-svc: JWKS fetch failed — treating request as anonymous: %s", exc
+        )
         return None
     except (JWTError, ValueError):
         logger.debug("text-svc: invalid token — treating request as anonymous")

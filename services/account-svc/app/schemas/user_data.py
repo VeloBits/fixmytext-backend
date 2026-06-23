@@ -49,8 +49,12 @@ class GamificationUpdate(BaseModel):
     streak_last_date: str | None = None
     total_ops: int | None = None
     total_chars: int | None = None
-    achievements: list[Annotated[str, Field(max_length=200)]] | None = Field(None, max_length=500)
-    completed_quests: list[Annotated[str, Field(max_length=200)]] | None = Field(None, max_length=500)
+    achievements: list[Annotated[str, Field(max_length=200)]] | None = Field(
+        None, max_length=500
+    )
+    completed_quests: list[Annotated[str, Field(max_length=200)]] | None = Field(
+        None, max_length=500
+    )
     daily_quest_id: str | None = None
     daily_quest_date: str | None = None
     daily_quest_completed: bool | None = None

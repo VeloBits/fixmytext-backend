@@ -51,9 +51,7 @@ def make_user_class(base: type[DeclarativeBase], auth_schema: str) -> type:
             server_default=text("gen_random_uuid()"),
         )
         email: Mapped[str] = mapped_column(String(255), nullable=False)
-        hashed_password: Mapped[str | None] = mapped_column(
-            String(255), nullable=True
-        )
+        hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
         keycloak_id: Mapped[uuid.UUID | None] = mapped_column(
             sa.UUID(as_uuid=True), nullable=True, index=True
         )

@@ -36,7 +36,9 @@ def _make_user(
     return user
 
 
-def _mock_settings(*, cookie_secret: str = "", cookie_name: str = "fixmytext_session") -> MagicMock:
+def _mock_settings(
+    *, cookie_secret: str = "", cookie_name: str = "fixmytext_session"
+) -> MagicMock:
     s = MagicMock()
     s.SESSION_COOKIE_NAME = cookie_name
     s.SESSION_COOKIE_SECRET = cookie_secret
@@ -76,9 +78,7 @@ async def test_no_auth_returns_none():
     request.cookies = {}
 
     with patch(_MOCK_SETTINGS, _mock_settings()):
-        result = await get_optional_user(
-            request=request, credentials=None, db=mock_db
-        )
+        result = await get_optional_user(request=request, credentials=None, db=mock_db)
     assert result is None
     mock_db.scalar.assert_not_called()
 
@@ -124,9 +124,7 @@ async def test_valid_cookie_returns_user():
     request.cookies = {"fixmytext_session": cookie_value}
 
     with patch(_MOCK_SETTINGS, _mock_settings(cookie_secret=_TEST_SECRET)):
-        result = await get_optional_user(
-            request=request, credentials=None, db=mock_db
-        )
+        result = await get_optional_user(request=request, credentials=None, db=mock_db)
     assert result is fake_user
 
 

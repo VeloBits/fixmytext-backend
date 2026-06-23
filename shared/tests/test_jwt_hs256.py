@@ -93,15 +93,15 @@ class TestVerifyJwtRaw:
         (Keycloak logout tokens carry 'events' which ClaimSchema never declared).
         """
         payload = _base_payload()
-        payload["events"] = {
-            "http://schemas.openid.net/event/backchannel-logout": {}
-        }
+        payload["events"] = {"http://schemas.openid.net/event/backchannel-logout": {}}
         payload["custom_claim"] = "preserved"
         token = _make_token(payload)
         raw = await verify_jwt_raw(token, algorithm="HS256", secret=SECRET)
         assert isinstance(raw, dict)
         assert "events" in raw, "verify_jwt_raw must not drop non-standard claims"
-        assert raw["events"] == {"http://schemas.openid.net/event/backchannel-logout": {}}
+        assert raw["events"] == {
+            "http://schemas.openid.net/event/backchannel-logout": {}
+        }
         assert raw["custom_claim"] == "preserved"
         assert raw["sub"] == "user-123"
 

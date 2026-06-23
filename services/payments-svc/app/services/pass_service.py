@@ -156,6 +156,11 @@ async def has_logged_in_today(user_id, db: AsyncSession) -> bool:
     return result.scalars().first() is not None
 
 
+# TODO(partial-impl): this helper has NO callers — text-svc/ai-svc no longer record
+# tool discovery after the service split, so `user_discovered_tools` is never populated
+# for new usage and GET /user/discovered-tools only returns pre-split rows. Wire a
+# fire-and-forget call (Redis pub/sub or direct payments-svc call) after a transform
+# completes. See docs/PARTIAL_IMPLEMENTATIONS.md (#2).
 async def record_tool_discovery(user_id: str, tool_id: str, db: AsyncSession) -> None:
     """Record that a user discovered a tool. Fire-and-forget, ignores duplicates.
 

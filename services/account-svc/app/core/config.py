@@ -36,7 +36,7 @@ class Settings(BaseSharedSettings):
     # ── Auth (JWKS / Admin API) ───────────────────────────────────────────────
     # KEYCLOAK_REALM, KEYCLOAK_AUDIENCE, KEYCLOAK_ISSUER, KEYCLOAK_JWKS_URL
     # are inherited from BaseSharedSettings.
-    KEYCLOAK_URL: str = ""            # Admin API base (account-svc only)
+    KEYCLOAK_URL: str = ""  # Admin API base (account-svc only)
     KEYCLOAK_ADMIN: str = "admin"
     KEYCLOAK_ADMIN_PASSWORD: str = ""
     # OIDC client ID used in the verification-email link so Keycloak generates

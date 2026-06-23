@@ -108,7 +108,13 @@ async def test_job_status_correct_owner_returns_status(client):
         assert response.status_code == 200
         body = response.json()
         assert body["job_id"] == "test-job-123"
-        assert body["status"] in ("queued", "in_progress", "complete", "failed", "not_found")
+        assert body["status"] in (
+            "queued",
+            "in_progress",
+            "complete",
+            "failed",
+            "not_found",
+        )
     finally:
         app.dependency_overrides.clear()
 
