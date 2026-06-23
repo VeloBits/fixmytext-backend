@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- account-svc environment configuration: `KEYCLOAK_SERVICE_ACCOUNT_ID` / `KEYCLOAK_SERVICE_ACCOUNT_SECRET` (service-account auth for the Keycloak Admin API), `SESSION_COOKIE_*` (name, secret, secure, max-age, domain), `TRUSTED_PROXY_HOSTS`, registration rate-limit settings, `KEYCLOAK_PASSWORD_MIN_LENGTH`, `BACKCHANNEL_SECRET`, and share/history limits (`SHARE_EXPIRE_DAYS`, `MAX_SHARE_TEXT_LENGTH`, `HISTORY_PREVIEW_MAX_LENGTH`)
+- Optional shared-secret guard on `/auth/backchannel-logout` via the `X-Backchannel-Secret` header (constant-time comparison)
+- Pagination on user-data and history list endpoints (`page`/`page_size` on templates, pipelines, and history; `limit`/`offset` on discovered-tools)
+- Keycloak realm enhancements: `userProfileConfig`, front-channel logout disabled, brute-force protection, strengthened password policy, and a dedicated service account for Admin API calls
+
+### Changed
+
+- Gamification dates (`streak_last_date`, `daily_quest_date`) now use ISO `YYYY-MM-DD` strings, returning **422** on a malformed format
+- Template listing now filters out soft-deleted rows (`is_deleted == false`)
+- Share view counter is incremented atomically to avoid a read-modify-write race
+- Tightened user-data validation caps (achievements/quests list and item lengths)
+
 ## [1.0.0] - 2026-04-02
 
 ### Added

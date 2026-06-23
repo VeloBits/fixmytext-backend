@@ -4,18 +4,25 @@
 
 ## Repository layout
 
-Foundation for an incremental strangler-fig migration from the FastAPI
+Result of an incremental strangler-fig migration from the FastAPI
 monolith into microservices
-([docs/adr/0002-strangler-fig-microservices-migration.md](docs/adr/0002-strangler-fig-microservices-migration.md)):
+([docs/adr/0002-strangler-fig-microservices-migration.md](docs/adr/0002-strangler-fig-microservices-migration.md)).
+The monolith has been extracted into four standalone FastAPI services
+behind a Kong gateway:
 
 ```
 backend/
-├── main.py + app/              ← FastAPI monolith (intact)
+├── services/                   ← Extracted FastAPI microservices
+│   ├── account-svc/            ← preferences, gamification, history, templates, pipelines, shares, auth/session
+│   ├── text-svc/               ← local text-transformation tools + tool_registry
+│   ├── ai-svc/                 ← Groq-backed AI text tools
+│   └── payments-svc/           ← Razorpay subscriptions, passes, credits, webhooks
 ├── shared/                     ← fixmytext-shared (cross-cutting utilities,
 │                                  installed editable; see docs/adr/0003-shared-python-package.md)
-├── gateway/kong/               ← Kong dbless config (docs/adr/0004-kong-api-gateway.md)
+├── gateway/
+│   ├── kong/                   ← Kong dbless config (docs/adr/0004-kong-api-gateway.md)
+│   └── traefik/                ← Traefik edge proxy (Host-header routing)
 ├── infrastructure/keycloak/    ← Keycloak realm + bootstrap (docs/adr/0001-keycloak-as-identity-provider.md)
-├── services/                   ← Reserved for extracted services
 └── docs/adr/                   ← Architecture Decision Records
 ```
 
@@ -75,20 +82,21 @@ docker compose --profile dev up backend-dev db-service redis-service migrate-dev
 # Then add a temporary `ports: ["8000:8000"]` to backend-dev locally.
 ```
 
-**Manual:**
+**Manual (single service, e.g. account-svc):**
 ```bash
 cd backend
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env       # At minimum set DATABASE_URL + SECRET_KEY
+pip install -e shared                         # editable fixmytext-shared
+pip install -r services/account-svc/requirements.txt
+cp .env.example .env       # At minimum set DATABASE_URL + SESSION_COOKIE_SECRET
 alembic upgrade head       # Run database migrations
-uvicorn main:app --reload --port 8000
+cd services/account-svc && uvicorn main:app --reload --port 8003
 ```
 
-API available at http://localhost:8000
-Swagger UI: http://localhost:8000/docs
-ReDoc: http://localhost:8000/redoc
+Each service binds its own port (account-svc defaults to 8003). When the
+service runs in `development`, Swagger UI is at `/docs` and ReDoc at
+`/redoc`; both are disabled outside development.
 
 ## Environment Variables
 
@@ -113,77 +121,58 @@ ReDoc: http://localhost:8000/redoc
 
 ## API Structure
 
-Base URL: `http://localhost:8000/api/v1`
+All routes are exposed behind the Kong gateway under the shared `/api/v1`
+base path; Kong fans each prefix out to the owning service.
 
-| Resource | Prefix | Endpoints | Description |
-|----------|--------|-----------|-------------|
-| Text tools | `/text/` | 200+ | Text transformations, AI tools, encoding, ciphers |
-| Authentication | `/auth/` | 5 | Register, login, refresh, logout, me |
-| User data | `/user-data/` | 4+ | Profile, settings, gamification stats |
-| Subscriptions | `/subscription/` | 3 | Create order, webhook, status |
-| Passes | `/passes/` | 2+ | Purchase and check prepaid passes |
-| History | `/history/` | 2+ | Operation history (get, soft-delete) |
-| Sharing | `/share/` | 2 | Create and retrieve shared results |
+| Resource | Prefix | Service | Description |
+|----------|--------|---------|-------------|
+| Text tools | `/text/` | `text-svc` / `ai-svc` | Text transformations, AI tools, encoding, ciphers |
+| Authentication / session | `/auth/` | `account-svc` | `/auth/me`, session clear, registration, backchannel logout |
+| User data | `/user/` | `account-svc` | Preferences, gamification, templates, ui-settings, favorites, tool-stats, pipelines, discovered-tools, spin-history |
+| Subscriptions | `/subscription/` | `payments-svc` | Create order, webhook, status |
+| Passes | `/passes/` | `payments-svc` | Purchase and check prepaid passes |
+| History | `/history/` | `account-svc` | Operation history (list, record, stats, soft-delete) |
+| Sharing | `/share/` | `account-svc` | Create and retrieve shared results |
 
-Health check: `GET /health` → `{"status": "ok", "version": "0.1.0"}`
+Each service exposes its own health check: `GET /health` →
+`{"status": "ok", "version": "0.1.0", "service": "<name>"}`, plus
+`GET /health/ready` for DB-connectivity readiness probes.
 
 ## Project Structure
 
+Each service is a self-contained FastAPI app sharing the editable
+`fixmytext-shared` package. The `account-svc` layout is representative:
+
 ```
 backend/
-├── main.py                          # App entry: lifespan, middleware, router mount
-├── app/
-│   ├── api/
-│   │   └── v1/
-│   │       ├── router.py            # Aggregates all endpoint routers
-│   │       └── endpoints/
-│   │           ├── text.py          # 200+ text transformation routes
-│   │           ├── auth.py          # Register, login, refresh, logout, me
-│   │           ├── user_data.py     # Profile, settings, gamification
-│   │           ├── subscription.py  # Razorpay billing
-│   │           ├── passes.py       # Prepaid pass management
-│   │           ├── history.py      # Operation history
-│   │           └── share.py        # Shareable result links
-│   │
-│   ├── services/
-│   │   ├── text_service.py         # 200+ pure text transformation functions
-│   │   ├── ai_service.py           # 50+ Groq AI service classes + YAKE fallback
-│   │   ├── auth_service.py         # Registration, login, password hashing
-│   │   ├── pass_service.py         # Tool access control, trial limits, fingerprinting
-│   │   ├── razorpay_service.py     # Payment processing, webhooks
-│   │   └── region_service.py       # IP-based geolocation
-│   │
-│   ├── db/
-│   │   ├── session.py              # Async SQLAlchemy engine + session factory
-│   │   └── models/                 # 21 ORM models across 3 schemas
-│   │       ├── user.py             # User (auth schema)
-│   │       ├── gamification.py     # XP, streaks, achievements
-│   │       ├── billing.py          # Subscriptions, passes, credits
-│   │       └── ...                 # History, preferences, templates, etc.
-│   │
-│   ├── schemas/
-│   │   ├── text.py                 # TextRequest, TextResponse, CaesarRequest, ToneRequest, etc.
-│   │   ├── auth.py                 # LoginRequest, TokenResponse, UserResponse
-│   │   └── ...                     # User data, billing, history schemas
-│   │
-│   └── core/
-│       ├── config.py               # Pydantic Settings (env vars, schema names)
-│       ├── security.py             # JWT creation/validation, bcrypt password hashing
-│       ├── rate_limit.py           # AI endpoint rate limiter
-│       └── deps.py                 # FastAPI dependencies (get_db, get_current_user, get_optional_user)
+├── services/
+│   ├── account-svc/
+│   │   ├── main.py                     # App entry: lifespan, prod config asserts, middleware, router mount
+│   │   ├── app/
+│   │   │   ├── api/v1/
+│   │   │   │   ├── router.py           # Aggregates endpoint routers
+│   │   │   │   └── endpoints/
+│   │   │   │       ├── auth.py         # /auth/me, session clear, backchannel logout
+│   │   │   │       ├── auth_register.py# Registration proxy to Keycloak Admin API
+│   │   │   │       ├── user_data.py    # Preferences, gamification, templates, favorites, pipelines, …
+│   │   │   │       ├── history.py      # Operation history
+│   │   │   │       └── share.py        # Shareable result links
+│   │   │   ├── db/                     # Async SQLAlchemy session + ORM models
+│   │   │   ├── schemas/                # Pydantic request/response models
+│   │   │   └── core/                   # config.py, deps.py, redis.py, session_cookie.py, keycloak_admin.py
+│   │   ├── tests/
+│   │   ├── Dockerfile
+│   │   ├── pyproject.toml
+│   │   └── requirements.txt
+│   ├── text-svc/                       # local text tools + tool_registry
+│   ├── ai-svc/                         # Groq-backed AI tools + YAKE fallback
+│   └── payments-svc/                   # Razorpay subscriptions, passes, credits, webhooks
 │
-├── alembic/
-│   ├── env.py                      # Migration environment config
-│   └── versions/                   # 18 numbered migration files
-│       ├── 0001_create_schemas_and_extensions.py
-│       ├── 0002_create_auth_tables.py
-│       └── ...
-│
-├── tests/                          # pytest test files
-├── requirements.txt
-├── Dockerfile                      # Multi-stage production build
-├── Dockerfile.dev                  # Development build with hot reload
-└── docker-compose.yml              # PostgreSQL + backend (dev/prod profiles)
+├── shared/fixmytext_shared/            # cross-cutting: config, middleware, security, observability
+├── gateway/{kong,traefik}/            # Kong dbless config + Traefik edge proxy
+├── infrastructure/keycloak/           # realm exports, bootstrap.sh, themes
+├── alembic/ + migrations/             # database migrations
+└── docker-compose.yml                 # full stack: Postgres, Redis, services, Kong, Keycloak, Traefik
 ```
 
 ## Architecture
