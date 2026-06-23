@@ -1,5 +1,7 @@
 """Pydantic schemas for user data: preferences, gamification, templates, ui-settings, favorites."""
 
+from typing import Annotated
+
 from pydantic import BaseModel, Field
 
 # ── Preferences ──────────────────────────────────────────────────────────────
@@ -47,8 +49,8 @@ class GamificationUpdate(BaseModel):
     streak_last_date: str | None = None
     total_ops: int | None = None
     total_chars: int | None = None
-    achievements: list[str] | None = None
-    completed_quests: list[str] | None = None
+    achievements: list[Annotated[str, Field(max_length=200)]] | None = Field(None, max_length=500)
+    completed_quests: list[Annotated[str, Field(max_length=200)]] | None = Field(None, max_length=500)
     daily_quest_id: str | None = None
     daily_quest_date: str | None = None
     daily_quest_completed: bool | None = None
@@ -61,7 +63,7 @@ class TemplateBase(BaseModel):
     """Base fields shared across template schemas."""
 
     name: str = Field(..., min_length=1, max_length=200)
-    text: str = Field(..., min_length=1)
+    text: str = Field(..., min_length=1, max_length=50_000)
     tool_id: str | None = Field(None, max_length=100)
 
 
@@ -73,7 +75,7 @@ class TemplateUpdate(BaseModel):
     """Schema for updating a template. All fields optional."""
 
     name: str | None = Field(None, min_length=1, max_length=200)
-    text: str | None = Field(None, min_length=1)
+    text: str | None = Field(None, min_length=1, max_length=50_000)
     tool_id: str | None = Field(None, max_length=100)
 
 
@@ -182,7 +184,7 @@ class PipelineCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=200)
     description: str | None = Field(None, max_length=500)
-    steps: list[PipelineStepIn] = []
+    steps: list[PipelineStepIn] = Field(default=[], max_length=50)
 
 
 class PipelineUpdate(BaseModel):
@@ -190,7 +192,7 @@ class PipelineUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=200)
     description: str | None = Field(None, max_length=500)
-    steps: list[PipelineStepIn] | None = None
+    steps: list[PipelineStepIn] | None = Field(None, max_length=50)
 
 
 # ── Discovered Tools ─────────────────────────────────────────────────────────

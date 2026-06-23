@@ -82,6 +82,17 @@ async def _resolve_user_id(
                 issuer=settings.KEYCLOAK_ISSUER or None,
                 require_audience=_REQUIRE_AUDIENCE,
             )
+            # Check revocation on the Bearer path too: a user who called
+            # /auth/session/clear could otherwise use a stolen JWT to hit
+            # /auth/me and receive a fresh session cookie with a new iat,
+            # bypassing the Redis revocation stamp entirely.
+            sub = payload.get("sub", "")
+            iat = int(payload.get("iat", 0))
+            if sub and await is_session_revoked(sub, iat):
+                logger.info(
+                    "auth: Bearer JWT revoked for sub=%s (iat=%s) — treating as 401", sub, iat
+                )
+                return None, None
             logger.debug("auth: resolved via Bearer JWT")
             return uuid.UUID(payload["sub"]), payload
         except PyJWKClientConnectionError as exc:

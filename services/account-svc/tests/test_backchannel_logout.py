@@ -37,6 +37,7 @@ def _mock_settings(**overrides):
     m.SESSION_COOKIE_MAX_AGE = 604800
     m.SESSION_COOKIE_SECURE = False
     m.SESSION_COOKIE_DOMAIN = ""
+    m.BACKCHANNEL_SECRET = ""  # default: no shared-secret guard
     for k, v in overrides.items():
         setattr(m, k, v)
     return m

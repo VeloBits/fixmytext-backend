@@ -245,7 +245,7 @@ async def test_create_keycloak_user_invalid_uuid_in_location_raises():
 
     with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
         with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="invalid UUID"):
+            with pytest.raises(RuntimeError, match="could not be recovered"):
                 await create_keycloak_user(
                     email="test@example.com",
                     password="secure123",

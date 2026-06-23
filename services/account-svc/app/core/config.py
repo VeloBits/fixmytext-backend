@@ -83,6 +83,14 @@ class Settings(BaseSharedSettings):
     # the 422 from our validator fires before the round-trip to Keycloak Admin.
     KEYCLOAK_PASSWORD_MIN_LENGTH: int = 8
 
+    # ── Backchannel logout ────────────────────────────────────────────────────
+    # Optional shared secret for the /auth/backchannel-logout endpoint.  When
+    # set, Keycloak must include this value in the X-Backchannel-Secret header
+    # (configured in the realm's backchannel logout settings).  Prevents
+    # arbitrary callers from replaying logout tokens to revoke other users'
+    # sessions.  Leave empty to skip this check (default, development-friendly).
+    BACKCHANNEL_SECRET: str = ""
+
     # ── Reverse proxy trust ───────────────────────────────────────────────────
     # Hosts/CIDRs whose X-Forwarded-For header is trusted by ProxyHeadersMiddleware.
     # "*" trusts every upstream — safe only in local compose where Kong is the

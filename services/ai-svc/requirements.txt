@@ -12,8 +12,7 @@ emoji==2.15.0
 
 # Redis (for rate limiting + arq task queue)
 redis[hiredis]==7.4.0
-# arq 0.28 declares redis<6 but is API-compatible with redis 7.x in practice
-arq==0.28.0
+# arq installed via --no-deps in Dockerfile to bypass its redis<6 constraint (API-compatible with redis 7.x)
 
 # Structured logging
 python-json-logger==4.1.0

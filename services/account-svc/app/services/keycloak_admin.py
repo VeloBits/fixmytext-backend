@@ -82,6 +82,38 @@ async def _get_admin_token() -> str:
     return _TOKEN_CACHE["token"]
 
 
+async def _lookup_keycloak_user_by_email(email: str, token: str) -> str | None:
+    """Return the Keycloak user ID for *email*, or None if not found / on error.
+
+    Used as a fallback when ``create_keycloak_user`` receives 201 but the
+    Location header is absent or malformed — prevents orphaning the user in
+    Keycloak when the header parse fails.
+    """
+    url = f"{settings.KEYCLOAK_URL}/admin/realms/{settings.KEYCLOAK_REALM}/users"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"email": email, "exact": "true"},
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("Email-based user lookup failed (network): %s", exc)
+        return None
+    if resp.status_code != 200:
+        logger.warning("Email-based user lookup returned HTTP %s", resp.status_code)
+        return None
+    users = resp.json()
+    if not users:
+        return None
+    user_id: str = users[0].get("id", "")
+    try:
+        uuid.UUID(user_id)
+        return user_id
+    except (ValueError, TypeError):
+        return None
+
+
 async def create_keycloak_user(email: str, password: str, display_name: str) -> str:
     """Create a user in Keycloak and return the new user's Keycloak ID.
 
@@ -124,18 +156,30 @@ async def create_keycloak_user(email: str, password: str, display_name: str) -> 
         )
 
     # Keycloak returns the new user URL in the Location header; the last
-    # path segment is the UUID. An absent or malformed header means silent data corruption.
+    # path segment is the UUID. Fall back to an email lookup when the header is
+    # absent or malformed so we don't orphan the just-created Keycloak account.
     location = resp.headers.get("Location", "")
     keycloak_id = location.rstrip("/").split("/")[-1]
+    id_valid = False
+    if keycloak_id:
+        try:
+            uuid.UUID(keycloak_id)
+            id_valid = True
+        except ValueError:
+            logger.warning(
+                "Keycloak returned 201 but Location header contains invalid UUID %r "
+                "— falling back to email lookup",
+                keycloak_id,
+            )
+    if not id_valid:
+        if not keycloak_id:
+            logger.warning(
+                "Keycloak returned 201 but Location header is absent — falling back to email lookup"
+            )
+        keycloak_id = await _lookup_keycloak_user_by_email(email, token) or ""
     if not keycloak_id:
         raise RuntimeError(
-            "Keycloak returned 201 but no Location header — cannot extract user ID"
-        )
-    try:
-        uuid.UUID(keycloak_id)
-    except ValueError:
-        raise RuntimeError(
-            f"Keycloak returned 201 but Location header contains invalid UUID: {keycloak_id!r}"
+            "Keycloak returned 201 but user ID could not be recovered via Location header or email lookup"
         )
     logger.info("Created Keycloak user id=%s", keycloak_id)
     return keycloak_id

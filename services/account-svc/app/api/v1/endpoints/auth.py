@@ -5,6 +5,7 @@
 - ``POST /auth/backchannel-logout``  — Keycloak SLO hook: revoke sessions server-side
 """
 
+import hmac
 import logging
 import uuid
 from typing import Annotated
@@ -140,6 +141,7 @@ async def clear_session(request: Request, response: Response) -> Response:
 
 @router.post("/backchannel-logout", status_code=200, include_in_schema=False)
 async def backchannel_logout(
+    request: Request,
     logout_token: Annotated[str, Form()],
 ) -> dict:
     """Keycloak backchannel Single Log-Out hook.
@@ -151,7 +153,18 @@ async def backchannel_logout(
     Returns 200 on success or 400 on an invalid/unrecognised token. Keycloak
     retries on 5xx; never returns 5xx for a missing Redis (fail-open to avoid
     blocking Keycloak's logout flow when Redis is temporarily unavailable).
+
+    Optionally guarded by a shared secret (BACKCHANNEL_SECRET env var). When
+    set, Keycloak must include the secret in the X-Backchannel-Secret header.
     """
+    # Optional shared-secret guard — prevents arbitrary callers from replaying
+    # a legitimate Keycloak-signed logout token to revoke another user's session.
+    if settings.BACKCHANNEL_SECRET:
+        provided = request.headers.get("X-Backchannel-Secret", "")
+        if not hmac.compare_digest(provided, settings.BACKCHANNEL_SECRET):
+            logger.warning("backchannel-logout: invalid or missing X-Backchannel-Secret")
+            raise HTTPException(status_code=400, detail="Invalid backchannel secret")
+
     if not settings.KEYCLOAK_JWKS_URL:
         logger.warning("backchannel-logout: KEYCLOAK_JWKS_URL not configured — rejecting")
         raise HTTPException(status_code=400, detail="IdP not configured")

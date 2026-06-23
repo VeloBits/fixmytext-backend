@@ -351,8 +351,8 @@ services:
     image: kong:3.8-ubuntu
     container_name: fixmytext-kong
     restart: unless-stopped
-    mem_limit: 256m
-    cpus: "0.25"
+    mem_limit: 768m
+    cpus: "0.50"
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml

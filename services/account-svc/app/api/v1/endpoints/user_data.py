@@ -9,6 +9,7 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -98,9 +99,7 @@ async def update_preferences(
 # ── Gamification ─────────────────────────────────────────────────────────────
 
 
-async def _gam_to_response(
-    gam: UserGamification, db: AsyncSession
-) -> GamificationResponse:
+def _gam_to_response(gam: UserGamification) -> GamificationResponse:
     """Convert ORM model to response schema — reads from normalized tables."""
     # Date columns: use new Date columns, format as ISO string
     streak_last_date = (
@@ -133,7 +132,7 @@ async def get_gamification(
     gam = await db.get(UserGamification, user.id)
     if not gam:
         return GamificationResponse()
-    return await _gam_to_response(gam, db)
+    return _gam_to_response(gam)
 
 
 @router.put("/gamification", response_model=GamificationResponse)
@@ -151,15 +150,21 @@ async def update_gamification(
     updates = body.model_dump(exclude_unset=True)
     for key, value in updates.items():
         if key == "streak_last_date" and value:
-            gam.streak_last_date = date.fromisoformat(value)
+            try:
+                gam.streak_last_date = date.fromisoformat(value)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid date format for streak_last_date; expected YYYY-MM-DD")
         elif key == "daily_quest_date" and value:
-            gam.daily_quest_date = date.fromisoformat(value)
+            try:
+                gam.daily_quest_date = date.fromisoformat(value)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid date format for daily_quest_date; expected YYYY-MM-DD")
         elif key not in ("streak_last_date", "daily_quest_date"):
             setattr(gam, key, value)
 
     await db.commit()
     await db.refresh(gam)
-    return await _gam_to_response(gam, db)
+    return _gam_to_response(gam)
 
 
 # ── Templates ────────────────────────────────────────────────────────────────
@@ -179,7 +184,7 @@ async def list_templates(
     """
     result = await db.execute(
         select(UserTemplate)
-        .where(UserTemplate.user_id == user.id)
+        .where(UserTemplate.user_id == user.id, UserTemplate.is_deleted == False)  # noqa: E712
         .order_by(desc(UserTemplate.created_at))
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -342,7 +347,10 @@ async def add_favorite(
     """
     existing = await db.get(UserFavoriteTool, (user.id, tool_id))
     if existing:
-        return {"tool_id": tool_id, "sort_order": existing.sort_order}
+        return JSONResponse(
+            content={"tool_id": tool_id, "sort_order": existing.sort_order},
+            status_code=200,
+        )
 
     max_result = await db.execute(
         select(func.max(UserFavoriteTool.sort_order)).where(
@@ -543,8 +551,8 @@ async def delete_pipeline(
 async def get_discovered_tools(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    limit: int = 200,
-    offset: int = 0,
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ):
     """Return paginated list of tools the authenticated user has discovered."""
     # Total count (unaffected by pagination)

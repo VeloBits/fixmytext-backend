@@ -113,18 +113,24 @@ async def lifespan(app: FastAPI):
     # (M-6, BE-AUTH-01, BE-AUTH-04).
     from fixmytext_shared.config.validation import assert_required_in_prod
 
-    assert_required_in_prod(
-        settings.ENVIRONMENT,
+    # KEYCLOAK_ADMIN_PASSWORD is only required when the dedicated service account
+    # is NOT configured. When both KEYCLOAK_SERVICE_ACCOUNT_ID and
+    # KEYCLOAK_SERVICE_ACCOUNT_SECRET are set, keycloak_admin.py uses the
+    # client_credentials grant in the product realm instead of the master-realm
+    # admin-cli password grant, so the admin password is not needed.
+    _prod_checks: dict = dict(
         KEYCLOAK_URL=settings.KEYCLOAK_URL,
         KEYCLOAK_REALM=settings.KEYCLOAK_REALM,
         KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
         KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
         KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
-        KEYCLOAK_ADMIN_PASSWORD=settings.KEYCLOAK_ADMIN_PASSWORD,
         SESSION_COOKIE_SECRET=settings.SESSION_COOKIE_SECRET,
         # Required so the registration rate limit holds across replicas (M-4, M-8).
         REDIS_URL=settings.REDIS_URL,
     )
+    if not (settings.KEYCLOAK_SERVICE_ACCOUNT_ID and settings.KEYCLOAK_SERVICE_ACCOUNT_SECRET):
+        _prod_checks["KEYCLOAK_ADMIN_PASSWORD"] = settings.KEYCLOAK_ADMIN_PASSWORD
+    assert_required_in_prod(settings.ENVIRONMENT, **_prod_checks)
 
     from fixmytext_shared.config.validation import is_production_like
 
@@ -220,7 +226,7 @@ async def readiness_check():
 
         raise HTTPException(
             status_code=503,
-            detail={"status": "not ready", "error": str(exc)},
+            detail={"status": "not ready", "error": "database unavailable"},
         ) from exc
 
 
