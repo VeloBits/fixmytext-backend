@@ -130,18 +130,25 @@ services:
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # MIGRATE  —  runs alembic upgrade head once, then exits.
+  # MIGRATE  —  runs each service's own alembic chain once, then exits.
+  # Order matters: account-svc owns auth.users; payments-svc billing/usage tables
+  # keep cross-schema FKs into it, so account-svc must migrate FIRST.
   # ══════════════════════════════════════════════════════════════════════════
 
   migrate-dev:
     profiles: ["dev"]
     build:
       context: .
-      dockerfile: migrations/Dockerfile.migrate
+      dockerfile: Dockerfile.migrate
     container_name: fixmytext-migrate-dev
     restart: "no"
     working_dir: /app
-    command: ["alembic", "-c", "migrations/alembic.ini", "upgrade", "head"]
+    command:
+      - sh
+      - -c
+      - >-
+        alembic -c services/account-svc/migrations/alembic.ini upgrade head &&
+        alembic -c services/payments-svc/migrations/alembic.ini upgrade head
     env_file:
       - .env
     environment:

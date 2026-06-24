@@ -28,6 +28,7 @@ class PaymentFulfillment(Base):
             unique=True,
         ),
         Index("ix_payment_fulfillments_user_id", "user_id"),
+        Index("ix_billing_payment_fulfillments_keycloak_sub", "keycloak_sub"),
         {"schema": settings.DB_SCHEMA_BILLING},
     )
 
@@ -44,6 +45,8 @@ class PaymentFulfillment(Base):
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Keycloak subject denormalized from auth.users.keycloak_id (migrations 0027/0028).
+    keycloak_sub: Mapped[str] = mapped_column(String(255), nullable=False)
     # pass | credit | pro_subscription
     item_type: Mapped[str] = mapped_column(String(30), nullable=False)
     item_id: Mapped[str | None] = mapped_column(String(50), nullable=True)

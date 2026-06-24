@@ -1,0 +1,1 @@
+Per-service Alembic migrations for payments-svc. Independent chain; version table public.alembic_version_payments. Run AFTER account-svc on a fresh DB (FKs to auth.users).

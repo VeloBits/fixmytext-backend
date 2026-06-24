@@ -13,9 +13,11 @@ RUN pip install --no-cache-dir \
     "pydantic[email]" \
     httpx \
     razorpay
-COPY migrations/ ./migrations/
+# Each service owns its own alembic chain under services/<svc>/migrations/.
+# Both service trees are copied so each chain can import its own app models.
+# Run order (account-svc before payments-svc) is enforced by the caller
+# (docker-compose migrate-dev / the prod migrate step), not here.
 COPY services/payments-svc/ ./services/payments-svc/
-# account-svc source needed so migrations/env.py can import activity-schema models
 COPY services/account-svc/ ./services/account-svc/
 COPY shared/ ./shared/
 RUN pip install --no-cache-dir --no-build-isolation -e ./shared

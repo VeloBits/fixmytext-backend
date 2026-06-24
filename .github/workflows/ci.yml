@@ -65,13 +65,10 @@ jobs:
             ruff_target: "services/text-svc/app/ services/text-svc/tests/"
           - service: payments-svc
             path: services/payments-svc
-            ruff_target: "services/payments-svc/app/ services/payments-svc/tests/"
+            ruff_target: "services/payments-svc/app/ services/payments-svc/tests/ services/payments-svc/migrations/"
           - service: account-svc
             path: services/account-svc
-            ruff_target: "services/account-svc/app/ services/account-svc/tests/"
-          - service: migrations
-            path: migrations
-            ruff_target: "migrations/"
+            ruff_target: "services/account-svc/app/ services/account-svc/tests/ services/account-svc/migrations/"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -207,7 +204,7 @@ jobs:
         run: docker build -t payments-svc:${{ github.sha }} -f services/payments-svc/Dockerfile .
 
       - name: Build migrate Docker image
-        run: docker build -t migrate:${{ github.sha }} -f migrations/Dockerfile.migrate .
+        run: docker build -t migrate:${{ github.sha }} -f Dockerfile.migrate .
 
       # Informational scan of one image -> GitHub Security tab (kept for the SARIF
       # view). The hard gate below is what actually fails the build (M-12).

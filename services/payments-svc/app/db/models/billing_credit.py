@@ -34,6 +34,7 @@ class BillingUserCredit(Base):
             "source IN ('purchase', 'streak', 'quest', 'achievement', 'referral', 'welcome', 'spin')",
             name="ck_credit_source",
         ),
+        Index("ix_billing_user_credits_keycloak_sub", "keycloak_sub"),
         {"schema": settings.DB_SCHEMA_BILLING},
     )
 
@@ -49,6 +50,8 @@ class BillingUserCredit(Base):
         nullable=False,
         index=True,
     )
+    # Keycloak subject denormalized from auth.users.keycloak_id (migrations 0027/0028).
+    keycloak_sub: Mapped[str] = mapped_column(String(255), nullable=False)
     pack_id: Mapped[str | None] = mapped_column(
         String(50),
         ForeignKey(f"{settings.DB_SCHEMA_BILLING}.credit_pack_catalog.id"),

@@ -188,7 +188,8 @@ backend/
 ├── shared/fixmytext_shared/            # cross-cutting: config, middleware, security, observability
 ├── gateway/{kong,traefik}/            # Kong dbless config + Traefik edge proxy
 ├── infrastructure/keycloak/           # realm exports, bootstrap.sh, themes
-├── alembic/ + migrations/             # database migrations
+├── services/<svc>/migrations/         # per-service Alembic chains (account → payments)
+├── Dockerfile.migrate                 # image that runs both migration chains in order
 └── docker-compose.yml                 # full stack: Postgres, Redis, services, Kong, Keycloak, Traefik
 ```
 
@@ -288,21 +289,26 @@ class FormatRequest(BaseModel):
 
 ## Migrations
 
+Each service owns its own Alembic chain under `services/<svc>/migrations/` with its
+own version table. On a fresh DB, **account-svc must run before payments-svc**
+(billing/usage tables keep cross-schema FKs into `auth.users`). See
+[CONTRIBUTING.md §9](CONTRIBUTING.md) for ownership details.
+
 ```bash
-# Apply all pending migrations
-alembic upgrade head
+# Apply all pending migrations (account first, then payments)
+alembic -c services/account-svc/migrations/alembic.ini upgrade head
+alembic -c services/payments-svc/migrations/alembic.ini upgrade head
 
-# Create a new migration after model changes
-alembic revision --autogenerate -m "description of change"
+# Create a new migration after model changes (per owning service)
+alembic -c services/<svc>/migrations/alembic.ini revision --autogenerate -m "description"
 
-# Roll back one migration
-alembic downgrade -1
-
-# View migration history
-alembic history
+# Roll back one migration / view history (per service)
+alembic -c services/<svc>/migrations/alembic.ini downgrade -1
+alembic -c services/<svc>/migrations/alembic.ini history
 ```
 
-Note: In Docker, migrations run automatically on startup via the `migrate` service.
+Note: In Docker, migrations run automatically on startup via the `migrate-dev`
+service, which runs both chains in order.
 
 ## Adding a New Tool
 

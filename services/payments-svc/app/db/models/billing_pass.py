@@ -36,6 +36,7 @@ class BillingUserPass(Base):
             "source IN ('razorpay', 'earned', 'referral', 'spin', 'quest', 'welcome')",
             name="ck_pass_source",
         ),
+        Index("ix_billing_user_passes_keycloak_sub", "keycloak_sub"),
         {"schema": settings.DB_SCHEMA_BILLING},
     )
 
@@ -50,6 +51,8 @@ class BillingUserPass(Base):
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Keycloak subject denormalized from auth.users.keycloak_id (migrations 0027/0028).
+    keycloak_sub: Mapped[str] = mapped_column(String(255), nullable=False)
     pass_id: Mapped[str] = mapped_column(
         String(50),
         ForeignKey(f"{settings.DB_SCHEMA_BILLING}.pass_catalog.id"),

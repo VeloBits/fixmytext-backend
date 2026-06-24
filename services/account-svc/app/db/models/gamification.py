@@ -37,6 +37,7 @@ class UserGamification(Base):
             "completed_quests",
             postgresql_using="gin",
         ),
+        Index("ix_activity_user_gamification_keycloak_sub", "keycloak_sub"),
         {"schema": settings.DB_SCHEMA_ACTIVITY},
     )
 
@@ -45,6 +46,8 @@ class UserGamification(Base):
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="CASCADE"),
         primary_key=True,
     )
+    # Keycloak subject denormalized from auth.users.keycloak_id (migrations 0027/0028).
+    keycloak_sub: Mapped[str] = mapped_column(String(255), nullable=False)
     xp: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     streak_current: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0")
