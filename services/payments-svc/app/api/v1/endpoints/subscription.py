@@ -341,6 +341,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 razorpay_payment_id=payment_id,
                 razorpay_order_id=order_id,
                 user_id=None,
+                keycloak_sub=None,
                 item_type=item_type,
                 item_id=item_id,
                 amount_subunits=amount,
@@ -355,6 +356,15 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 status_code=400, detail="Invalid user_id in webhook notes"
             ) from None
 
+    # Denormalized Keycloak subject for audit rows. Events can reference an
+    # unknown user (or none at all), so this may legitimately stay None.
+    keycloak_id = None
+    if user_id:
+        keycloak_id = await db.scalar(
+            select(User.keycloak_id).where(User.id == user_id)
+        )
+    keycloak_sub = str(keycloak_id) if keycloak_id else None
+
     # ── Record the event ─────────────────────────────────────────────
     pe = PaymentEvent(
         event_type=event_type,
@@ -362,6 +372,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         razorpay_payment_id=payment_id,
         razorpay_order_id=order_id,
         user_id=user_id,
+        keycloak_sub=keycloak_sub,
         item_type=item_type,
         item_id=item_id,
         amount_subunits=amount,
@@ -513,6 +524,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                     razorpay_payment_id=payment_id,
                     razorpay_order_id=order_id,
                     user_id=user_id,
+                    keycloak_sub=keycloak_sub,
                     item_type=item_type,
                     item_id=item_id,
                     amount_subunits=amount,

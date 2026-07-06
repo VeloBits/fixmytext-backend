@@ -144,7 +144,7 @@ async def update_gamification(
     """Update the authenticated user's gamification state (partial update)."""
     gam = await db.get(UserGamification, user.id)
     if not gam:
-        gam = UserGamification(user_id=user.id)
+        gam = UserGamification(user_id=user.id, keycloak_sub=str(user.keycloak_id))
         db.add(gam)
 
     updates = body.model_dump(exclude_unset=True)
@@ -217,7 +217,11 @@ async def create_template(
 ):
     """Create a new saved template for the authenticated user."""
     template = UserTemplate(
-        user_id=user.id, name=body.name, text=body.text, tool_id=body.tool_id
+        user_id=user.id,
+        keycloak_sub=str(user.keycloak_id),
+        name=body.name,
+        text=body.text,
+        tool_id=body.tool_id,
     )
     db.add(template)
     await db.commit()

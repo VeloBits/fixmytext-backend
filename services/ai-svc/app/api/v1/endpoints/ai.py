@@ -15,13 +15,13 @@ from arq.connections import ArqRedis, RedisSettings, create_pool
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fixmytext_shared.security.jwt import verify_jwt_raw
 from jwt.exceptions import PyJWTError as JWTError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import REQUIRE_AUDIENCE, settings
 from app.core.rate_limit import ai_limiter
 from app.services import ai_service
-from fixmytext_shared.security.jwt import verify_jwt_raw
 from app.services.entitlement_client import check_access as check_entitlement
 from app.tool_registry import get_tool
 
@@ -38,22 +38,37 @@ router = APIRouter(prefix="/ai", tags=["AI"])
 # ── Request / response schemas ────────────────────────────────────────────────
 
 
-class TextRequest(BaseModel):
-    text: str
+class NonBlankTextMixin(BaseModel):
+    """Reject ``text`` that is empty after stripping whitespace.
+
+    Mirrors text-svc's schema rule: blank input must fail at request-parse
+    time so the entitlement gate never consumes a credit for it. The text is
+    NOT trimmed — surrounding whitespace can be meaningful to the model.
+    """
+
+    text: str = Field(..., min_length=1, max_length=50_000)
+
+    @field_validator("text")
+    @classmethod
+    def _reject_blank_text(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Text must contain at least one non-whitespace character.")
+        return v
 
 
-class TranslateRequest(BaseModel):
-    text: str
+class TextRequest(NonBlankTextMixin):
+    pass
+
+
+class TranslateRequest(NonBlankTextMixin):
     target_language: str
 
 
-class ToneRequest(BaseModel):
-    text: str
+class ToneRequest(NonBlankTextMixin):
     tone: str
 
 
-class FormatRequest(BaseModel):
-    text: str
+class FormatRequest(NonBlankTextMixin):
     format: str
 
 

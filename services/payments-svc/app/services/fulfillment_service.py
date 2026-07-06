@@ -66,6 +66,7 @@ async def fulfill_payment(
         razorpay_payment_id=razorpay_payment_id,
         razorpay_order_id=razorpay_order_id,
         user_id=user.id,
+        keycloak_sub=str(user.keycloak_id),
         item_type=item_type,
         item_id=item_id,
         amount_subunits=amount_subunits,
@@ -116,6 +117,7 @@ async def fulfill_payment(
     elif item_type == "pro_subscription":
         subscription = Subscription(
             user_id=user.id,
+            keycloak_sub=str(user.keycloak_id),
             tier="pro",
             status="active",
             razorpay_order_id=razorpay_order_id,

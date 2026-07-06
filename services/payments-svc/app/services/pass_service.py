@@ -509,6 +509,7 @@ async def grant_pass(
 
     billing_pass = BillingUserPass(
         user_id=user.id,
+        keycloak_sub=str(user.keycloak_id),
         pass_id=pass_id,
         tools_count=pass_def["tools"],
         uses_per_day=pass_def["uses_per_day"],
@@ -545,6 +546,7 @@ async def grant_credits(
     """
     billing_credit = BillingUserCredit(
         user_id=user.id,
+        keycloak_sub=str(user.keycloak_id),
         credits_total=amount,
         credits_remaining=amount,
         source=source,
