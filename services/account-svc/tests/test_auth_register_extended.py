@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Validation: password constraints
 # ---------------------------------------------------------------------------
@@ -41,23 +40,25 @@ async def test_register_password_too_long_returns_422(async_client):
 @pytest.mark.asyncio
 async def test_register_password_exactly_max_length_accepted(async_client):
     """Password of exactly 128 characters is accepted (no 422 from validator)."""
-    with patch(
-        "app.api.v1.endpoints.auth_register.create_keycloak_user",
-        new_callable=AsyncMock,
-        return_value="00000000-0000-0000-0000-000000000001",
-    ):
-        with patch(
+    with (
+        patch(
+            "app.api.v1.endpoints.auth_register.create_keycloak_user",
+            new_callable=AsyncMock,
+            return_value="00000000-0000-0000-0000-000000000001",
+        ),
+        patch(
             "app.api.v1.endpoints.auth_register.send_verification_email",
             new_callable=AsyncMock,
-        ):
-            response = await async_client.post(
-                "/api/v1/auth/register",
-                json={
-                    "email": "maxpw@example.com",
-                    "password": "A" * 128,
-                    "display_name": "MaxPW",
-                },
-            )
+        ),
+    ):
+        response = await async_client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "maxpw@example.com",
+                "password": "A" * 128,
+                "display_name": "MaxPW",
+            },
+        )
     assert response.status_code == 201
 
 
@@ -103,23 +104,25 @@ async def test_register_display_name_too_long_returns_422(async_client):
 @pytest.mark.asyncio
 async def test_register_display_name_stripped_of_whitespace(async_client):
     """Padded display_name is stripped; if result ≤100 chars it's accepted."""
-    with patch(
-        "app.api.v1.endpoints.auth_register.create_keycloak_user",
-        new_callable=AsyncMock,
-        return_value="00000000-0000-0000-0000-000000000001",
-    ):
-        with patch(
+    with (
+        patch(
+            "app.api.v1.endpoints.auth_register.create_keycloak_user",
+            new_callable=AsyncMock,
+            return_value="00000000-0000-0000-0000-000000000001",
+        ),
+        patch(
             "app.api.v1.endpoints.auth_register.send_verification_email",
             new_callable=AsyncMock,
-        ):
-            response = await async_client.post(
-                "/api/v1/auth/register",
-                json={
-                    "email": "strip@example.com",
-                    "password": "ValidPass1",
-                    "display_name": "  Alice  ",
-                },
-            )
+        ),
+    ):
+        response = await async_client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "strip@example.com",
+                "password": "ValidPass1",
+                "display_name": "  Alice  ",
+            },
+        )
     assert response.status_code == 201
 
 
@@ -146,24 +149,26 @@ async def test_register_invalid_email_returns_422(async_client):
 @pytest.mark.asyncio
 async def test_register_verification_email_failure_still_returns_201(async_client):
     """send_verification_email raising should NOT cause register to fail (non-fatal)."""
-    with patch(
-        "app.api.v1.endpoints.auth_register.create_keycloak_user",
-        new_callable=AsyncMock,
-        return_value="00000000-0000-0000-0000-000000000001",
-    ):
-        with patch(
+    with (
+        patch(
+            "app.api.v1.endpoints.auth_register.create_keycloak_user",
+            new_callable=AsyncMock,
+            return_value="00000000-0000-0000-0000-000000000001",
+        ),
+        patch(
             "app.api.v1.endpoints.auth_register.send_verification_email",
             new_callable=AsyncMock,
             side_effect=Exception("SMTP unavailable"),
-        ):
-            response = await async_client.post(
-                "/api/v1/auth/register",
-                json={
-                    "email": "noemail@example.com",
-                    "password": "ValidPass1",
-                    "display_name": "NoEmail",
-                },
-            )
+        ),
+    ):
+        response = await async_client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "noemail@example.com",
+                "password": "ValidPass1",
+                "display_name": "NoEmail",
+            },
+        )
     assert response.status_code == 201
     assert "message" in response.json()
 

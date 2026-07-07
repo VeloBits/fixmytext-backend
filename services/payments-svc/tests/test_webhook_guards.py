@@ -6,7 +6,6 @@ Pure-logic / unit tests; no live DB or Razorpay connection required.
 
 import pytest
 
-
 # ── M-4: Body size limit ──────────────────────────────────────────────────────
 
 
@@ -107,7 +106,7 @@ async def test_rate_limit_allows_when_redis_unavailable():
 @pytest.mark.asyncio
 async def test_rate_limit_raises_429_when_exceeded():
     """check_rate_limit must raise HTTP 429 once the counter exceeds max_count."""
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from unittest.mock import AsyncMock, patch
 
     from fastapi import HTTPException
 
@@ -126,7 +125,7 @@ async def test_rate_limit_raises_429_when_exceeded():
 @pytest.mark.asyncio
 async def test_rate_limit_sets_expiry_on_first_call():
     """The first INCR (count == 1) must set an EXPIRE so the key auto-clears."""
-    from unittest.mock import AsyncMock, call, patch
+    from unittest.mock import AsyncMock, patch
 
     from app.services.rate_limit import check_rate_limit
 

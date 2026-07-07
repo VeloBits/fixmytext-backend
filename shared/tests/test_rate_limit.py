@@ -1,5 +1,6 @@
 """Tests for rate limiters (in-memory + Redis with mocked client)."""
 
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -101,6 +102,51 @@ class TestRedisRateLimiter:
         await limiter.check(req)  # 1st allowed (fallback)
         with pytest.raises(HTTPException):
             await limiter.check(req)  # 2nd blocked (fallback enforces)
+
+
+@pytest.mark.asyncio
+class TestRedisRateLimiterKeys:
+    def _recording_redis(self):
+        client = MagicMock()
+        client.eval = AsyncMock(return_value=1)
+        return client
+
+    async def test_user_id_key_uses_prefix_and_user_bucket(self, request_factory):
+        client = self._recording_redis()
+        limiter = RedisRateLimiter(
+            redis_factory=lambda: client,
+            max_requests=5,
+            window_seconds=60,
+            prefix="myrl",
+        )
+        await limiter.check(request_factory("1.2.3.4"), user_id="alice")
+        key = client.eval.await_args.args[2]
+        assert key == "myrl:user:alice"
+
+    async def test_missing_client_falls_back_to_unknown_key(self):
+        client = self._recording_redis()
+        request = MagicMock()
+        request.client = None
+        limiter = RedisRateLimiter(
+            redis_factory=lambda: client,
+            max_requests=5,
+            window_seconds=60,
+        )
+        await limiter.check(request)
+        assert client.eval.await_args.args[2] == "rl:unknown"
+
+
+@pytest.mark.asyncio
+class TestInMemoryRateLimiterExpiry:
+    async def test_expired_hits_are_purged(self, request_factory):
+        limiter = InMemoryRateLimiter(max_requests=1, window_seconds=60)
+        req = request_factory("8.8.8.8")
+        await limiter.check(req)
+        # Age the recorded hit past the window; the next check purges the key
+        # entirely and the request is allowed again.
+        limiter._hits["8.8.8.8"] = [time.time() - 120]
+        await limiter.check(req)
+        assert len(limiter._hits["8.8.8.8"]) == 1
 
 
 class TestCreateLimiter:

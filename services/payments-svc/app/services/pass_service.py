@@ -1,7 +1,7 @@
 """Pass service — unified tool access checking, pass/credit granting and consuming."""
 
 import secrets
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy import cast as sa_cast

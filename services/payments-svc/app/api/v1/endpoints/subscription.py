@@ -276,7 +276,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
             if int(_cl) > settings.WEBHOOK_MAX_BODY_BYTES:
                 raise HTTPException(413, "Webhook payload too large")
         except ValueError:
-            raise HTTPException(413, "Webhook payload too large")
+            raise HTTPException(413, "Webhook payload too large") from None
     body = await request.body()
     if len(body) > settings.WEBHOOK_MAX_BODY_BYTES:
         raise HTTPException(413, "Webhook payload too large")

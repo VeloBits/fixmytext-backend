@@ -28,6 +28,9 @@ ignore = [
 "**/migrations/versions/*.py" = ["F401", "I001"]
 # env.py imports after sys.path manipulation (E402) and is order-insensitive (I001).
 "**/migrations/env.py" = ["E402", "I001", "F401"]
+# Service entrypoints call init_sentry() before framework imports so the Sentry
+# SDK can instrument httpx/FastAPI — the late imports are intentional.
+"services/*/main.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 # Cross-cutting infra package; treat as first-party so isort groups it with `app`.

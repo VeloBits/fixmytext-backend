@@ -16,21 +16,22 @@ Run locally:
 import logging
 from contextlib import asynccontextmanager
 
+from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
+
 # Observability — must init before framework imports so SDK can patch httpx
 from app.core.sentry import init_sentry
-from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
 
 init_sentry()
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from fixmytext_shared.middleware import (
     CorrelationIdMiddleware,
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
 )
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -118,16 +119,16 @@ async def lifespan(app: FastAPI):
     # KEYCLOAK_SERVICE_ACCOUNT_SECRET are set, keycloak_admin.py uses the
     # client_credentials grant in the product realm instead of the master-realm
     # admin-cli password grant, so the admin password is not needed.
-    _prod_checks: dict = dict(
-        KEYCLOAK_URL=settings.KEYCLOAK_URL,
-        KEYCLOAK_REALM=settings.KEYCLOAK_REALM,
-        KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
-        KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
-        KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
-        SESSION_COOKIE_SECRET=settings.SESSION_COOKIE_SECRET,
+    _prod_checks: dict = {
+        "KEYCLOAK_URL": settings.KEYCLOAK_URL,
+        "KEYCLOAK_REALM": settings.KEYCLOAK_REALM,
+        "KEYCLOAK_JWKS_URL": settings.KEYCLOAK_JWKS_URL,
+        "KEYCLOAK_AUDIENCE": settings.KEYCLOAK_AUDIENCE,
+        "KEYCLOAK_ISSUER": settings.KEYCLOAK_ISSUER,
+        "SESSION_COOKIE_SECRET": settings.SESSION_COOKIE_SECRET,
         # Required so the registration rate limit holds across replicas (M-4, M-8).
-        REDIS_URL=settings.REDIS_URL,
-    )
+        "REDIS_URL": settings.REDIS_URL,
+    }
     if not (
         settings.KEYCLOAK_SERVICE_ACCOUNT_ID
         and settings.KEYCLOAK_SERVICE_ACCOUNT_SECRET

@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -64,14 +63,16 @@ async def test_create_keycloak_user_missing_location_header():
     # First post → token, second post → user creation
     mock_client.post = AsyncMock(side_effect=[token_resp, create_resp])
 
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="Location header"):
-                await create_keycloak_user(
-                    email="test@example.com",
-                    password="secure123",
-                    display_name="Test",
-                )
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+        pytest.raises(RuntimeError, match="Location header"),
+    ):
+        await create_keycloak_user(
+            email="test@example.com",
+            password="secure123",
+            display_name="Test",
+        )
 
 
 @pytest.mark.asyncio
@@ -91,13 +92,15 @@ async def test_create_keycloak_user_valid_location_returns_id():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.post = AsyncMock(side_effect=[token_resp, create_resp])
 
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            result = await create_keycloak_user(
-                email="test@example.com",
-                password="secure123",
-                display_name="Test",
-            )
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+    ):
+        result = await create_keycloak_user(
+            email="test@example.com",
+            password="secure123",
+            display_name="Test",
+        )
 
     assert result == kc_id
 
@@ -115,14 +118,16 @@ async def test_create_keycloak_user_duplicate_email_raises_value_error():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.post = AsyncMock(side_effect=[token_resp, conflict_resp])
 
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(ValueError, match="already exists"):
-                await create_keycloak_user(
-                    email="dup@example.com",
-                    password="secure123",
-                    display_name="Dup",
-                )
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+        pytest.raises(ValueError, match="already exists"),
+    ):
+        await create_keycloak_user(
+            email="dup@example.com",
+            password="secure123",
+            display_name="Dup",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -144,10 +149,12 @@ async def test_get_admin_token_keycloak_unreachable_raises():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="network error"):
-                await _get_admin_token()
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+        pytest.raises(RuntimeError, match="network error"),
+    ):
+        await _get_admin_token()
 
 
 @pytest.mark.asyncio
@@ -163,27 +170,31 @@ async def test_get_admin_token_bad_credentials_raises():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.post = AsyncMock(return_value=bad_resp)
 
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="401"):
-                await _get_admin_token()
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+        pytest.raises(RuntimeError, match="401"),
+    ):
+        await _get_admin_token()
 
 
 @pytest.mark.asyncio
 async def test_get_admin_token_uses_cache():
     """Second call within TTL returns cached token without an HTTP request."""
-    from app.services.keycloak_admin import _get_admin_token
-
     import time
+
+    from app.services.keycloak_admin import _get_admin_token
 
     cached = {
         "token": "cached-admin-token",
         "expires_at": time.time() + 3600,
     }
 
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", cached):
-        with patch("httpx.AsyncClient") as mock_cls:
-            result = await _get_admin_token()
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", cached),
+        patch("httpx.AsyncClient") as mock_cls,
+    ):
+        result = await _get_admin_token()
 
     assert result == "cached-admin-token"
     mock_cls.assert_not_called()
@@ -212,10 +223,12 @@ async def test_get_admin_token_missing_access_token_key_raises():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.post = AsyncMock(return_value=bad_resp)
 
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="no access_token"):
-                await _get_admin_token()
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+        pytest.raises(RuntimeError, match="no access_token"),
+    ):
+        await _get_admin_token()
 
 
 # ---------------------------------------------------------------------------
@@ -243,14 +256,16 @@ async def test_create_keycloak_user_invalid_uuid_in_location_raises():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.post = AsyncMock(side_effect=[token_resp, bad_location_resp])
 
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="could not be recovered"):
-                await create_keycloak_user(
-                    email="test@example.com",
-                    password="secure123",
-                    display_name="Test",
-                )
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+        pytest.raises(RuntimeError, match="could not be recovered"),
+    ):
+        await create_keycloak_user(
+            email="test@example.com",
+            password="secure123",
+            display_name="Test",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -277,14 +292,16 @@ async def test_create_keycloak_user_network_error_raises_runtime_error():
         side_effect=[token_resp, httpx.ConnectError("Connection refused")]
     )
 
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="network error"):
-                await create_keycloak_user(
-                    email="test@example.com",
-                    password="secure123",
-                    display_name="Test",
-                )
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+        pytest.raises(RuntimeError, match="network error"),
+    ):
+        await create_keycloak_user(
+            email="test@example.com",
+            password="secure123",
+            display_name="Test",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -314,20 +331,22 @@ async def test_send_verification_email_passes_client_id_and_redirect_uri():
     mock_client.put = AsyncMock(return_value=verify_resp)
 
     keycloak_id = str(uuid.uuid4())
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with patch(
-                "app.services.keycloak_admin.settings",
-                KEYCLOAK_URL="http://keycloak:8080",
-                KEYCLOAK_REALM="Velobits-Dev",
-                KEYCLOAK_CLIENT_ID="fixmytext-frontend",
-                FRONTEND_URL="https://app.velobits.dev",
-                KEYCLOAK_SERVICE_ACCOUNT_ID="",
-                KEYCLOAK_SERVICE_ACCOUNT_SECRET="",
-                KEYCLOAK_ADMIN="admin",
-                KEYCLOAK_ADMIN_PASSWORD="pass",
-            ):
-                await send_verification_email(keycloak_id)
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+        patch(
+            "app.services.keycloak_admin.settings",
+            KEYCLOAK_URL="http://keycloak:8080",
+            KEYCLOAK_REALM="Velobits-Dev",
+            KEYCLOAK_CLIENT_ID="fixmytext-frontend",
+            FRONTEND_URL="https://app.velobits.dev",
+            KEYCLOAK_SERVICE_ACCOUNT_ID="",
+            KEYCLOAK_SERVICE_ACCOUNT_SECRET="",
+            KEYCLOAK_ADMIN="admin",
+            KEYCLOAK_ADMIN_PASSWORD="pass",
+        ),
+    ):
+        await send_verification_email(keycloak_id)
 
     mock_client.put.assert_awaited_once()
     call_kwargs = mock_client.put.call_args[1]
@@ -354,20 +373,22 @@ async def test_send_verification_email_omits_params_when_not_configured():
     mock_client.put = AsyncMock(return_value=verify_resp)
 
     keycloak_id = str(uuid.uuid4())
-    with patch("app.services.keycloak_admin._TOKEN_CACHE", {}):
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with patch(
-                "app.services.keycloak_admin.settings",
-                KEYCLOAK_URL="http://keycloak:8080",
-                KEYCLOAK_REALM="Velobits-Dev",
-                KEYCLOAK_CLIENT_ID="",
-                FRONTEND_URL="",
-                KEYCLOAK_SERVICE_ACCOUNT_ID="",
-                KEYCLOAK_SERVICE_ACCOUNT_SECRET="",
-                KEYCLOAK_ADMIN="admin",
-                KEYCLOAK_ADMIN_PASSWORD="pass",
-            ):
-                await send_verification_email(keycloak_id)
+    with (
+        patch("app.services.keycloak_admin._TOKEN_CACHE", {}),
+        patch("httpx.AsyncClient", return_value=mock_client),
+        patch(
+            "app.services.keycloak_admin.settings",
+            KEYCLOAK_URL="http://keycloak:8080",
+            KEYCLOAK_REALM="Velobits-Dev",
+            KEYCLOAK_CLIENT_ID="",
+            FRONTEND_URL="",
+            KEYCLOAK_SERVICE_ACCOUNT_ID="",
+            KEYCLOAK_SERVICE_ACCOUNT_SECRET="",
+            KEYCLOAK_ADMIN="admin",
+            KEYCLOAK_ADMIN_PASSWORD="pass",
+        ),
+    ):
+        await send_verification_email(keycloak_id)
 
     mock_client.put.assert_awaited_once()
     call_kwargs = mock_client.put.call_args[1]

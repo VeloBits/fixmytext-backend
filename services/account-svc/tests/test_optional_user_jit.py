@@ -51,9 +51,9 @@ async def test_optional_user_jit_provisions_new_bearer_user():
     Before B1 fix: user=None (anonymous).
     After B1 fix: user is provisioned and returned.
     """
-    from app.core.deps import get_optional_user
-    from app.db.models.user import User
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.core.deps import get_optional_user
 
     kc_id = uuid.uuid4()
     provisioned_user = _make_user(kc_id)
@@ -72,11 +72,13 @@ async def test_optional_user_jit_provisions_new_bearer_user():
         scheme="Bearer", credentials="valid.jwt.token"
     )
 
-    with patch(_MOCK_JWT, return_value=payload):
-        with patch(
+    with (
+        patch(_MOCK_JWT, return_value=payload),
+        patch(
             "app.core.deps.jit_provision_user", return_value=provisioned_user
-        ) as mock_jit:
-            result = await get_optional_user(mock_request, mock_creds, mock_db)
+        ) as mock_jit,
+    ):
+        result = await get_optional_user(mock_request, mock_creds, mock_db)
 
     assert result is provisioned_user
     mock_jit.assert_called_once()
@@ -126,8 +128,9 @@ async def test_optional_user_cookie_only_no_provision():
 @pytest.mark.asyncio
 async def test_optional_user_returns_existing_user():
     """Existing user with valid Bearer JWT is returned without calling jit_provision_user."""
-    from app.core.deps import get_optional_user
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.core.deps import get_optional_user
 
     kc_id = uuid.uuid4()
     existing_user = _make_user(kc_id)
@@ -143,9 +146,11 @@ async def test_optional_user_returns_existing_user():
         scheme="Bearer", credentials="valid.jwt.token"
     )
 
-    with patch(_MOCK_JWT, return_value=payload):
-        with patch("app.core.deps.jit_provision_user") as mock_jit:
-            result = await get_optional_user(mock_request, mock_creds, mock_db)
+    with (
+        patch(_MOCK_JWT, return_value=payload),
+        patch("app.core.deps.jit_provision_user") as mock_jit,
+    ):
+        result = await get_optional_user(mock_request, mock_creds, mock_db)
 
     assert result is existing_user
     mock_jit.assert_not_called()
@@ -154,8 +159,9 @@ async def test_optional_user_returns_existing_user():
 @pytest.mark.asyncio
 async def test_optional_user_inactive_user_returns_none():
     """An inactive user returns None even if their JWT is valid."""
-    from app.core.deps import get_optional_user
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.core.deps import get_optional_user
 
     kc_id = uuid.uuid4()
     inactive_user = _make_user(kc_id)

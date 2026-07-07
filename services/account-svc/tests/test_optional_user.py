@@ -86,9 +86,9 @@ async def test_no_auth_returns_none():
 @pytest.mark.asyncio
 async def test_valid_bearer_returns_user():
     """Valid Bearer JWT → returns the corresponding User object."""
-    from app.core.deps import get_optional_user
-
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.core.deps import get_optional_user
 
     kc_id = uuid.uuid4()
     fake_user = _make_user(keycloak_id=kc_id, is_active=True)
@@ -101,11 +101,11 @@ async def test_valid_bearer_returns_user():
 
     payload = {"sub": str(kc_id), "email": "user@example.com"}
 
-    with patch(_MOCK_SETTINGS, _mock_settings()):
-        with patch(_MOCK_JWT, return_value=payload):
-            result = await get_optional_user(
-                request=request, credentials=creds, db=mock_db
-            )
+    with (
+        patch(_MOCK_SETTINGS, _mock_settings()),
+        patch(_MOCK_JWT, return_value=payload),
+    ):
+        result = await get_optional_user(request=request, credentials=creds, db=mock_db)
     assert result is fake_user
 
 
@@ -131,9 +131,9 @@ async def test_valid_cookie_returns_user():
 @pytest.mark.asyncio
 async def test_inactive_user_returns_none():
     """Auth succeeds but user.is_active is False → returns None (never raises)."""
-    from app.core.deps import get_optional_user
-
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.core.deps import get_optional_user
 
     kc_id = uuid.uuid4()
     inactive_user = _make_user(keycloak_id=kc_id, is_active=False)
@@ -145,30 +145,30 @@ async def test_inactive_user_returns_none():
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid.jwt.token")
     payload = {"sub": str(kc_id), "email": "user@example.com"}
 
-    with patch(_MOCK_SETTINGS, _mock_settings()):
-        with patch(_MOCK_JWT, return_value=payload):
-            result = await get_optional_user(
-                request=request, credentials=creds, db=mock_db
-            )
+    with (
+        patch(_MOCK_SETTINGS, _mock_settings()),
+        patch(_MOCK_JWT, return_value=payload),
+    ):
+        result = await get_optional_user(request=request, credentials=creds, db=mock_db)
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_invalid_token_returns_none():
     """Malformed or expired JWT → returns None (optional auth never raises 401)."""
-    from app.core.deps import get_optional_user
-
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.core.deps import get_optional_user
 
     mock_db = AsyncMock()
     request = MagicMock()
     request.cookies = {}
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad.token")
 
-    with patch(_MOCK_SETTINGS, _mock_settings()):
-        with patch(_MOCK_JWT, side_effect=PyJWTError("expired")):
-            result = await get_optional_user(
-                request=request, credentials=creds, db=mock_db
-            )
+    with (
+        patch(_MOCK_SETTINGS, _mock_settings()),
+        patch(_MOCK_JWT, side_effect=PyJWTError("expired")),
+    ):
+        result = await get_optional_user(request=request, credentials=creds, db=mock_db)
     assert result is None
     mock_db.scalar.assert_not_called()

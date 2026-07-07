@@ -33,7 +33,7 @@ async def check_rate_limit(
         if count > max_count:
             raise HTTPException(
                 status_code=429,
-                detail=f"Too many requests. Please wait before trying again.",
+                detail="Too many requests. Please wait before trying again.",
             )
     except HTTPException:
         raise

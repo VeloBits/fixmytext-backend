@@ -192,23 +192,25 @@ async def test_set_session_cookie_no_secret_no_cookie(async_client):
     _MOCK_TARGET = "app.core.deps.verify_jwt_raw"
     payload = {"sub": str(kc_id), "email": "user@example.com", "email_verified": True}
 
-    with patch(_MOCK_TARGET, return_value=payload):
-        with patch("app.api.v1.endpoints.auth.settings") as mock_settings:
-            mock_settings.SESSION_COOKIE_SECRET = ""
-            mock_settings.SESSION_COOKIE_NAME = "fixmytext_session"
-            mock_settings.SESSION_COOKIE_MAX_AGE = 3600
-            mock_settings.SESSION_COOKIE_SECURE = False
-            mock_settings.SESSION_COOKIE_DOMAIN = ""
-            app.dependency_overrides[get_db] = override_get_db
-            try:
-                response = await async_client.get(
-                    "/api/v1/auth/me",
-                    headers={"Authorization": "Bearer valid.jwt.token"},
-                )
-                assert response.status_code == 200
-                assert "fixmytext_session" not in response.headers.get("set-cookie", "")
-            finally:
-                app.dependency_overrides.clear()
+    with (
+        patch(_MOCK_TARGET, return_value=payload),
+        patch("app.api.v1.endpoints.auth.settings") as mock_settings,
+    ):
+        mock_settings.SESSION_COOKIE_SECRET = ""
+        mock_settings.SESSION_COOKIE_NAME = "fixmytext_session"
+        mock_settings.SESSION_COOKIE_MAX_AGE = 3600
+        mock_settings.SESSION_COOKIE_SECURE = False
+        mock_settings.SESSION_COOKIE_DOMAIN = ""
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            response = await async_client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": "Bearer valid.jwt.token"},
+            )
+            assert response.status_code == 200
+            assert "fixmytext_session" not in response.headers.get("set-cookie", "")
+        finally:
+            app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio

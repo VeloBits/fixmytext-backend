@@ -1,7 +1,7 @@
 # FastAPI + ASGI
 fastapi==0.136.1
 uvicorn[standard]==0.46.0
-pydantic-settings==2.14.1
+pydantic-settings==2.14.2
 
 # AI / keyword extraction
 groq==1.2.0

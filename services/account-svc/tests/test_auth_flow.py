@@ -393,31 +393,31 @@ async def test_get_me_cookie_value_is_validly_signed(async_client):
     async def override_get_db():
         yield mock_db
 
-    with patch(_MOCK_TARGET, return_value=_valid_payload(kc_id)):
-        with patch("app.api.v1.endpoints.auth.settings") as mock_settings:
-            mock_settings.SESSION_COOKIE_SECRET = _TEST_SECRET
-            mock_settings.SESSION_COOKIE_NAME = "fixmytext_session"
-            mock_settings.SESSION_COOKIE_MAX_AGE = 3600
-            mock_settings.SESSION_COOKIE_SECURE = False
-            mock_settings.SESSION_COOKIE_DOMAIN = ""
-            app.dependency_overrides[get_db] = override_get_db
-            try:
-                response = await async_client.get(
-                    "/api/v1/auth/me",
-                    headers={"Authorization": "Bearer valid.jwt.token"},
-                )
-                assert response.status_code == 200
-                set_cookie = response.headers.get("set-cookie", "")
-                assert "fixmytext_session=" in set_cookie
-                # Extract the raw cookie value and verify it cryptographically
-                cookie_value = set_cookie.split("fixmytext_session=", 1)[1].split(
-                    ";", 1
-                )[0]
-                claims = verify_session(cookie_value, _TEST_SECRET)
-                assert claims is not None
-                assert claims["sub"] == str(kc_id)
-            finally:
-                app.dependency_overrides.clear()
+    with (
+        patch(_MOCK_TARGET, return_value=_valid_payload(kc_id)),
+        patch("app.api.v1.endpoints.auth.settings") as mock_settings,
+    ):
+        mock_settings.SESSION_COOKIE_SECRET = _TEST_SECRET
+        mock_settings.SESSION_COOKIE_NAME = "fixmytext_session"
+        mock_settings.SESSION_COOKIE_MAX_AGE = 3600
+        mock_settings.SESSION_COOKIE_SECURE = False
+        mock_settings.SESSION_COOKIE_DOMAIN = ""
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            response = await async_client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": "Bearer valid.jwt.token"},
+            )
+            assert response.status_code == 200
+            set_cookie = response.headers.get("set-cookie", "")
+            assert "fixmytext_session=" in set_cookie
+            # Extract the raw cookie value and verify it cryptographically
+            cookie_value = set_cookie.split("fixmytext_session=", 1)[1].split(";", 1)[0]
+            claims = verify_session(cookie_value, _TEST_SECRET)
+            assert claims is not None
+            assert claims["sub"] == str(kc_id)
+        finally:
+            app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio

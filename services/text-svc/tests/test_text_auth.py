@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _VALID_PAYLOAD = {
@@ -63,16 +62,19 @@ async def test_no_auth_falls_through_to_visitor_path(client):
 @pytest.mark.asyncio
 async def test_invalid_jwt_falls_through_to_visitor_path(client):
     """An invalid Bearer token is silently downgraded to visitor quota — no 401."""
-    with patch(
-        "fixmytext_shared.security.jwt.verify_jwt_raw",
-        side_effect=Exception("bad jwt"),
+    with (
+        patch(
+            "fixmytext_shared.security.jwt.verify_jwt_raw",
+            side_effect=Exception("bad jwt"),
+        ),
+        _make_entitlement_ok(),
+        _make_rate_limit_ok(),
     ):
-        with _make_entitlement_ok(), _make_rate_limit_ok():
-            response = await client.post(
-                "/api/v1/text/uppercase",
-                headers={"Authorization": "Bearer bad.token.here"},
-                json={"text": "hello"},
-            )
+        response = await client.post(
+            "/api/v1/text/uppercase",
+            headers={"Authorization": "Bearer bad.token.here"},
+            json={"text": "hello"},
+        )
     assert response.status_code == 200
 
 
@@ -96,20 +98,22 @@ async def test_valid_jwt_identifies_user_for_entitlement(client):
         mock_settings.KEYCLOAK_JWKS_URL = "http://keycloak/jwks"
         mock_settings.KEYCLOAK_AUDIENCE = None
         mock_settings.KEYCLOAK_ISSUER = None
-        with patch(
-            "app.core.auth.verify_jwt_raw",
-            return_value=_VALID_PAYLOAD,
-        ):
-            with patch(
+        with (
+            patch(
+                "app.core.auth.verify_jwt_raw",
+                return_value=_VALID_PAYLOAD,
+            ),
+            patch(
                 "app.api.v1.endpoints.text.check_entitlement",
                 side_effect=_capture_check_access,
-            ):
-                with _make_rate_limit_ok():
-                    response = await client.post(
-                        "/api/v1/text/uppercase",
-                        headers={"Authorization": "Bearer valid.token"},
-                        json={"text": "hello"},
-                    )
+            ),
+            _make_rate_limit_ok(),
+        ):
+            response = await client.post(
+                "/api/v1/text/uppercase",
+                headers={"Authorization": "Bearer valid.token"},
+                json={"text": "hello"},
+            )
 
     assert response.status_code == 200
     assert len(captured) == 1
@@ -128,14 +132,16 @@ async def test_quota_exhausted_returns_402(client):
     """When check_access raises HTTPException(402), text endpoint returns 402."""
     from fastapi import HTTPException
 
-    with _make_rate_limit_ok():
-        with patch(
+    with (
+        _make_rate_limit_ok(),
+        patch(
             "app.api.v1.endpoints.text.check_entitlement",
             new_callable=AsyncMock,
             side_effect=HTTPException(status_code=402, detail="quota exhausted"),
-        ):
-            response = await client.post(
-                "/api/v1/text/uppercase",
-                json={"text": "hello"},
-            )
+        ),
+    ):
+        response = await client.post(
+            "/api/v1/text/uppercase",
+            json={"text": "hello"},
+        )
     assert response.status_code == 402

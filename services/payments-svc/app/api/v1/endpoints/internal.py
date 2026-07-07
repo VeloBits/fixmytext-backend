@@ -75,13 +75,15 @@ async def check_access(
                 db.add(user)
                 try:
                     await db.flush()
-                except IntegrityError:
+                except IntegrityError as exc:
                     await db.rollback()
                     user = await db.scalar(
                         select(User).where(User.keycloak_id == keycloak_id)
                     )
                     if user is None:
-                        raise HTTPException(503, "entitlement service unavailable")
+                        raise HTTPException(
+                            503, "entitlement service unavailable"
+                        ) from exc
 
             result = await check_tool_access(
                 user, req.tool_id, req.tool_type, db, auto_commit=False

@@ -115,3 +115,23 @@ class TestVerifyJwtRaw:
         assert raw["sub"] == "my-sub"
         assert raw["email"] == "a@b.com"
         assert raw["email_verified"] is True
+
+
+class TestVerifyJwtDispatch:
+    async def test_unsupported_algorithm_rejected(self):
+        with pytest.raises(ValueError, match="unsupported algorithm"):
+            await verify_jwt("anytoken", algorithm="ES256")
+
+    async def test_raw_unsupported_algorithm_rejected(self):
+        with pytest.raises(ValueError, match="unsupported algorithm"):
+            await verify_jwt_raw("anytoken", algorithm="ES256")
+
+    async def test_raw_requires_secret_for_hs256(self):
+        with pytest.raises(ValueError, match="HS256 requires"):
+            await verify_jwt_raw("anytoken", algorithm="HS256")
+
+    async def test_raw_env_var_algorithm_respected(self, monkeypatch):
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        token = _make_token(_base_payload())
+        raw = await verify_jwt_raw(token, secret=SECRET)
+        assert raw["sub"] == "user-123"

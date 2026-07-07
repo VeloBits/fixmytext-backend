@@ -9,13 +9,16 @@ Covers:
 
 from __future__ import annotations
 
-import uuid
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+if TYPE_CHECKING:
+    from app.api.v1.endpoints.ai import AuthenticatedUser
 
-def _make_verified_user(user_id: str = "user-abc") -> "AuthenticatedUser":
+
+def _make_verified_user(user_id: str = "user-abc") -> AuthenticatedUser:
     from app.api.v1.endpoints.ai import AuthenticatedUser
 
     return AuthenticatedUser(
@@ -38,7 +41,7 @@ async def test_job_status_no_token_returns_401(client):
 @pytest.mark.asyncio
 async def test_job_status_wrong_owner_returns_403(client):
     """GET /jobs/{id} — job owned by a different user → 403 (IDOR fix H3)."""
-    from app.api.v1.endpoints.ai import AuthenticatedUser, get_current_user
+    from app.api.v1.endpoints.ai import get_current_user
     from main import app
 
     requesting_user = _make_verified_user("user-requester")
@@ -74,7 +77,7 @@ async def test_job_status_wrong_owner_returns_403(client):
 @pytest.mark.asyncio
 async def test_job_status_correct_owner_returns_status(client):
     """GET /jobs/{id} — job owned by the requesting user → 200 with status."""
-    from app.api.v1.endpoints.ai import AuthenticatedUser, get_current_user
+    from app.api.v1.endpoints.ai import get_current_user
     from main import app
 
     user_id = "user-owner"
@@ -122,7 +125,7 @@ async def test_job_status_correct_owner_returns_status(client):
 @pytest.mark.asyncio
 async def test_job_status_nonexistent_job_returns_not_found(client):
     """GET /jobs/{id} where pool.job() returns None → status=not_found."""
-    from app.api.v1.endpoints.ai import AuthenticatedUser, get_current_user
+    from app.api.v1.endpoints.ai import get_current_user
     from main import app
 
     requesting_user = _make_verified_user()
@@ -185,7 +188,7 @@ async def test_stream_unverified_email_returns_403(client):
 @pytest.mark.asyncio
 async def test_stream_unknown_tool_returns_404(client):
     """POST /ai/{nonexistent}/stream with valid auth → 404."""
-    from app.api.v1.endpoints.ai import AuthenticatedUser, get_verified_user
+    from app.api.v1.endpoints.ai import get_verified_user
     from main import app
 
     verified = _make_verified_user()

@@ -201,7 +201,6 @@ async def test_cookie_auth_does_not_trigger_jit(async_client):
     into the ``elif user is None`` branch and raises 401.
     """
     import os
-    import time
 
     from app.core.session_cookie import build_claims, sign_session
 

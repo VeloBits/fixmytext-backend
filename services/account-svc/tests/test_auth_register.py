@@ -125,7 +125,6 @@ async def test_register_rate_limited_after_cap(async_client):
 async def test_register_password_min_length_enforced_via_config(async_client):
     """KEYCLOAK_PASSWORD_MIN_LENGTH is honoured: an 8-char password must fail
     when the config is raised to 12 (matching the production Keycloak realm)."""
-    from app.api.v1.endpoints import auth_register
 
     original = settings.KEYCLOAK_PASSWORD_MIN_LENGTH
     settings.KEYCLOAK_PASSWORD_MIN_LENGTH = 12

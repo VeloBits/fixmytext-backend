@@ -58,10 +58,12 @@ async def _post_logout(async_client, logout_token: str = "signed.logout.token"):
 async def test_valid_logout_token_returns_200(async_client):
     """A correctly signed logout token with the backchannel-logout event revokes
     the session and returns 200 {}."""
-    with patch(_SETTINGS, new=_mock_settings()):
-        with patch(_VERIFY, new=AsyncMock(return_value=_VALID_PAYLOAD)):
-            with patch(_REVOKE, new=AsyncMock()) as mock_revoke:
-                resp = await _post_logout(async_client)
+    with (
+        patch(_SETTINGS, new=_mock_settings()),
+        patch(_VERIFY, new=AsyncMock(return_value=_VALID_PAYLOAD)),
+        patch(_REVOKE, new=AsyncMock()) as mock_revoke,
+    ):
+        resp = await _post_logout(async_client)
 
     assert resp.status_code == 200
     assert resp.json() == {}
@@ -72,10 +74,12 @@ async def test_valid_logout_token_returns_200(async_client):
 async def test_valid_logout_token_revokes_correct_sub(async_client):
     """revoke_session is called with the sub from the logout token."""
     payload = {**_VALID_PAYLOAD, "sub": "specific-user-sub-abc"}
-    with patch(_SETTINGS, new=_mock_settings()):
-        with patch(_VERIFY, new=AsyncMock(return_value=payload)):
-            with patch(_REVOKE, new=AsyncMock()) as mock_revoke:
-                resp = await _post_logout(async_client)
+    with (
+        patch(_SETTINGS, new=_mock_settings()),
+        patch(_VERIFY, new=AsyncMock(return_value=payload)),
+        patch(_REVOKE, new=AsyncMock()) as mock_revoke,
+    ):
+        resp = await _post_logout(async_client)
 
     assert resp.status_code == 200
     args = mock_revoke.call_args[0]
@@ -93,11 +97,11 @@ async def test_invalid_token_signature_returns_400(async_client):
     """A JWT with a bad signature is rejected with 400."""
     import jwt
 
-    with patch(_SETTINGS, new=_mock_settings()):
-        with patch(
-            _VERIFY, new=AsyncMock(side_effect=jwt.InvalidSignatureError("bad sig"))
-        ):
-            resp = await _post_logout(async_client)
+    with (
+        patch(_SETTINGS, new=_mock_settings()),
+        patch(_VERIFY, new=AsyncMock(side_effect=jwt.InvalidSignatureError("bad sig"))),
+    ):
+        resp = await _post_logout(async_client)
 
     assert resp.status_code == 400
     assert "Invalid logout token" in resp.json()["detail"]
@@ -108,11 +112,11 @@ async def test_expired_token_returns_400(async_client):
     """An expired logout token is rejected with 400."""
     import jwt
 
-    with patch(_SETTINGS, new=_mock_settings()):
-        with patch(
-            _VERIFY, new=AsyncMock(side_effect=jwt.ExpiredSignatureError("expired"))
-        ):
-            resp = await _post_logout(async_client)
+    with (
+        patch(_SETTINGS, new=_mock_settings()),
+        patch(_VERIFY, new=AsyncMock(side_effect=jwt.ExpiredSignatureError("expired"))),
+    ):
+        resp = await _post_logout(async_client)
 
     assert resp.status_code == 400
 
@@ -120,9 +124,11 @@ async def test_expired_token_returns_400(async_client):
 @pytest.mark.asyncio
 async def test_malformed_token_string_returns_400(async_client):
     """A completely malformed string is rejected with 400."""
-    with patch(_SETTINGS, new=_mock_settings()):
-        with patch(_VERIFY, new=AsyncMock(side_effect=ValueError("malformed"))):
-            resp = await _post_logout(async_client)
+    with (
+        patch(_SETTINGS, new=_mock_settings()),
+        patch(_VERIFY, new=AsyncMock(side_effect=ValueError("malformed"))),
+    ):
+        resp = await _post_logout(async_client)
 
     assert resp.status_code == 400
 
@@ -136,9 +142,11 @@ async def test_malformed_token_string_returns_400(async_client):
 async def test_missing_events_claim_returns_400(async_client):
     """A logout token without the events claim is rejected with 400."""
     payload = {k: v for k, v in _VALID_PAYLOAD.items() if k != "events"}
-    with patch(_SETTINGS, new=_mock_settings()):
-        with patch(_VERIFY, new=AsyncMock(return_value=payload)):
-            resp = await _post_logout(async_client)
+    with (
+        patch(_SETTINGS, new=_mock_settings()),
+        patch(_VERIFY, new=AsyncMock(return_value=payload)),
+    ):
+        resp = await _post_logout(async_client)
 
     assert resp.status_code == 400
     assert "backchannel" in resp.json()["detail"].lower()
@@ -151,9 +159,11 @@ async def test_wrong_event_type_returns_400(async_client):
         **_VALID_PAYLOAD,
         "events": {"http://schemas.openid.net/event/some-other-event": {}},
     }
-    with patch(_SETTINGS, new=_mock_settings()):
-        with patch(_VERIFY, new=AsyncMock(return_value=payload)):
-            resp = await _post_logout(async_client)
+    with (
+        patch(_SETTINGS, new=_mock_settings()),
+        patch(_VERIFY, new=AsyncMock(return_value=payload)),
+    ):
+        resp = await _post_logout(async_client)
 
     assert resp.status_code == 400
 
@@ -167,9 +177,11 @@ async def test_wrong_event_type_returns_400(async_client):
 async def test_missing_sub_claim_returns_400(async_client):
     """A logout token without a sub claim is rejected with 400."""
     payload = {k: v for k, v in _VALID_PAYLOAD.items() if k != "sub"}
-    with patch(_SETTINGS, new=_mock_settings()):
-        with patch(_VERIFY, new=AsyncMock(return_value=payload)):
-            resp = await _post_logout(async_client)
+    with (
+        patch(_SETTINGS, new=_mock_settings()),
+        patch(_VERIFY, new=AsyncMock(return_value=payload)),
+    ):
+        resp = await _post_logout(async_client)
 
     assert resp.status_code == 400
     assert "sub" in resp.json()["detail"].lower()
@@ -202,9 +214,11 @@ async def test_redis_unavailable_still_returns_200(async_client):
     Keycloak retries on 5xx; returning 200 prevents an infinite retry loop
     when Redis is temporarily unavailable.
     """
-    with patch(_SETTINGS, new=_mock_settings()):
-        with patch(_VERIFY, new=AsyncMock(return_value=_VALID_PAYLOAD)):
-            with patch(_REVOKE, new=AsyncMock(return_value=None)):
-                resp = await _post_logout(async_client)
+    with (
+        patch(_SETTINGS, new=_mock_settings()),
+        patch(_VERIFY, new=AsyncMock(return_value=_VALID_PAYLOAD)),
+        patch(_REVOKE, new=AsyncMock(return_value=None)),
+    ):
+        resp = await _post_logout(async_client)
 
     assert resp.status_code == 200

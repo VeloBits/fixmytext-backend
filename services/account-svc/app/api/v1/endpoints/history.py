@@ -167,7 +167,9 @@ async def get_history_stats(
         ).all()
     except Exception:
         logger.exception("Failed to fetch history stats for user %s", user.id)
-        raise HTTPException(status_code=503, detail="Stats temporarily unavailable")
+        raise HTTPException(
+            status_code=503, detail="Stats temporarily unavailable"
+        ) from None
 
     # Total is the sum of per-tool counts
     total = sum(row.count for row in all_stats)

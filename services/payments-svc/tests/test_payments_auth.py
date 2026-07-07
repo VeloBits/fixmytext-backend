@@ -9,11 +9,9 @@ Covers gaps not in test_payments_endpoints.py:
 from __future__ import annotations
 
 import uuid
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

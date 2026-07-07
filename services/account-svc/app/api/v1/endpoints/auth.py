@@ -11,14 +11,13 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
+from fixmytext_shared.security.jwt import verify_jwt_raw
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fixmytext_shared.security.jwt import verify_jwt_raw
-
 from app.core.config import settings
 from app.core.deps import get_current_user
-from app.core.redis import is_session_revoked, revoke_session
+from app.core.redis import revoke_session
 from app.core.session_cookie import build_claims, sign_session, verify_session
 from app.db.models.user import User
 from app.db.session import get_db
@@ -191,7 +190,7 @@ async def backchannel_logout(
         )
     except Exception as exc:
         logger.warning("backchannel-logout: invalid logout token: %s", exc)
-        raise HTTPException(status_code=400, detail="Invalid logout token")
+        raise HTTPException(status_code=400, detail="Invalid logout token") from exc
 
     # Spec (OIDC CIBA): logout token MUST contain the backchannel-logout event.
     events = payload.get("events", {})

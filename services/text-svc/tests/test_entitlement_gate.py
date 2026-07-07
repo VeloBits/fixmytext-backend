@@ -112,3 +112,42 @@ def test_brainfuck_infinite_loop_is_bounded():
     # bound), not hang. Completes well under the 1s wall-clock cap.
     with pytest.raises(ValueError):
         brainfuck_decode("+[]")
+
+
+async def test_gate_non_200_billable_fails_closed_503(monkeypatch):
+    _patch(monkeypatch, resp=_Resp(500, {}))
+    with pytest.raises(HTTPException) as exc:
+        await ec.check_access(
+            tool_id="uppercase", tool_type="local", request=_req(), user=None
+        )
+    assert exc.value.status_code == 503
+
+
+async def test_gate_non_200_always_free_is_served(monkeypatch):
+    _patch(monkeypatch, resp=_Resp(502, {}))
+    assert (
+        await ec.check_access(
+            tool_id="compare", tool_type="local", request=_req(), user=None
+        )
+        is None
+    )
+
+
+async def test_http_client_lifecycle(monkeypatch):
+    monkeypatch.setattr(ec, "_HTTP_CLIENT", None)
+    ec.init_http_client()
+    assert ec._HTTP_CLIENT is not None
+    await ec.close_http_client()
+    assert ec._HTTP_CLIENT is None
+    # Closing again is a no-op.
+    await ec.close_http_client()
+    assert ec._HTTP_CLIENT is None
+
+
+async def test_get_http_client_creates_lazily(monkeypatch):
+    monkeypatch.setattr(ec, "_HTTP_CLIENT", None)
+    client = ec._get_http_client()
+    assert client is not None
+    # Second call reuses the same client.
+    assert ec._get_http_client() is client
+    await ec.close_http_client()

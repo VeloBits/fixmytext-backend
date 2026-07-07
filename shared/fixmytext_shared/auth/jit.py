@@ -9,7 +9,7 @@ both attempt to insert.
 
 import logging
 import uuid
-from typing import Any, TypeVar
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -18,10 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
 
-
-async def jit_provision_user(
+async def jit_provision_user[T](
     db: AsyncSession,
     user_class: type[T],
     keycloak_id: uuid.UUID,
@@ -56,7 +54,7 @@ async def jit_provision_user(
     try:
         db.add(user)
         await db.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
         logger.warning(
             "auth: JIT race condition for keycloak_id=%s, recovering", keycloak_id
@@ -65,5 +63,5 @@ async def jit_provision_user(
             select(user_class).where(user_class.keycloak_id == keycloak_id)
         )
         if user is None or user.keycloak_id != keycloak_id:
-            raise HTTPException(status_code=401, detail="Not authenticated")
+            raise HTTPException(status_code=401, detail="Not authenticated") from exc
     return user

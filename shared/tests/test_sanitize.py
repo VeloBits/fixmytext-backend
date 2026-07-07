@@ -95,3 +95,28 @@ class TestPiiRedactionFilter:
         f.filter(record)
         assert record.msg == "[REDACTED]"
         assert record.args == ()
+
+
+class TestSanitizeNonStringArgs:
+    def test_non_string_args_pass_through_unchanged(self):
+        f = LogSanitizationFilter()
+        record = _make_record("count: %d, name: %s", (42, "evil\nname"))
+        f.filter(record)
+        assert record.args[0] == 42
+        assert "\n" not in record.args[1]
+
+
+class TestPiiRedactionMalformedRecord:
+    def test_malformed_record_falls_back_to_raw_msg(self):
+        f = PiiRedactionFilter()
+        # args don't match the format string -> getMessage() raises TypeError,
+        # so the filter falls back to inspecting record.msg directly.
+        record = _make_record("value: %s %s", ("only-one",))
+        assert f.filter(record) is True
+        assert record.msg == "value: %s %s"
+
+    def test_malformed_record_still_redacts_pii_in_msg(self):
+        f = PiiRedactionFilter()
+        record = _make_record("token: %s %s", ("only-one",))
+        assert f.filter(record) is True
+        assert record.msg == "[REDACTED]"

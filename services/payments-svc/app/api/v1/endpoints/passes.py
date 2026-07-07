@@ -199,7 +199,9 @@ async def create_pass_order(
         logger.exception(
             "Failed to create Razorpay order for pass %s, user %s", req.pass_id, user.id
         )
-        raise HTTPException(502, "Failed to start checkout — please try again later")
+        raise HTTPException(
+            502, "Failed to start checkout — please try again later"
+        ) from None
     return RazorpayOrderResponse(
         order_id=order["id"],
         amount=order["amount"],
@@ -260,7 +262,9 @@ async def create_credit_order(
             req.pack_id,
             user.id,
         )
-        raise HTTPException(502, "Failed to start checkout — please try again later")
+        raise HTTPException(
+            502, "Failed to start checkout — please try again later"
+        ) from None
     return RazorpayOrderResponse(
         order_id=order["id"],
         amount=order["amount"],

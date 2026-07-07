@@ -5,11 +5,11 @@ make_user_class() factory.  Service-specific billing relationships are attached
 here after the class is created.
 """
 
+from fixmytext_shared.db.models.user import make_user_class
 from sqlalchemy.orm import relationship
 
 from app.core.config import settings
 from app.db.session import Base
-from fixmytext_shared.db.models.user import make_user_class
 
 User = make_user_class(Base, settings.DB_SCHEMA_AUTH)
 
