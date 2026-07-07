@@ -19,7 +19,15 @@ import yake
 from groq import APIError, APITimeoutError, AsyncGroq
 
 from app.core.config import settings
-from app.services.ai_prompts import FORMAT_PROMPTS, PROMPTS, TONE_INSTRUCTIONS
+from app.services.ai_prompts import (
+    INPUT_TAG_CLOSE,
+    INPUT_TAG_OPEN,
+    PROMPTS,
+    build_change_format_prompt,
+    build_change_tone_prompt,
+    build_translate_prompt,
+    build_transliterate_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,16 +63,19 @@ async def _groq_chat(
     client = _groq_client
     if client is None:
         raise RuntimeError("Groq client not initialized")
-    # TODO(audit:M-5): medium — prompt-injection: user_text is passed straight into
-    # the chat as a user message with no fencing/delimiting, and the assistant output
-    # is returned verbatim with no post-generation validation. A crafted document can
-    # override or exfiltrate the per-tool system prompt. Add output validation + hard
-    # fencing of user text; document that output is attacker-influenceable.
+    # TODO(audit:M-5): output validation still pending — assistant output is
+    # returned verbatim and remains attacker-influenceable. Input-side fencing
+    # is in place: user text is wrapped in INPUT_TAG_OPEN/CLOSE and every
+    # system prompt (UNIVERSAL RULES in ai_prompts) instructs the model to
+    # treat the fenced content strictly as data.
     response = await client.chat.completions.create(
         model=settings.GROQ_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text},
+            {
+                "role": "user",
+                "content": f"{INPUT_TAG_OPEN}\n{user_text}\n{INPUT_TAG_CLOSE}",
+            },
         ],
         temperature=temperature,
         max_tokens=max_tokens,
@@ -86,7 +97,10 @@ async def _groq_chat_stream(
         model=settings.GROQ_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text},
+            {
+                "role": "user",
+                "content": f"{INPUT_TAG_OPEN}\n{user_text}\n{INPUT_TAG_CLOSE}",
+            },
         ],
         temperature=temperature,
         max_tokens=max_tokens,
@@ -415,9 +429,6 @@ def _sentiment_fallback(text: str) -> str:
     )
 
 
-# Prompt dicts are imported from app.services.ai_prompts; aliased here for
-# internal use (private-name convention matches the rest of this module).
-_FORMAT_PROMPTS = FORMAT_PROMPTS
 
 
 def _format_headings(sentences: list[str]) -> str:
@@ -466,9 +477,8 @@ def _passthrough_fallback(text: str, *_args: Any) -> str:
     return text
 
 
-_TONE_INSTRUCTIONS = TONE_INSTRUCTIONS
-
-
+# The static prompt registry is imported from app.services.ai_prompts;
+# aliased here for internal use (private-name convention matches this module).
 _PROMPTS = PROMPTS
 
 
@@ -882,51 +892,28 @@ async def run_ai_tool(
     merged_extra = extra_args if extra_args else default_extra
 
     # --- Dynamic prompt construction for parameterised tools -------------
+    # Prompts are built by the shared ai_prompts builders so streaming and
+    # non-streaming requests use identical prompts.
     if tool_id == "translate" and extra_args:
-        target_language = extra_args[0]
-        prompt = (
-            f"You are a translator. Translate the user's text into {target_language}. "
-            "Preserve the original meaning, tone, and formatting as closely as possible. "
-            "Return ONLY the translated text, nothing else. "
-            "Do not include any notes or explanations."
-        )
+        prompt = build_translate_prompt(extra_args[0])
         return await _ai_transform(
             prompt, text, fallback_fn, *merged_extra, **ai_kwargs
         )
 
     if tool_id == "transliterate" and extra_args:
-        target_language = extra_args[0]
-        prompt = (
-            f"You are a transliterator. Convert the user's text into {target_language} script "
-            "(transliteration, NOT translation). Keep the original words and sounds -- "
-            f"just write them using the {target_language} writing system. "
-            "For example, English 'hello' in Hindi script becomes a phonetic rendering. "
-            "Return ONLY the transliterated text, nothing else."
-        )
+        prompt = build_transliterate_prompt(extra_args[0])
         return await _ai_transform(
             prompt, text, fallback_fn, *merged_extra, **ai_kwargs
         )
 
     if tool_id == "change-tone" and extra_args:
-        tone = extra_args[0]
-        instruction = _TONE_INSTRUCTIONS.get(tone.lower(), _TONE_INSTRUCTIONS["formal"])
-        prompt = (
-            f"You are a tone changer. Given the user's text, {instruction} "
-            "Preserve the original meaning completely. "
-            "Return ONLY the rewritten text, nothing else."
-        )
+        prompt = build_change_tone_prompt(extra_args[0])
         return await _ai_transform(
             prompt, text, fallback_fn, *merged_extra, **ai_kwargs
         )
 
     if tool_id == "change-format" and extra_args:
-        fmt = extra_args[0]
-        base_prompt = _FORMAT_PROMPTS.get(fmt.lower(), _FORMAT_PROMPTS["paragraph"])
-        prompt = (
-            f"You are a text formatter. {base_prompt} "
-            "Preserve ALL original information -- only change the structure/format. "
-            "Return ONLY the reformatted text, nothing else."
-        )
+        prompt = build_change_format_prompt(extra_args[0])
         return await _ai_transform(
             prompt, text, fallback_fn, *merged_extra, **ai_kwargs
         )
@@ -955,25 +942,16 @@ async def stream_ai_tool(tool_id: str, text: str, *extra_args: Any):
     prompt_key, _fallback_fn, default_extra, ai_kwargs = _AI_HANDLERS[tool_id]
     merged_extra = extra_args if extra_args else default_extra
 
-    # Build the prompt (same logic as run_ai_tool)
+    # Build the prompt via the same shared builders as run_ai_tool so
+    # streamed and non-streamed responses are formatted identically.
     if tool_id == "translate" and merged_extra:
-        prompt = (
-            f"You are a translator. Translate the user's text into {merged_extra[0]}. "
-            "Preserve the original meaning, tone, and formatting. "
-            "Return ONLY the translated text."
-        )
+        prompt = build_translate_prompt(merged_extra[0])
+    elif tool_id == "transliterate" and merged_extra:
+        prompt = build_transliterate_prompt(merged_extra[0])
     elif tool_id == "change-tone" and merged_extra:
-        instruction = _TONE_INSTRUCTIONS.get(
-            merged_extra[0].lower(), _TONE_INSTRUCTIONS["formal"]
-        )
-        prompt = (
-            f"You are a tone changer. {instruction} Return ONLY the rewritten text."
-        )
+        prompt = build_change_tone_prompt(merged_extra[0])
     elif tool_id == "change-format" and merged_extra:
-        base = _FORMAT_PROMPTS.get(
-            merged_extra[0].lower(), _FORMAT_PROMPTS["paragraph"]
-        )
-        prompt = f"You are a text formatter. {base} Return ONLY the reformatted text."
+        prompt = build_change_format_prompt(merged_extra[0])
     elif prompt_key:
         prompt = _PROMPTS[prompt_key]
     else:
