@@ -1,0 +1,118 @@
+_format_version: "3.0"
+_transform: true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Kong API gateway — declarative configuration.
+# All /api/v1/* traffic is routed to the appropriate microservice.
+# The monolith catch-all has been removed; every path is now explicit.
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── ai-svc (Groq-backed AI endpoints) ────────────────────────────────────────
+  - name: ai-svc
+    url: http://ai-svc:8000
+    routes:
+      - name: ai-routes
+        paths:
+          - /api/v1/ai
+        strip_path: false
+    plugins:
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 1
+
+  # ── text-svc (local text-transform tools) ────────────────────────────────
+  - name: text-svc
+    url: http://text-svc:8000
+    routes:
+      - name: text-routes
+        paths:
+          - /api/v1/text
+        strip_path: false
+    plugins:
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 1
+
+  # ── payments-svc (Razorpay subscriptions, passes) ─────────────────────────
+  - name: payments-svc
+    url: http://payments-svc:8000
+    routes:
+      - name: passes-routes
+        paths:
+          - /api/v1/passes
+        strip_path: false
+      - name: subscription-routes
+        paths:
+          - /api/v1/subscription
+        strip_path: false
+    plugins:
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 1
+
+  # ── account-svc (auth, user data, history, share) ─────────────────────────
+  - name: account-svc
+    url: http://account-svc:8000
+    routes:
+      - name: auth-routes
+        paths:
+          - /api/v1/auth
+        strip_path: false
+      - name: user-routes
+        paths:
+          - /api/v1/user
+        strip_path: false
+      - name: history-routes
+        paths:
+          - /api/v1/history
+        strip_path: false
+      - name: share-routes
+        paths:
+          - /api/v1/share
+        strip_path: false
+      - name: health-route
+        paths:
+          - /health
+        strip_path: false
+    plugins:
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 1
+
+plugins:
+  # Inject / echo X-Request-ID on every request so it appears in service
+  # logs and downstream traces.
+  - name: correlation-id
+    config:
+      header_name: X-Request-ID
+      generator: uuid
+      echo_downstream: true
+
+  # Single source of truth for CORS at the edge.
+  - name: cors
+    config:
+      origins:
+        - http://localhost:3000
+        - http://127.0.0.1:3000
+        - http://develop-fixmytext.velobits.dev
+        - https://fixmytext.velobits.dev
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      headers:
+        - Content-Type
+        - Authorization
+        - X-Visitor-Id
+        - X-Request-ID
+      credentials: true
+      max_age: 3600
+
+# Rate-limit plugin intentionally NOT enabled at the gateway yet.
+# In-app rate limiting (fixmytext_shared.rate_limit) remains source-of-truth
+# so behaviour is identical pre- and post-gateway. TODO: migrate to Kong's
+# rate-limit plugin when a service splits out (the AI quota check has the
+# most to gain from edge-side enforcement).

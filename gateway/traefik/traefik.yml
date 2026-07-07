@@ -1,0 +1,33 @@
+# Traefik v3 static configuration — VeloBits platform edge proxy.
+#
+# Responsibilities:
+#   1. Accept all *.velobits.dev traffic on :80 (TLS termination at production deploy).
+#   2. Route by Host header to the right service container (docker provider).
+#   3. Route by Host + Path to split content-app vs web-app within a single
+#      hostname (file provider, rules in gateway/traefik/rules/).
+#
+# Providers:
+#   - docker provider: active (Kong + Keycloak-Dev via Docker labels)
+#   - file provider: path-prefix rules in gateway/traefik/rules/
+
+api:
+  dashboard: true
+  insecure: true   # dev only: dashboard bound to 127.0.0.1:8090
+
+entryPoints:
+  web:
+    address: ":80"
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: fixmytext-net
+    watch: true
+  file:
+    directory: /etc/traefik/rules
+    watch: true
+
+log:
+  level: INFO
+
+accessLog: {}

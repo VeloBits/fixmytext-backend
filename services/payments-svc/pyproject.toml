@@ -1,0 +1,17 @@
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "C4", "SIM"]
+ignore = [
+    "E501",
+    "B008",
+    "UP007",
+    "SIM108",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106"]
+"app/db/models/*.py" = ["F821"]  # SQLAlchemy Mapped["Type"] forward refs
+

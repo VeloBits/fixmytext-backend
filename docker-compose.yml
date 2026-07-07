@@ -1,8 +1,13 @@
 # fixmytext-backend — unified compose file with profiles.
 #
 # Profiles:
-#   dev   development stack  (hot reload, source volumes)
-#   prod  production stack   (multi-stage builds, nginx)
+#   dev   development stack  (hot reload, source volumes, Traefik on :80)
+#   prod  production stack   (multi-stage builds, TLS)
+#
+# Local development requires /etc/hosts entries (see backend/README.md):
+#   127.0.0.1 auth-dev.velobits.dev
+#   127.0.0.1 api-dev.velobits.dev
+#   127.0.0.1 develop-fixmytext.velobits.dev
 #
 # Usage:
 #   docker compose --profile dev up --build     # dev
@@ -11,12 +16,45 @@
 services:
 
   # ══════════════════════════════════════════════════════════════════════════
-  # DATABASE  —  shared across profiles
+  # TRAEFIK — edge reverse proxy for all *.velobits.dev subdomains.
+  # Owns external port :80. Routes by Host header to the right container.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  traefik:
+    profiles: ["dev"]
+    image: traefik:v3.2
+    container_name: velobits-traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=fixmytext-net
+      # file provider activates path-prefix routing for content-app vs web-app
+      - --providers.file.directory=/etc/traefik/rules
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "127.0.0.1:8090:8080"   # dashboard, localhost-only
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./gateway/traefik/rules:/etc/traefik/rules:ro
+    networks:
+      - fixmytext-net
+
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # PRODUCT DATABASES (velobits-dev-db Postgres instance)
+  # Hosts fixmytext + chat + notes + futureapp databases. NEVER hosts
+  # Keycloak's identity DB (which is a separate Postgres instance below).
   # ══════════════════════════════════════════════════════════════════════════
 
   db-service:
     image: pgvector/pgvector:pg16
-    container_name: fixmytext-db
+    container_name: velobits-dev-db
     restart: unless-stopped
     ports:
       - "${DB_HOST_PORT:-5433}:5432"
@@ -26,6 +64,8 @@ services:
       POSTGRES_DB: fixmytext
     volumes:
       - fixmytext-pgdata:/var/lib/postgresql/data
+      # First-init only: creates placeholder DBs for future products
+      - ./infrastructure/db-init:/docker-entrypoint-initdb.d:ro
     networks:
       - fixmytext-net
     healthcheck:
@@ -56,161 +96,274 @@ services:
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # MIGRATE  —  runs alembic upgrade head once, then exits (shared logic)
-  # Each profile has its own migrate service so build context matches.
-  # Both backend services depend on their migrate service completing.
+  # MIGRATE  —  runs alembic upgrade head once, then exits.
   # ══════════════════════════════════════════════════════════════════════════
 
   migrate-dev:
     profiles: ["dev"]
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: migrations/Dockerfile.migrate
     container_name: fixmytext-migrate-dev
     restart: "no"
-    command: ["alembic", "upgrade", "head"]
-    volumes:
-      - .:/app                  # Dockerfile.dev doesn't COPY source; mount it so alembic.ini is found
-      - fixmytext-dev-venv:/app/.venv  # named volume; dev-entrypoint.sh re-syncs to requirements.txt on start
+    working_dir: /app
+    command: ["alembic", "-c", "migrations/alembic.ini", "upgrade", "head"]
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD:-fixmytext_dev}@db-service:5432/fixmytext
+      - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
     depends_on:
       db-service:
         condition: service_healthy
     networks:
       - fixmytext-net
 
-  migrate-prod:
-    profiles: ["prod"]
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    container_name: fixmytext-migrate-prod
-    restart: "no"
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-          set -eu
-          if [ -f /run/secrets/db_password ]; then
-            POSTGRES_PASSWORD="$$(cat /run/secrets/db_password)"
-          else
-            POSTGRES_PASSWORD="$${POSTGRES_PASSWORD:-fixmytext_dev}"
-          fi
-          export DATABASE_URL="postgresql+asyncpg://fixmytext:$${POSTGRES_PASSWORD}@db-service:5432/fixmytext"
-          exec "$$@"
-      - --
-    command: ["alembic", "upgrade", "head"]
-    env_file:
-      - .env
-    environment:
-      - SECRET_KEY=${SECRET_KEY:-}
-    secrets:
-      - db_password
-    depends_on:
-      db-service:
-        condition: service_healthy
-    networks:
-      - fixmytext-net
-
-
   # ══════════════════════════════════════════════════════════════════════════
-  # DEV  —  profile: dev
+  # AI-SVC  —  Groq-backed AI text transformation service (dev profile)
+  # Kong routes /api/v1/ai/* here. Service is internal-only (Kong owns
+  # the path-prefix seam; Traefik owns the subdomain seam).
   # ══════════════════════════════════════════════════════════════════════════
 
-  backend-dev:
+  ai-svc:
     profiles: ["dev"]
     build:
       context: .
-      dockerfile: Dockerfile.dev
-    container_name: fixmytext-backend-dev
-    ports:
-      - "8000:8000"
-    volumes:
-      - .:/app                              # mount source — uvicorn --reload picks up changes
-      - fixmytext-dev-venv:/app/.venv       # named venv; dev-entrypoint.sh re-syncs to requirements.txt on start
+      dockerfile: services/ai-svc/Dockerfile
+    container_name: fixmytext-ai-svc
+    expose:
+      - "8000"
     env_file:
       - .env
     environment:
       - HOST=0.0.0.0
       - PORT=8000
       - DEBUG=true
-      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-      - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD:-fixmytext_dev}@db-service:5432/fixmytext
+      - OTEL_SERVICE_NAME=fixmytext-ai-svc
     depends_on:
-      db-service:
-        condition: service_healthy
-      migrate-dev:
-        condition: service_completed_successfully
+      redis-service:
+        condition: service_started
     networks:
       - fixmytext-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════
-  # PROD  —  profile: prod
+  # TEXT-SVC  —  local text transformation service (dev profile)
+  # Kong routes /api/v1/text/* here.
   # ══════════════════════════════════════════════════════════════════════════
 
-  backend-prod:
-    profiles: ["prod"]
+  text-svc:
+    profiles: ["dev"]
     build:
       context: .
-      dockerfile: Dockerfile
-      target: runtime
-    container_name: fixmytext-backend-prod
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
+      dockerfile: services/text-svc/Dockerfile
+    container_name: fixmytext-text-svc
+    expose:
+      - "8000"
     env_file:
       - .env
     environment:
       - HOST=0.0.0.0
       - PORT=8000
-      - DEBUG=false
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-          set -eu
-          if [ -f /run/secrets/db_password ]; then
-            POSTGRES_PASSWORD="$$(cat /run/secrets/db_password)"
-          else
-            POSTGRES_PASSWORD="$${POSTGRES_PASSWORD:-fixmytext_dev}"
-          fi
-          export DATABASE_URL="postgresql+asyncpg://fixmytext:$${POSTGRES_PASSWORD}@db-service:5432/fixmytext"
-          if [ -f /run/secrets/secret_key ]; then
-            export SECRET_KEY="$$(cat /run/secrets/secret_key)"
-          fi
-          if [ -f /run/secrets/razorpay_key_secret ]; then
-            export RAZORPAY_KEY_SECRET="$$(cat /run/secrets/razorpay_key_secret)"
-          fi
-          if [ -f /run/secrets/groq_api_key ]; then
-            export GROQ_API_KEY="$$(cat /run/secrets/groq_api_key)"
-          fi
-          exec "$$@"
-      - --
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-    secrets:
-      - db_password
-      - secret_key
-      - razorpay_key_secret
-      - groq_api_key
-    depends_on:
-      db-service:
-        condition: service_healthy
-      migrate-prod:
-        condition: service_completed_successfully
-        required: true
+      - OTEL_SERVICE_NAME=fixmytext-text-svc
     networks:
       - fixmytext-net
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 20s
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # PAYMENTS-SVC  —  billing: passes, credits, subscriptions, Razorpay (dev)
+  # Kong routes /api/v1/passes/* and /api/v1/subscription/* here.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  payments-svc:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: services/payments-svc/Dockerfile
+    container_name: fixmytext-payments-svc
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - OTEL_SERVICE_NAME=fixmytext-payments-svc
+      - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
+    depends_on:
+      db-service:
+        condition: service_healthy
+      redis-service:
+        condition: service_started
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # ACCOUNT-SVC  —  user data, history, share, session cookie (dev profile)
+  # Kong routes /api/v1/auth/*, /api/v1/user/*, /api/v1/history/*,
+  # /api/v1/share/* here.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  account-svc:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: services/account-svc/Dockerfile
+    container_name: fixmytext-account-svc
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - OTEL_SERVICE_NAME=fixmytext-account-svc
+      - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
+      - SESSION_COOKIE_SECRET=${SESSION_COOKIE_SECRET}
+      - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-fixmytext_session}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
+      - SESSION_COOKIE_MAX_AGE=${SESSION_COOKIE_MAX_AGE:-604800}
+      - SESSION_COOKIE_DOMAIN=${SESSION_COOKIE_DOMAIN:-}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://auth-dev.velobits.dev}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits-Dev}
+      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/Velobits-Dev/protocol/openid-connect/certs}
+    depends_on:
+      db-service:
+        condition: service_healthy
+      redis-service:
+        condition: service_started
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # KONG  —  API gateway. Behind Traefik; routes /api/v1/* to services.
+  # No longer owns external port :8000 — Traefik routes api-dev.velobits.dev
+  # to this container via Docker labels.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  kong:
+    profiles: ["dev"]
+    image: kong:3.8-ubuntu
+    container_name: fixmytext-kong
+    restart: unless-stopped
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+      KONG_ADMIN_LISTEN: "127.0.0.1:8001"
+    volumes:
+      - ./gateway/kong/kong.yml:/etc/kong/kong.yml:ro
+    # No external port mapping — Traefik owns :80 and routes
+    # Host=api-dev.velobits.dev to this container.
+    expose:
+      - "8000"
+    depends_on:
+      ai-svc:
+        condition: service_started
+      text-svc:
+        condition: service_started
+      payments-svc:
+        condition: service_started
+      account-svc:
+        condition: service_started
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kong-dev.rule=Host(`api-dev.velobits.dev`)"
+      - "traefik.http.routers.kong-dev.entrypoints=web"
+      - "traefik.http.services.kong-dev.loadbalancer.server.port=8000"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # KEYCLOAK DEV  —  identity provider for the Velobits-Dev realm.
+  # Dev realm export is at infrastructure/keycloak/realm-export-dev.json.
+  # The prod equivalent (keycloak-prod) is provisioned during production deploy.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  keycloak-dev-db:
+    profiles: ["dev"]
+    image: postgres:16-alpine
+    container_name: keycloak-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:-kcdev}}
+      POSTGRES_DB: keycloak_dev_db
+    volumes:
+      - keycloak-dev-pgdata:/var/lib/postgresql/data
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  keycloak-dev:
+    profiles: ["dev"]
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: keycloak-dev
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-dev-db:5432/keycloak_dev_db
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:-kcdev}}
+      KC_HOSTNAME: auth-dev.velobits.dev
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_DEV_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}}
+    volumes:
+      - ./infrastructure/keycloak/realm-export-dev.json:/opt/keycloak/data/import/realm.json:ro
+      - ./infrastructure/keycloak/themes/fixmytext:/opt/keycloak/themes/fixmytext:ro
+    expose:
+      - "8080"
+    depends_on:
+      keycloak-dev-db:
+        condition: service_healthy
+    networks:
+      - fixmytext-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak-dev.rule=Host(`auth-dev.velobits.dev`)"
+      - "traefik.http.routers.keycloak-dev.entrypoints=web"
+      - "traefik.http.services.keycloak-dev.loadbalancer.server.port=8080"
+
 
 # ── Shared network ────────────────────────────────────────────────────────────
 networks:
@@ -220,25 +373,6 @@ networks:
 # ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   fixmytext-pgdata:
-  # Dev-only: holds the python venv across container restarts. The
-  # dev-entrypoint.sh script re-syncs it to requirements.txt on every start
-  # via a sha256 hash check, so editing requirements.txt and re-running
-  # `docker compose --profile dev up` is enough — no manual volume nuke.
-  # If you ever need to reset it: `docker volume rm backend_fixmytext-dev-venv`
-  fixmytext-dev-venv:
-
-# ── Secrets (production) ─────────────────────────────────────────────────────
-# Create ./secrets/ directory and add one secret per file:
-#   echo 'your_db_password'       > secrets/db_password.txt
-#   echo 'your_jwt_secret_key'    > secrets/secret_key.txt
-#   echo 'your_razorpay_secret'   > secrets/razorpay_key_secret.txt
-#   echo 'your_groq_api_key'      > secrets/groq_api_key.txt
-secrets:
-  db_password:
-    file: ./secrets/db_password.txt
-  secret_key:
-    file: ./secrets/secret_key.txt
-  razorpay_key_secret:
-    file: ./secrets/razorpay_key_secret.txt
-  groq_api_key:
-    file: ./secrets/groq_api_key.txt
+  # Keycloak's identity database (separate from product DBs by design —
+  # identity and product data are never co-located).
+  keycloak-dev-pgdata:

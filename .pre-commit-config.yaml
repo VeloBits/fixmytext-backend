@@ -17,7 +17,7 @@ repos:
       - id: bandit
         args: ["-c", "pyproject.toml"]
         additional_dependencies: ["bandit[toml]"]
-        exclude: '^tests/'
+        exclude: '^shared/tests/'
 
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
@@ -36,12 +36,5 @@ repos:
         args: ['--maxkb=500']
       - id: check-merge-conflict
 
-  - repo: local
-    hooks:
-      - id: pytest-core-smoke
-        name: pytest tests/core smoke
-        entry: pytest -q tests/core
-        language: system
-        pass_filenames: false
-        types: [python]
-        stages: [pre-commit]
+  # NOTE: pytest smoke tests removed from pre-commit — this is CI's job.
+  # Run tests with: pytest services/<svc>/tests -q

@@ -1,0 +1,72 @@
+"""RS256 + JWKS JWT adapter.
+
+Currently dormant — activated by setting ``JWT_ALGORITHM=RS256`` and
+pointing ``KEYCLOAK_JWKS_URL`` at a running Keycloak realm. Fetches the
+JWKS document from the issuer's `.well-known` endpoint and caches public
+keys in-process. On `kid` cache-miss the limiter forces a refresh once
+before failing.
+"""
+
+from typing import Any
+
+import httpx
+import jwt
+from cachetools import TTLCache
+from jwt import PyJWKClient
+
+# In-process JWK cache. Key: jwks_url; value: PyJWKClient.
+# 10-minute TTL strikes a balance between (a) avoiding excess JWKS fetches
+# and (b) picking up Keycloak's key rotation without manual intervention.
+_JWK_CLIENT_CACHE: TTLCache[str, PyJWKClient] = TTLCache(maxsize=8, ttl=600)
+
+
+def _get_jwk_client(jwks_url: str) -> PyJWKClient:
+    """Return a cached PyJWKClient for the given JWKS URL."""
+    client = _JWK_CLIENT_CACHE.get(jwks_url)
+    if client is None:
+        client = PyJWKClient(jwks_url, cache_jwk_set=True, lifespan=600)
+        _JWK_CLIENT_CACHE[jwks_url] = client
+    return client
+
+
+def verify(
+    token: str,
+    *,
+    jwks_url: str,
+    audience: str | None = None,
+    issuer: str | None = None,
+) -> dict[str, Any]:
+    """Decode + validate an RS256 JWT using the issuer's JWKS document.
+
+    Raises ``jwt.PyJWTError`` on signature/audience/issuer mismatch.
+    Raises ``httpx.HTTPError`` if JWKS fetch fails on cache miss.
+    """
+    client = _get_jwk_client(jwks_url)
+    try:
+        signing_key = client.get_signing_key_from_jwt(token)
+    except jwt.exceptions.PyJWKClientError:
+        # kid not found in cache — drop cached client and retry once
+        _JWK_CLIENT_CACHE.pop(jwks_url, None)
+        client = _get_jwk_client(jwks_url)
+        signing_key = client.get_signing_key_from_jwt(token)
+
+    options: dict[str, Any] = {}
+    decode_kwargs: dict[str, Any] = {
+        "key": signing_key.key,
+        "algorithms": ["RS256"],
+    }
+    if audience is not None:
+        decode_kwargs["audience"] = audience
+    else:
+        options["verify_aud"] = False
+    if issuer is not None:
+        decode_kwargs["issuer"] = issuer
+    if options:
+        decode_kwargs["options"] = options
+
+    return jwt.decode(token, **decode_kwargs)
+
+
+def _http_client_for_tests() -> httpx.Client:
+    """Hook used by `respx` tests to inject a custom transport."""
+    return httpx.Client(timeout=2.0)

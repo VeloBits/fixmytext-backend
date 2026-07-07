@@ -2,6 +2,25 @@
 
 > FastAPI backend powering 200+ text transformation tools, AI writing assistance, and premium billing.
 
+## Repository layout
+
+Foundation for an incremental strangler-fig migration from the FastAPI
+monolith into microservices
+([docs/adr/0002-strangler-fig-microservices-migration.md](docs/adr/0002-strangler-fig-microservices-migration.md)):
+
+```
+backend/
+├── main.py + app/              ← FastAPI monolith (intact)
+├── shared/                     ← fixmytext-shared (cross-cutting utilities,
+│                                  installed editable; see docs/adr/0003-shared-python-package.md)
+├── gateway/kong/               ← Kong dbless config (docs/adr/0004-kong-api-gateway.md)
+├── infrastructure/keycloak/    ← Keycloak realm + bootstrap (docs/adr/0001-keycloak-as-identity-provider.md)
+├── services/                   ← Reserved for extracted services
+└── docs/adr/                   ← Architecture Decision Records
+```
+
+Read the ADRs in numeric order for the full picture.
+
 ## Prerequisites
 
 - Python 3.12+
@@ -9,16 +28,52 @@
 - Groq API key (free at [console.groq.com](https://console.groq.com) — for AI tools)
 - Razorpay keys (for billing features — optional for development)
 
+## Local development with VeloBits subdomains
+
+The backend runs behind **Traefik** (edge reverse proxy) which routes
+by `Host` header to the right container. Local dev mirrors production
+exactly — only DNS source changes (`/etc/hosts` here, real DNS in production).
+
+### One-time `/etc/hosts` setup
+
+Add these entries (requires sudo):
+
+```bash
+sudo tee -a /etc/hosts <<EOF
+127.0.0.1 auth-dev.velobits.dev
+127.0.0.1 api-dev.velobits.dev
+127.0.0.1 develop-fixmytext.velobits.dev
+EOF
+```
+
+### Subdomain map (dev)
+
+| URL | Container | Purpose |
+|---|---|---|
+| `http://auth-dev.velobits.dev` | `keycloak-dev` | Keycloak (Velobits-Dev realm) |
+| `http://api-dev.velobits.dev` | `kong` | API gateway → backend microservices |
+| `http://develop-fixmytext.velobits.dev` | (frontend dev container, run separately) | FixMyText dev frontend |
+| `http://127.0.0.1:8090` | `traefik` | Traefik dashboard (localhost-only) |
+
 ## Setup
 
 **Docker (recommended):**
 ```bash
 cd backend
-cp .env.example .env       # Fill in SECRET_KEY and optional GROQ_API_KEY
+cp .env.example .env       # Fill in SESSION_COOKIE_SECRET + KEYCLOAK_DEV_* + GROQ_API_KEY
 docker compose --profile dev up --build
 ```
 
-This starts PostgreSQL 16, runs Alembic migrations automatically, and launches the API with hot reload.
+Starts PostgreSQL (product DBs), Redis, runs Alembic migrations, launches the
+backend microservices, brings up Kong (API gateway behind Traefik) +
+Keycloak-Dev (Velobits-Dev realm) + Traefik (edge proxy on `:80`).
+
+To skip Kong/Keycloak and hit the monolith directly (legacy dev loop):
+
+```bash
+docker compose --profile dev up backend-dev db-service redis-service migrate-dev
+# Then add a temporary `ports: ["8000:8000"]` to backend-dev locally.
+```
 
 **Manual:**
 ```bash

@@ -52,4 +52,4 @@ logs/
 
 # ── Secrets directory (keep structure, ignore contents) ──────────────
 secrets/*
-!secrets/.gitkeep
+!secrets/.gitkeep 

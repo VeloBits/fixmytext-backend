@@ -32,10 +32,46 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  lint:
+  # ── Compatibility shim ─────────────────────────────────────────────────────
+  # Branch protection requires "Lint & Format Check" (the old monolith job name).
+  # This summary job satisfies that requirement once all per-service matrix jobs pass.
+  lint-check:
     name: Lint & Format Check
-    if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'lint'
     runs-on: ubuntu-latest
+    needs: [lint]
+    if: always()
+    steps:
+      - name: All lint jobs passed
+        run: |
+          if [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "One or more lint jobs failed"
+            exit 1
+          fi
+          echo "All lint and format checks passed"
+
+  lint:
+    name: Lint & Format (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    # One matrix entry per service. Add a new entry when a new service is extracted.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: ai-svc
+            path: services/ai-svc
+            ruff_target: "services/ai-svc/app/ services/ai-svc/tests/"
+          - service: text-svc
+            path: services/text-svc
+            ruff_target: "services/text-svc/app/ services/text-svc/tests/"
+          - service: payments-svc
+            path: services/payments-svc
+            ruff_target: "services/payments-svc/app/ services/payments-svc/tests/"
+          - service: account-svc
+            path: services/account-svc
+            ruff_target: "services/account-svc/app/ services/account-svc/tests/"
+          - service: migrations
+            path: migrations
+            ruff_target: "migrations/"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -47,13 +83,34 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install ruff
-        run: pip install ruff
+        # Pin version to match local pyproject.toml / pre-commit config.
+        # Upgrade intentionally to avoid silent behaviour changes across CI runs.
+        run: pip install "ruff==0.15.9"
 
       - name: Check formatting
-        run: ruff format --check app/ tests/
+        run: ruff format --check ${{ matrix.ruff_target }}
 
       - name: Lint
-        run: ruff check app/ tests/
+        run: ruff check ${{ matrix.ruff_target }}
+
+  shared-tests:
+    name: Shared Package Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install shared package + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e './shared[test]'
+
+      - name: Run shared package tests
+        run: pytest shared/tests -v
 
   test:
     name: Tests & Coverage
@@ -75,12 +132,17 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
-      - name: Install dependencies
+      - name: Install account-svc dependencies
+        # Run from repo root so -e ./shared in requirements.txt resolves to
+        # backend/shared/ (the editable package directory).
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r services/account-svc/requirements.txt
 
-      - name: Run tests with coverage
+      - name: Run account-svc tests with coverage
+        working-directory: services/account-svc
+        env:
+          KEYCLOAK_JWKS_URL: "http://test-keycloak:8080/realms/test/protocol/openid-connect/certs"
         run: |
           pytest \
             --cov=app \
@@ -94,7 +156,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-report
-          path: coverage.xml
+          path: services/account-svc/coverage.xml
 
   security:
     name: Security Scan
@@ -113,11 +175,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r services/account-svc/requirements.txt
           pip install pip-audit
 
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit --strict --vulnerability-service osv
+        # PYSEC-2025-183 (PyJWT) is ignored — no fix version exists upstream yet.
+        # Track: https://github.com/jpadilla/pyjwt/issues — remove once patched.
+        run: pip-audit --strict --vulnerability-service osv --ignore-vuln PYSEC-2025-183
 
   docker:
     name: Docker Build & Scan
@@ -130,13 +194,22 @@ jobs:
         with:
           ref: ${{ inputs.branch || github.ref }}
 
-      - name: Build Docker image
-        run: docker build -t backend:${{ github.sha }} .
+      - name: Build account-svc Docker image
+        run: docker build -t account-svc:${{ github.sha }} -f services/account-svc/Dockerfile .
+
+      - name: Build ai-svc Docker image
+        run: docker build -t ai-svc:${{ github.sha }} -f services/ai-svc/Dockerfile .
+
+      - name: Build text-svc Docker image
+        run: docker build -t text-svc:${{ github.sha }} -f services/text-svc/Dockerfile .
+
+      - name: Build migrate Docker image
+        run: docker build -t migrate:${{ github.sha }} -f migrations/Dockerfile.migrate .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
-          image-ref: 'backend:${{ github.sha }}'
+          image-ref: 'account-svc:${{ github.sha }}'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
@@ -155,6 +228,11 @@ jobs:
     needs: [docker]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history needed so sentry-cli can walk commits to find the
+          # previous release SHA. Shallow clones (depth=1) cause the error:
+          # "Could not find the SHA of the previous release in the git history."
+          fetch-depth: 0
       - name: Install sentry-cli
         run: curl -sL https://sentry.io/get-cli/ | bash
       - name: Create Sentry release
@@ -164,5 +242,5 @@ jobs:
           SENTRY_PROJECT: fixmytext-backend
         run: |
           sentry-cli releases new "${{ github.sha }}"
-          sentry-cli releases set-commits "${{ github.sha }}" --auto
+          sentry-cli releases set-commits "${{ github.sha }}" --auto --ignore-missing
           sentry-cli releases finalize "${{ github.sha }}"
