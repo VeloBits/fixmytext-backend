@@ -21,11 +21,11 @@ from app.core.config import settings
 from app.core.deps import bearer_scheme, get_current_user, peek_bearer_claims
 from app.core.rate_limit import resend_verification_limiter
 from app.core.redis import revoke_session
-from app.services.keycloak_admin import send_verification_email
 from app.core.session_cookie import build_claims, sign_session, verify_session
 from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.auth import UserResponse
+from app.services.keycloak_admin import send_verification_email
 
 logger = logging.getLogger(__name__)
 

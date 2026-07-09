@@ -429,8 +429,6 @@ def _sentiment_fallback(text: str) -> str:
     )
 
 
-
-
 def _format_headings(sentences: list[str]) -> str:
     """Group sentences into sections with markdown headings."""
     chunks: list[list[str]] = []
