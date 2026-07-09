@@ -48,7 +48,6 @@ async def jit_provision_user[T](
         keycloak_id=keycloak_id,
         email=email,
         display_name=payload.get("preferred_username") or email or "User",
-        hashed_password=None,
         is_email_verified=bool(payload.get("email_verified", False)),
     )
     try:

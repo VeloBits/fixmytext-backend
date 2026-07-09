@@ -116,6 +116,76 @@ async def _resolve_user_id(
     return None, None
 
 
+async def _send_first_verification_email(user: User | None) -> None:
+    """Best-effort verification email for a just-JIT-provisioned user.
+
+    Signup happens on Keycloak's hosted registration page, which never touches
+    account-svc — with the realm's blocking verify-email requirement disabled,
+    nothing else would send the initial verification link. JIT provisioning is
+    the natural first-login hook, BUT the app's parallel first-load API calls
+    all race through the JIT path (one inserts, the rest recover), so a Redis
+    SETNX gates the send to exactly one request. Any failure is logged and
+    swallowed: verification email must never block auth.
+    """
+    if user is None or user.is_email_verified or not user.keycloak_id:
+        return
+    from app.core.redis import get_redis
+    from app.services.keycloak_admin import send_verification_email
+
+    redis = get_redis()
+    if redis is not None:
+        try:
+            # NX: only the first racer wins the right to send. TTL bounds the
+            # key; the resend endpoint exists for anything that slips through.
+            won = await redis.set(
+                f"verify-email:sent:{user.keycloak_id}", "1", nx=True, ex=3600
+            )
+            if not won:
+                return
+        except Exception:  # noqa: BLE001 — Redis down: accept duplicate risk
+            pass
+    try:
+        await send_verification_email(str(user.keycloak_id))
+        logger.info(
+            "auth: first-login verification email sent for keycloak_id=%s",
+            user.keycloak_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "auth: first-login verification email failed for keycloak_id=%s: %s",
+            user.keycloak_id,
+            exc,
+        )
+
+
+async def peek_bearer_claims(
+    credentials: HTTPAuthorizationCredentials | None,
+) -> dict | None:
+    """Verify the Bearer JWT if present and return its claims, else None.
+
+    The session-cookie path in ``_resolve_user_id`` short-circuits before the
+    JWT is ever read, so claim-derived fields (e.g. ``email_verified``) can go
+    stale for the cookie's whole lifetime. Endpoints that must observe fresh
+    Keycloak claims (``/auth/me``) call this with the same verification
+    parameters as the Bearer path. Returns None for missing/invalid tokens —
+    callers treat that as "no fresh claims available", never as an auth error.
+    """
+    if not credentials:
+        return None
+    try:
+        return await verify_jwt_raw(
+            credentials.credentials,
+            algorithm="RS256",
+            jwks_url=settings.KEYCLOAK_JWKS_URL,
+            audience=settings.KEYCLOAK_AUDIENCE or None,
+            issuer=settings.KEYCLOAK_ISSUER or None,
+            require_audience=_REQUIRE_AUDIENCE,
+        )
+    except Exception as exc:
+        logger.debug("auth: peek_bearer_claims — Bearer invalid: %s", exc)
+        return None
+
+
 async def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
@@ -138,6 +208,7 @@ async def get_current_user(
         # present). Cookie-only auth means the session cookie is stale (user
         # deleted from DB); that case falls through to 401 below.
         user = await jit_provision_user(db, User, keycloak_id, jwt_payload)
+        await _send_first_verification_email(user)
     elif user is None:
         # Cookie pointed at a user that doesn't exist in DB — treat as 401.
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -166,6 +237,7 @@ async def get_optional_user(
     user = await db.scalar(select(User).where(User.keycloak_id == keycloak_id))
     if user is None and jwt_payload is not None:
         user = await jit_provision_user(db, User, keycloak_id, jwt_payload)
+        await _send_first_verification_email(user)
     if not user or not user.is_active:
         return None
     return user

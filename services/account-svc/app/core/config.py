@@ -71,17 +71,10 @@ class Settings(BaseSharedSettings):
     HISTORY_PREVIEW_MAX_LENGTH: int = 500
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
-    # /auth/register is throttled hard per client IP — it proxies to the Keycloak
-    # Admin API and can be sprayed to mass-create users, amplify verification
-    # emails, or enumerate addresses (M-8).
-    REGISTER_RATE_LIMIT_MAX_REQUESTS: int = 10
-    REGISTER_RATE_LIMIT_WINDOW_SECONDS: int = 3600
-
-    # ── Password policy ───────────────────────────────────────────────────────
-    # Must match the Keycloak realm's `length()` policy. Dev realm uses 8;
-    # production realm uses 12. Set this to match whichever realm is active so
-    # the 422 from our validator fires before the round-trip to Keycloak Admin.
-    KEYCLOAK_PASSWORD_MIN_LENGTH: int = 8
+    # /auth/resend-verification is throttled per user — each call makes Keycloak
+    # send a real verification email, so it can be sprayed for email amplification.
+    RESEND_VERIFICATION_RATE_LIMIT_MAX_REQUESTS: int = 10
+    RESEND_VERIFICATION_RATE_LIMIT_WINDOW_SECONDS: int = 3600
 
     # ── Backchannel logout ────────────────────────────────────────────────────
     # Optional shared secret for the /auth/backchannel-logout endpoint.  When

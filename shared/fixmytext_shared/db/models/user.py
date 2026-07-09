@@ -51,7 +51,6 @@ def make_user_class(base: type[DeclarativeBase], auth_schema: str) -> type:
             server_default=text("gen_random_uuid()"),
         )
         email: Mapped[str] = mapped_column(String(255), nullable=False)
-        hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
         keycloak_id: Mapped[uuid.UUID | None] = mapped_column(
             sa.UUID(as_uuid=True), nullable=True, index=True
         )
@@ -69,9 +68,6 @@ def make_user_class(base: type[DeclarativeBase], auth_schema: str) -> type:
             TIMESTAMP(timezone=True),
             server_default=text("now()"),
             onupdate=datetime.now,
-        )
-        last_login_at: Mapped[datetime | None] = mapped_column(
-            TIMESTAMP(timezone=True), nullable=True
         )
         referral_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
         referred_by: Mapped[uuid.UUID | None] = mapped_column(

@@ -124,8 +124,10 @@ async def test_cookie_auth_succeeds_without_bearer(async_client):
 
 @pytest.mark.asyncio
 async def test_cookie_takes_priority_over_bearer(async_client):
-    """When both a valid cookie AND a Bearer token are present, the cookie path
-    is used and ``verify_jwt_raw`` is NOT called."""
+    """When both a valid cookie AND a Bearer token are present, identity comes
+    from the cookie: even a Bearer that FAILS verification cannot break the
+    request. (/auth/me additionally peeks at a verifiable Bearer to re-sync
+    claim-derived fields — see test_me_resyncs_email_verified_from_bearer.)"""
     from app.db.session import get_db
     from main import app
 
@@ -141,19 +143,53 @@ async def test_cookie_takes_priority_over_bearer(async_client):
     with patch("app.core.deps.settings") as mock_settings:
         mock_settings.SESSION_COOKIE_NAME = "fixmytext_session"
         mock_settings.SESSION_COOKIE_SECRET = _TEST_SECRET
-        with patch(_MOCK_TARGET) as mock_verify:
+        with patch(_MOCK_TARGET, side_effect=Exception("invalid token")):
             app.dependency_overrides[get_db] = override_get_db
             try:
                 response = await async_client.get(
                     "/api/v1/auth/me",
-                    headers={"Authorization": "Bearer also.valid.token"},
+                    headers={"Authorization": "Bearer garbage.token.here"},
+                    cookies={"fixmytext_session": cookie_value},
+                )
+                # Cookie authenticated the request; the unverifiable Bearer was
+                # ignored (peek_bearer_claims returns None instead of raising).
+                assert response.status_code == 200
+            finally:
+                app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_me_resyncs_email_verified_from_bearer(async_client):
+    """A cookie-authenticated user whose DB row is stale gets is_email_verified
+    re-synced from the fresh Bearer claim on /auth/me. The cookie path never
+    re-reads Keycloak claims, so without this a user who verified their email
+    mid-session would stay 'unverified' until the cookie expired (~7 days)."""
+    from app.db.session import get_db
+    from main import app
+
+    kc_id = uuid.uuid4()
+    fake_user = _make_user(keycloak_id=kc_id, is_email_verified=False)
+    mock_db = _make_db(fake_user)
+
+    async def override_get_db():
+        yield mock_db
+
+    cookie_value = _build_cookie(kc_id, secret=_TEST_SECRET)
+
+    with patch("app.core.deps.settings") as mock_settings:
+        mock_settings.SESSION_COOKIE_NAME = "fixmytext_session"
+        mock_settings.SESSION_COOKIE_SECRET = _TEST_SECRET
+        with patch(_MOCK_TARGET, return_value=_valid_payload(kc_id)):
+            app.dependency_overrides[get_db] = override_get_db
+            try:
+                response = await async_client.get(
+                    "/api/v1/auth/me",
+                    headers={"Authorization": "Bearer fresh.silent-renew.token"},
                     cookies={"fixmytext_session": cookie_value},
                 )
                 assert response.status_code == 200
-                # The cookie path short-circuits; verify_jwt_raw must not be called
-                # during the _resolve_user_id phase (it may be called during JIT
-                # only for new users, but here the user already exists).
-                mock_verify.assert_not_called()
+                assert response.json()["is_email_verified"] is True
+                assert fake_user.is_email_verified is True
             finally:
                 app.dependency_overrides.clear()
 

@@ -1,6 +1,7 @@
 """Authentication endpoints.
 
 - ``GET  /auth/me``                  — return current user profile + issue session cookie
+- ``POST /auth/resend-verification`` — re-send the Keycloak email-verification email
 - ``POST /auth/session/clear``       — clear the per-app session cookie on logout
 - ``POST /auth/backchannel-logout``  — Keycloak SLO hook: revoke sessions server-side
 """
@@ -11,13 +12,16 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
+from fastapi.security import HTTPAuthorizationCredentials
 from fixmytext_shared.security.jwt import verify_jwt_raw
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.deps import get_current_user
+from app.core.deps import bearer_scheme, get_current_user, peek_bearer_claims
+from app.core.rate_limit import resend_verification_limiter
 from app.core.redis import revoke_session
+from app.services.keycloak_admin import send_verification_email
 from app.core.session_cookie import build_claims, sign_session, verify_session
 from app.db.models.user import User
 from app.db.session import get_db
@@ -90,6 +94,7 @@ def _set_session_cookie(
 @router.get("/me", response_model=UserResponse)
 async def me(
     response: Response,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -101,6 +106,21 @@ async def me(
     parallel for the transition window — see ``get_current_user``).
     """
     response.headers["Cache-Control"] = "no-store"
+    # The cookie path never re-reads Keycloak claims, so a user who verified
+    # their email mid-session would keep is_email_verified=False until the
+    # cookie expired (~7 days). The Authorization header carries a fresh token
+    # from silent renew — treat its email_verified claim as authoritative.
+    claims = await peek_bearer_claims(credentials)
+    if claims is not None and str(claims.get("sub", "")) == str(user.keycloak_id):
+        claim_verified = bool(claims.get("email_verified", False))
+        if user.is_email_verified != claim_verified:
+            logger.info(
+                "auth: syncing is_email_verified %s -> %s for keycloak_id=%s",
+                user.is_email_verified,
+                claim_verified,
+                user.keycloak_id,
+            )
+            user.is_email_verified = claim_verified
     _set_session_cookie(response, user)
     return UserResponse(
         id=str(user.id),
@@ -109,6 +129,36 @@ async def me(
         subscription_tier=await _get_subscription_tier(user.id, db),
         is_email_verified=user.is_email_verified,
     )
+
+
+@router.post("/resend-verification", status_code=204)
+async def resend_verification(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Re-send the Keycloak email-verification email to the current user.
+
+    Backs the in-app "Verify your email" banner. With the realm's blocking
+    verify-email requirement disabled, Keycloak no longer emails at signup or
+    on login — this endpoint (and the first-login send in ``deps.py``) is how
+    verification links reach the user. No-op for already-verified users.
+    """
+    await resend_verification_limiter.check(
+        request, user_id=str(user.keycloak_id or user.id)
+    )
+    if not user.is_email_verified and user.keycloak_id:
+        try:
+            await send_verification_email(str(user.keycloak_id))
+        except Exception as exc:  # noqa: BLE001 — never surface KC admin errors
+            logger.warning(
+                "resend-verification failed for keycloak_id=%s: %s",
+                user.keycloak_id,
+                exc,
+            )
+            raise HTTPException(
+                status_code=502, detail="Could not send verification email."
+            ) from exc
+    return Response(status_code=204)
 
 
 @router.post("/session/clear", status_code=204)

@@ -69,7 +69,6 @@ async def check_access(
                     keycloak_id=keycloak_id,
                     email=req.email or f"{keycloak_id}@users.noreply",
                     display_name=req.email or str(keycloak_id),
-                    hashed_password=None,
                     is_email_verified=req.email_verified,
                 )
                 db.add(user)

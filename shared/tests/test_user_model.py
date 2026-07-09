@@ -31,27 +31,30 @@ class TestMakeUserClass:
         assert {
             "id",
             "email",
-            "hashed_password",
             "keycloak_id",
             "display_name",
             "is_active",
             "is_email_verified",
             "created_at",
             "updated_at",
-            "last_login_at",
             "referral_code",
             "referred_by",
             "region",
         } <= cols
+
+    def test_removed_legacy_columns_absent(self):
+        # hashed_password + last_login_at were dropped once auth went
+        # Keycloak-only (2026-07-09) — guard against reintroduction.
+        cols = set(_fresh_user_class().__table__.columns.keys())
+        assert "hashed_password" not in cols
+        assert "last_login_at" not in cols
 
     def test_nullability(self):
         cols = _fresh_user_class().__table__.columns
         assert cols["email"].nullable is False
         assert cols["display_name"].nullable is False
         assert cols["is_email_verified"].nullable is False
-        assert cols["hashed_password"].nullable is True
         assert cols["keycloak_id"].nullable is True
-        assert cols["last_login_at"].nullable is True
         assert cols["referral_code"].nullable is True
         assert cols["region"].nullable is True
 
@@ -80,7 +83,6 @@ class TestMakeUserClass:
             email="a@b.com",
             display_name="A",
             keycloak_id=kc_id,
-            hashed_password=None,
         )
         assert user.email == "a@b.com"
         assert user.display_name == "A"

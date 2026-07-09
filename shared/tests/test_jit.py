@@ -52,7 +52,6 @@ class TestJitProvisionUser:
         assert user.keycloak_id == kc_id
         assert user.email == "new@user.com"
         assert user.display_name == "newbie"
-        assert user.hashed_password is None
         assert user.is_email_verified is True
 
     async def test_display_name_falls_back_to_email(self, db, user_class):

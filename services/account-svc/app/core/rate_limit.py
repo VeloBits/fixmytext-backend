@@ -16,13 +16,15 @@ def _get_redis():
     return _gr()
 
 
-# Registration: sensitive, abusable (mass account creation, verification-email
-# amplification, address enumeration). Keyed per client IP, prefix ``rl:register``.
-register_limiter = _shared_create_limiter(
-    max_requests=settings.REGISTER_RATE_LIMIT_MAX_REQUESTS,
-    window_seconds=settings.REGISTER_RATE_LIMIT_WINDOW_SECONDS,
-    prefix="rl:register",
+# Verification-email resend: authenticated but email-amplification-abusable —
+# each call makes Keycloak send a real email. Keyed per user, prefix
+# ``rl:resend-verification``. (Signup itself is Keycloak-hosted and not proxied
+# through this service, so there is no registration limiter here.)
+resend_verification_limiter = _shared_create_limiter(
+    max_requests=settings.RESEND_VERIFICATION_RATE_LIMIT_MAX_REQUESTS,
+    window_seconds=settings.RESEND_VERIFICATION_RATE_LIMIT_WINDOW_SECONDS,
+    prefix="rl:resend-verification",
     redis_factory=_get_redis if settings.REDIS_URL else None,
 )
 
-__all__ = ["register_limiter"]
+__all__ = ["resend_verification_limiter"]
