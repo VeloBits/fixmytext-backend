@@ -101,10 +101,15 @@ services:
       - name: request-size-limiting
         config:
           allowed_payload_size: 1
+      # Coarse anti-abuse guard. Keyed per client IP and shared across all
+      # account-svc routes: one SPA page load fires ~10 bootstrap reads
+      # (auth/me + user data), so the budget must absorb rapid refreshes —
+      # at 60/min a handful of reloads exhausted it and every bootstrap
+      # call 429'd. Per-user quotas remain the in-app enforcement layer.
       - name: rate-limiting
         config:
-          minute: 60
-          hour: 600
+          minute: 300
+          hour: 3000
           policy: local
           fault_tolerant: true
           hide_client_headers: false
