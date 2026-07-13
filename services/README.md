@@ -10,7 +10,7 @@ depends on the editable `shared/` package at `backend/shared/`.
 | `services/text-svc/` | Local text-transformation tools + `tool_registry` |
 | `services/ai-svc/` | Groq-backed AI text tools (translate, transliterate, tone, format) |
 | `services/payments-svc/` | Razorpay subscriptions, passes, credits, webhook |
-| `services/account-svc/` | User preferences, gamification, history, templates, pipelines, shares, plus auth/session (`/auth/me`, session cookie, backchannel logout, registration proxy to Keycloak) |
+| `services/account-svc/` | User preferences, history, templates, pipelines, shares, plus auth/session (`/auth/me`, session cookie, backchannel logout, registration proxy to Keycloak) |
 
 Keycloak OIDC integration and onboarding/profile sync — originally scoped as a
 separate `identity` service — live inside `account-svc` (see `app/core/` and
