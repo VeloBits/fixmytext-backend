@@ -19,13 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Authentication is now exclusively Keycloak-hosted.** The realm's blocking email-verification requirement (`verifyEmail`) is disabled, so unverified users enter the app and are prompted by the in-app banner instead of Keycloak's interstitial. The social first-login "review profile" step is disabled (`update.profile.on.first.login=off`, applied via `bootstrap.sh`) so Google/GitHub users cannot edit username/email on first sign-in
 - Keycloak realm redirect/logout config: the production `fixmytext` client now allows the `/app/auth/callback` and `/app/auth/silent-callback` redirect URIs the SPA actually uses (login would previously fail with "Invalid redirect_uri"); post-logout redirect now lands on `/app/` instead of `/app/login`; the `fixmytext-backend` client gained redirect URIs so Admin-API `send-verify-email` no longer fails
-- Gamification dates (`streak_last_date`, `daily_quest_date`) now use ISO `YYYY-MM-DD` strings, returning **422** on a malformed format
 - Template listing now filters out soft-deleted rows (`is_deleted == false`)
 - Share view counter is incremented atomically to avoid a read-modify-write race
-- Tightened user-data validation caps (achievements/quests list and item lengths)
 
 ### Removed
 
+- **Gamification feature removed** (2026-07-13). `GET`/`PUT /user/gamification` are converted to authenticated, DB-free no-op stubs that return a static zero-state (each hit WARNING-logged as `stale_gamification_call`) so stale cached SPA bundles don't 404 — the stubs will be deleted in a later release once logs show zero hits. The `GamificationResponse`/`GamificationUpdate` schemas, the `UserGamification` ORM model, and the `User.gamification` relationship are deleted, and the `activity.user_gamification` table (plus its three indexes) is dropped in account-svc migration `0003` (data intentionally not restorable). The reward economy (spin wheel, daily-login bonus, streak rewards in payments-svc) is unaffected
 - `POST /auth/register` endpoint and its Keycloak Admin-API user-creation path (`create_keycloak_user`, `_lookup_keycloak_user_by_email`) — account creation happens exclusively on Keycloak's hosted registration page, removing an unused, unauthenticated user-creation endpoint from the attack surface. Also removed the now-unused `KEYCLOAK_PASSWORD_MIN_LENGTH` setting and the per-IP registration rate limiter
 
 ## [1.0.0] - 2026-04-02

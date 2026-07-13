@@ -60,7 +60,6 @@ OWNED_TABLES = {
     (_AUTH, "users"),
     (_AUTH, "user_preferences"),
     (_AUTH, "user_ui_settings"),
-    (_ACT, "user_gamification"),
     (_ACT, "user_templates"),
     (_ACT, "operation_history"),
     (_ACT, "shared_results"),

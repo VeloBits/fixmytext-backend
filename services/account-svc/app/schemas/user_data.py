@@ -1,6 +1,4 @@
-"""Pydantic schemas for user data: preferences, gamification, templates, ui-settings, favorites."""
-
-from typing import Annotated
+"""Pydantic schemas for user data: preferences, templates, ui-settings, favorites."""
 
 from pydantic import BaseModel, Field
 
@@ -21,43 +19,6 @@ class PreferencesUpdate(BaseModel):
     theme: str | None = Field(None, max_length=10)
     persona: str | None = Field(None, max_length=50)
     theme_skin: str | None = Field(None, max_length=50)
-
-
-# ── Gamification ─────────────────────────────────────────────────────────────
-
-
-class GamificationResponse(BaseModel):
-    """Current gamification state for a user."""
-
-    xp: int = 0
-    streak_current: int = 0
-    streak_last_date: str | None = None
-    total_ops: int = 0
-    total_chars: int = 0
-    achievements: list[str] = []
-    completed_quests: list[str] = []
-    daily_quest_id: str | None = None
-    daily_quest_date: str | None = None
-    daily_quest_completed: bool = False
-
-
-class GamificationUpdate(BaseModel):
-    """Partial update for gamification state. All fields optional."""
-
-    xp: int | None = None
-    streak_current: int | None = None
-    streak_last_date: str | None = None
-    total_ops: int | None = None
-    total_chars: int | None = None
-    achievements: list[Annotated[str, Field(max_length=200)]] | None = Field(
-        None, max_length=500
-    )
-    completed_quests: list[Annotated[str, Field(max_length=200)]] | None = Field(
-        None, max_length=500
-    )
-    daily_quest_id: str | None = None
-    daily_quest_date: str | None = None
-    daily_quest_completed: bool | None = None
 
 
 # ── Templates ────────────────────────────────────────────────────────────────

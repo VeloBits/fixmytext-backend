@@ -172,7 +172,7 @@
     },
     {
       "name": "1. account-svc",
-      "description": "User accounts, profile, preferences, gamification, templates, history, sharing. Base prefix /api/v1. Accepts Bearer JWT or the fixmytext_session cookie.",
+      "description": "User accounts, profile, preferences, templates, history, sharing. Base prefix /api/v1. Accepts Bearer JWT or the fixmytext_session cookie. (Gamification removed 2026-07-13; GET/PUT /user/gamification remain as authenticated no-op stubs pending final removal.)",
       "item": [
         {
           "name": "auth",
@@ -285,24 +285,6 @@
                 "body": { "mode": "raw", "raw": "{\n  \"theme\": \"dark\",\n  \"persona\": \"developer\",\n  \"theme_skin\": \"midnight\"\n}" },
                 "url": { "raw": "{{base_url}}/api/v1/user/preferences", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "preferences"] },
                 "description": "Partial update; all fields optional."
-              }
-            },
-            {
-              "name": "Get gamification",
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": { "raw": "{{base_url}}/api/v1/user/gamification", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "gamification"] }
-              }
-            },
-            {
-              "name": "Update gamification",
-              "request": {
-                "method": "PUT",
-                "header": [ { "key": "Content-Type", "value": "application/json" } ],
-                "body": { "mode": "raw", "raw": "{\n  \"xp\": 1200,\n  \"streak_current\": 5,\n  \"streak_last_date\": \"2026-06-22\",\n  \"total_ops\": 340\n}" },
-                "url": { "raw": "{{base_url}}/api/v1/user/gamification", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "gamification"] },
-                "description": "Partial update. Date fields use YYYY-MM-DD."
               }
             },
             {

@@ -13,7 +13,7 @@ behind a Kong gateway:
 ```
 backend/
 ├── services/                   ← Extracted FastAPI microservices
-│   ├── account-svc/            ← preferences, gamification, history, templates, pipelines, shares, auth/session
+│   ├── account-svc/            ← preferences, history, templates, pipelines, shares, auth/session
 │   ├── text-svc/               ← local text-transformation tools + tool_registry
 │   ├── ai-svc/                 ← Groq-backed AI text tools
 │   └── payments-svc/           ← Razorpay subscriptions, passes, credits, webhooks
@@ -145,7 +145,7 @@ base path; Kong fans each prefix out to the owning service.
 |----------|--------|---------|-------------|
 | Text tools | `/text/` | `text-svc` / `ai-svc` | Text transformations, AI tools, encoding, ciphers |
 | Authentication / session | `/auth/` | `account-svc` | `/auth/me`, session clear, registration, backchannel logout |
-| User data | `/user/` | `account-svc` | Preferences, gamification, templates, ui-settings, favorites, tool-stats, pipelines, discovered-tools, spin-history |
+| User data | `/user/` | `account-svc` | Preferences, templates, ui-settings, favorites, tool-stats, pipelines, discovered-tools, spin-history |
 | Subscriptions | `/subscription/` | `payments-svc` | Create order, webhook, status |
 | Passes | `/passes/` | `payments-svc` | Purchase and check prepaid passes |
 | History | `/history/` | `account-svc` | Operation history (list, record, stats, soft-delete) |
@@ -171,7 +171,7 @@ backend/
 │   │   │   │   └── endpoints/
 │   │   │   │       ├── auth.py         # /auth/me, session clear, backchannel logout
 │   │   │   │       ├── auth_register.py# Registration proxy to Keycloak Admin API
-│   │   │   │       ├── user_data.py    # Preferences, gamification, templates, favorites, pipelines, …
+│   │   │   │       ├── user_data.py    # Preferences, templates, favorites, pipelines, …
 │   │   │   │       ├── history.py      # Operation history
 │   │   │   │       └── share.py        # Shareable result links
 │   │   │   ├── db/                     # Async SQLAlchemy session + ORM models
@@ -255,7 +255,6 @@ class FormatRequest(BaseModel):
 | Model | Description |
 |-------|-------------|
 | `operation_history` | Past transformations (tool_id, input/output preview, soft delete) |
-| `user_gamification` | XP, streaks, achievements (JSONB), daily quests |
 | `user_preferences` | User settings and preferences |
 | `user_ui_settings` | UI config (theme, sidebar state) |
 | `user_tool_stats` | Per-tool usage statistics |
@@ -283,7 +282,7 @@ class FormatRequest(BaseModel):
 - **Async SQLAlchemy** with asyncpg driver for non-blocking queries
 - **UUID primary keys** via `gen_random_uuid()`
 - **Timezone-aware timestamps** on all models
-- **JSONB columns** for achievements and quest data
+- **JSONB columns** for flexible payloads (UI keybindings/panel sizes, pipeline step config)
 - **Soft deletes** on operation_history and shared_results
 - **pgvector extension** installed for future vector embedding support
 

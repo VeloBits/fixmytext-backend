@@ -128,7 +128,7 @@ Models are split across three PostgreSQL schemas:
 | Schema | Tables |
 |--------|--------|
 | `auth` | `user`, `preferences`, `user_ui_settings` |
-| `activity` | `operation_history`, `user_tool_stats`, `user_tool_usage`, `visitor_usage`, `visitor_tool_usage`, `user_daily_login`, `user_discovered_tool`, `user_favorite_tool`, `user_pipeline`, `gamification`, `shared_result`, `template`, `user_spin_log` |
+| `activity` | `operation_history`, `user_tool_stats`, `user_tool_usage`, `visitor_usage`, `visitor_tool_usage`, `user_daily_login`, `user_discovered_tool`, `user_favorite_tool`, `user_pipeline`, `shared_result`, `template`, `user_spin_log` |
 | `billing` | `billing_catalog`, `billing_subscription`, `billing_credit`, `billing_pass` |
 
 Schema names are configured via `DB_SCHEMA_AUTH`, `DB_SCHEMA_ACTIVITY`, and `DB_SCHEMA_BILLING` in `app/core/config.py` (defaults: `auth`, `activity`, `billing`).

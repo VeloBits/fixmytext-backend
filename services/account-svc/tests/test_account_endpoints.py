@@ -8,6 +8,8 @@ Tests:
 4. GET /api/v1/share/{id} with mocked DB returning None → 404
 5. POST /api/v1/history with mocked auth + DB → 201
 6. GET /api/v1/user/ui-settings no JWT → 401
+7. GET/PUT /api/v1/user/gamification no JWT → 401 (transitional stubs stay authed)
+8. GET/PUT /api/v1/user/gamification authed → 200 static zero-state, DB untouched
 """
 
 import uuid
@@ -144,3 +146,95 @@ async def test_ui_settings_requires_auth(async_client):
     """GET /api/v1/user/ui-settings without a JWT should return 401."""
     response = await async_client.get("/api/v1/user/ui-settings")
     assert response.status_code == 401
+
+
+# ── Gamification transitional stubs (feature removed 2026-07-13) ─────────────
+#
+# The routes are DB-free no-op stubs kept only for stale cached SPA bundles.
+# They must stay authenticated, return the static zero-state, and never touch
+# the database.
+
+_GAMIFICATION_ZERO_STATE = {
+    "xp": 0,
+    "streak_current": 0,
+    "streak_last_date": None,
+    "total_ops": 0,
+    "total_chars": 0,
+    "achievements": [],
+    "completed_quests": [],
+    "daily_quest_id": None,
+    "daily_quest_date": None,
+    "daily_quest_completed": False,
+}
+
+
+def _override_gamification_deps(app, mock_db):
+    """Install fake auth + DB overrides; returns the fake user."""
+    from app.core.deps import get_current_user
+    from app.db.session import get_db
+
+    fake_user = MagicMock()
+    fake_user.id = uuid.uuid4()
+    fake_user.keycloak_id = uuid.uuid4()
+
+    async def override_get_current_user():
+        return fake_user
+
+    async def override_get_db():
+        yield mock_db
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+    app.dependency_overrides[get_db] = override_get_db
+    return fake_user
+
+
+@pytest.mark.asyncio
+async def test_gamification_get_requires_auth(async_client):
+    """GET /api/v1/user/gamification without a JWT should return 401."""
+    response = await async_client.get("/api/v1/user/gamification")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_gamification_put_requires_auth(async_client):
+    """PUT /api/v1/user/gamification without a JWT should return 401."""
+    response = await async_client.put("/api/v1/user/gamification", json={"xp": 100})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_gamification_get_stub_returns_zero_state(async_client, app):
+    """GET /api/v1/user/gamification (authed) returns the static zero-state, DB-free."""
+    mock_db = AsyncMock()
+    _override_gamification_deps(app, mock_db)
+    try:
+        response = await async_client.get("/api/v1/user/gamification")
+        assert response.status_code == 200
+        assert response.json() == _GAMIFICATION_ZERO_STATE
+        # Stub must be DB-free
+        mock_db.get.assert_not_called()
+        mock_db.execute.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_gamification_put_stub_is_noop(async_client, app):
+    """PUT /api/v1/user/gamification accepts any body, touches nothing, returns zero-state."""
+    mock_db = AsyncMock()
+    mock_db.add = MagicMock()
+    _override_gamification_deps(app, mock_db)
+    try:
+        response = await async_client.put(
+            "/api/v1/user/gamification",
+            json={"xp": 99999, "achievements": ["hacker"], "unknown_field": True},
+        )
+        assert response.status_code == 200
+        assert response.json() == _GAMIFICATION_ZERO_STATE
+        # Stub must be a no-op: no reads, no writes, no commit
+        mock_db.get.assert_not_called()
+        mock_db.execute.assert_not_called()
+        mock_db.add.assert_not_called()
+        mock_db.commit.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()

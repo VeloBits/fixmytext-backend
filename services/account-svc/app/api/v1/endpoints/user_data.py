@@ -1,14 +1,14 @@
-"""User data endpoints: preferences, gamification, templates, ui-settings, favorites, tool-stats.
+"""User data endpoints: preferences, templates, ui-settings, favorites, tool-stats.
 
 Covers all per-user data CRUD operations including paginated listing of
-templates and pipelines, favorite management, gamification state, and UI
-preferences.
+templates and pipelines, favorite management, and UI preferences. Also hosts
+the transitional no-op gamification stubs (feature removed 2026-07-13).
 """
 
+import logging
 import uuid
-from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,6 @@ from app.db.models import (
     User,
     UserDiscoveredTool,
     UserFavoriteTool,
-    UserGamification,
     UserPipeline,
     UserPipelineStep,
     UserPreferences,
@@ -34,8 +33,6 @@ from app.schemas.user_data import (
     DiscoveredToolsResponse,
     FavoritesResponse,
     FavoriteToolItem,
-    GamificationResponse,
-    GamificationUpdate,
     PipelineCreate,
     PipelineResponse,
     PipelineStepResponse,
@@ -52,6 +49,8 @@ from app.schemas.user_data import (
     UiSettingsResponse,
     UiSettingsUpdate,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/user", tags=["User Data"])
 
@@ -96,81 +95,54 @@ async def update_preferences(
     )
 
 
-# ── Gamification ─────────────────────────────────────────────────────────────
+# ── Gamification (transitional no-op stubs) ──────────────────────────────────
+#
+# The gamification feature was removed on 2026-07-13. The frontend soft-delete
+# is already deployed and no longer calls these routes; the backing table
+# (activity.user_gamification) is dropped in migration 0003. These DB-free
+# stubs exist ONLY so stale cached SPA bundles (pre-soft-delete) don't hit
+# 404s and surface error toasts. The auth dependency is deliberately kept so
+# the routes don't become anonymous probes. Every hit logs a WARNING
+# ("stale_gamification_call") — delete both stubs in a later release once
+# logs show zero hits.
+
+_GAMIFICATION_ZERO_STATE = {
+    "xp": 0,
+    "streak_current": 0,
+    "streak_last_date": None,
+    "total_ops": 0,
+    "total_chars": 0,
+    "achievements": [],
+    "completed_quests": [],
+    "daily_quest_id": None,
+    "daily_quest_date": None,
+    "daily_quest_completed": False,
+}
 
 
-def _gam_to_response(gam: UserGamification) -> GamificationResponse:
-    """Convert ORM model to response schema — reads from normalized tables."""
-    # Date columns: use new Date columns, format as ISO string
-    streak_last_date = (
-        gam.streak_last_date.isoformat() if gam.streak_last_date else None
+@router.get("/gamification")
+async def get_gamification(user: User = Depends(get_current_user)) -> dict:
+    """Transitional stub — gamification removed; returns a static zero-state."""
+    logger.warning(
+        "stale_gamification_call: route=%s sub=%s",
+        "GET /user/gamification",
+        user.keycloak_id,
     )
-    daily_quest_date = (
-        gam.daily_quest_date.isoformat() if gam.daily_quest_date else None
-    )
-
-    return GamificationResponse(
-        xp=gam.xp,
-        streak_current=gam.streak_current,
-        streak_last_date=streak_last_date,
-        total_ops=gam.total_ops,
-        total_chars=gam.total_chars,
-        achievements=gam.achievements,
-        completed_quests=gam.completed_quests,
-        daily_quest_id=gam.daily_quest_id,
-        daily_quest_date=daily_quest_date,
-        daily_quest_completed=gam.daily_quest_completed,
-    )
+    return dict(_GAMIFICATION_ZERO_STATE)
 
 
-@router.get("/gamification", response_model=GamificationResponse)
-async def get_gamification(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Return the authenticated user's gamification state (XP, streak, quests)."""
-    gam = await db.get(UserGamification, user.id)
-    if not gam:
-        return GamificationResponse()
-    return _gam_to_response(gam)
-
-
-@router.put("/gamification", response_model=GamificationResponse)
+@router.put("/gamification")
 async def update_gamification(
-    body: GamificationUpdate,
+    request: Request,  # noqa: ARG001 — accepts (and ignores) any body
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update the authenticated user's gamification state (partial update)."""
-    gam = await db.get(UserGamification, user.id)
-    if not gam:
-        gam = UserGamification(user_id=user.id, keycloak_sub=str(user.keycloak_id))
-        db.add(gam)
-
-    updates = body.model_dump(exclude_unset=True)
-    for key, value in updates.items():
-        if key == "streak_last_date" and value:
-            try:
-                gam.streak_last_date = date.fromisoformat(value)
-            except ValueError:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Invalid date format for streak_last_date; expected YYYY-MM-DD",
-                ) from None
-        elif key == "daily_quest_date" and value:
-            try:
-                gam.daily_quest_date = date.fromisoformat(value)
-            except ValueError:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Invalid date format for daily_quest_date; expected YYYY-MM-DD",
-                ) from None
-        elif key not in ("streak_last_date", "daily_quest_date"):
-            setattr(gam, key, value)
-
-    await db.commit()
-    await db.refresh(gam)
-    return _gam_to_response(gam)
+) -> dict:
+    """Transitional stub — accepts any body, persists nothing, returns zero-state."""
+    logger.warning(
+        "stale_gamification_call: route=%s sub=%s",
+        "PUT /user/gamification",
+        user.keycloak_id,
+    )
+    return dict(_GAMIFICATION_ZERO_STATE)
 
 
 # ── Templates ────────────────────────────────────────────────────────────────
