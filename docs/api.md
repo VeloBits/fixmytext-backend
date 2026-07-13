@@ -199,8 +199,6 @@ Served by `account-svc` under the `/user` prefix.
 |--------|------|------|-------------|
 | GET | `/user/preferences` | Yes | Theme, persona, skin |
 | PUT | `/user/preferences` | Yes | Update preferences (partial) |
-| GET | `/user/gamification` | Yes | XP, streaks, achievements, quests |
-| PUT | `/user/gamification` | Yes | Update gamification state (partial) |
 | GET | `/user/templates` | Yes | List saved templates (paginated) |
 | POST | `/user/templates` | Yes | Create a template |
 | PUT | `/user/templates/{id}` | Yes | Update a template |
@@ -228,10 +226,13 @@ unaffected by pagination. `/user/spin-history` is fixed at the latest 20 entries
 **Template soft-delete.** `GET /user/templates` returns only rows with
 `is_deleted == false`.
 
-**Gamification dates.** `streak_last_date` and `daily_quest_date` are ISO
-`YYYY-MM-DD` strings on both read and write. A `PUT /user/gamification` with a
-malformed date returns **422** (`Invalid date format … expected YYYY-MM-DD`).
-`achievements` / `completed_quests` are capped at 500 items, each ≤ 200 chars.
+**Gamification (removed 2026-07-13).** The gamification feature was removed.
+`GET`/`PUT /user/gamification` remain as *transitional no-op stubs*: both are
+still authenticated, do not touch the database, and return a static zero-state.
+They exist only so stale cached SPA bundles (pre-removal) don't get 404s; each
+hit is WARNING-logged as `stale_gamification_call`, and the routes are
+scheduled for removal once logs show zero hits. The backing table
+`activity.user_gamification` was dropped in account-svc migration 0003.
 
 ### History
 

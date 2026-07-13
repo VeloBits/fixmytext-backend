@@ -1,8 +1,8 @@
 """
 FixMyText Account Service
 =========================
-Standalone FastAPI service for user account data: preferences, gamification,
-templates, UI settings, favorites, tool stats, pipelines, history, and share.
+Standalone FastAPI service for user account data: preferences, templates,
+UI settings, favorites, tool stats, pipelines, history, and share.
 
 Serves:
   GET/POST/PUT/DELETE /api/v1/user/*
@@ -175,7 +175,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="FixMyText Account Service",
-    description="User account data: preferences, gamification, templates, history, share.",
+    description="User account data: preferences, templates, history, share.",
     version=settings.VERSION,
     # OpenAPI docs are served only in development (BE-CFG-01).
     docs_url="/docs" if settings.ENVIRONMENT == "development" else None,

@@ -20,9 +20,6 @@ User.preferences = relationship(
 User.ui_settings = relationship(
     "UserUiSettings", back_populates="user", cascade="all, delete-orphan"
 )
-User.gamification = relationship(
-    "UserGamification", back_populates="user", cascade="all, delete-orphan"
-)
 User.templates = relationship(
     "UserTemplate", back_populates="user", cascade="all, delete-orphan"
 )

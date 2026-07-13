@@ -1,6 +1,5 @@
 """ORM models package — re-exports all models used by account-svc."""
 
-from app.db.models.gamification import UserGamification
 from app.db.models.operation_history import OperationHistory
 from app.db.models.preferences import UserPreferences
 from app.db.models.shared_result import SharedResult
@@ -18,7 +17,6 @@ __all__ = [
     "UserPreferences",
     "UserUiSettings",
     "UserSpinLog",
-    "UserGamification",
     "UserToolStats",
     "UserDiscoveredTool",
     "UserFavoriteTool",
