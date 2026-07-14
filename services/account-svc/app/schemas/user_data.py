@@ -1,4 +1,6 @@
-"""Pydantic schemas for user data: preferences, templates, ui-settings, favorites."""
+"""Pydantic schemas for user data: preferences, templates, ui-settings, favorites, tool groups."""
+
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
@@ -6,7 +8,13 @@ from pydantic import BaseModel, Field
 
 
 class PreferencesResponse(BaseModel):
-    """Current user preference values."""
+    """Current user preference values.
+
+    `persona` is transitional read-only legacy state (feature replaced by
+    custom tool groups 2026-07-14): stale deployed bundles still read it, and
+    PreferencesUpdate no longer accepts it. Remove the field together with the
+    column drop migration.
+    """
 
     theme: str = "dark"
     persona: str | None = None
@@ -14,10 +22,13 @@ class PreferencesResponse(BaseModel):
 
 
 class PreferencesUpdate(BaseModel):
-    """Partial update for user preferences. All fields optional."""
+    """Partial update for user preferences. All fields optional.
+
+    A `persona` key sent by a stale bundle is silently ignored (pydantic
+    drops unknown fields) — deliberate transitional behavior.
+    """
 
     theme: str | None = Field(None, max_length=10)
-    persona: str | None = Field(None, max_length=50)
     theme_skin: str | None = Field(None, max_length=50)
 
 
@@ -64,6 +75,7 @@ class UiSettingsBase(BaseModel):
     tool_view: str = "grid"
     keybindings: dict = {}
     panel_sizes: dict = {}
+    onboarding_seen: bool = False
 
 
 class UiSettingsResponse(UiSettingsBase):
@@ -76,6 +88,7 @@ class UiSettingsUpdate(BaseModel):
     tool_view: str | None = Field(None, max_length=10)
     keybindings: dict | None = None
     panel_sizes: dict | None = None
+    onboarding_seen: bool | None = None
 
 
 # ── Favorites ─────────────────────────────────────────────────────────────────
@@ -92,6 +105,48 @@ class FavoritesResponse(BaseModel):
     """List of the user's favorited tools."""
 
     favorites: list[FavoriteToolItem]
+
+
+# ── Tool Groups ───────────────────────────────────────────────────────────────
+
+
+class ToolGroupItemOut(BaseModel):
+    """A single tool within a group, with its sort position."""
+
+    tool_id: str
+    sort_order: int
+
+
+class ToolGroupResponse(BaseModel):
+    """A named tool group with its tools, as returned by the API."""
+
+    id: str
+    name: str
+    sort_order: int
+    tools: list[ToolGroupItemOut]
+    created_at: str
+    updated_at: str
+
+
+class ToolGroupsResponse(BaseModel):
+    """All of the user's tool groups in display order."""
+
+    groups: list[ToolGroupResponse]
+
+
+class ToolGroupCreate(BaseModel):
+    """Schema for creating a tool group, optionally pre-filled with tools."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    tool_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(
+        default=[], max_length=50
+    )
+
+
+class ToolGroupUpdate(BaseModel):
+    """Schema for renaming a tool group."""
+
+    name: str | None = Field(None, min_length=1, max_length=100)
 
 
 # ── Tool Stats ────────────────────────────────────────────────────────────────

@@ -1,14 +1,15 @@
-"""User data endpoints: preferences, templates, ui-settings, favorites, tool-stats.
+"""User data endpoints: preferences, templates, ui-settings, favorites, tool-groups, tool-stats.
 
 Covers all per-user data CRUD operations including paginated listing of
-templates and pipelines, favorite management, and UI preferences. Also hosts
-the transitional no-op gamification stubs (feature removed 2026-07-13).
+templates and pipelines, favorite and tool-group management, and UI
+preferences. Also hosts the transitional no-op gamification stubs (feature
+removed 2026-07-13).
 """
 
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +25,8 @@ from app.db.models import (
     UserPreferences,
     UserSpinLog,
     UserTemplate,
+    UserToolGroup,
+    UserToolGroupItem,
     UserToolStats,
     UserUiSettings,
 )
@@ -44,6 +47,11 @@ from app.schemas.user_data import (
     TemplateCreate,
     TemplateResponse,
     TemplateUpdate,
+    ToolGroupCreate,
+    ToolGroupItemOut,
+    ToolGroupResponse,
+    ToolGroupsResponse,
+    ToolGroupUpdate,
     ToolStatItem,
     ToolStatsResponse,
     UiSettingsResponse,
@@ -267,6 +275,7 @@ async def get_ui_settings(
         tool_view=row.tool_view,
         keybindings=row.keybindings or {},
         panel_sizes=row.panel_sizes or {},
+        onboarding_seen=row.onboarding_seen,
     )
 
 
@@ -292,6 +301,7 @@ async def update_ui_settings(
         tool_view=row.tool_view,
         keybindings=row.keybindings or {},
         panel_sizes=row.panel_sizes or {},
+        onboarding_seen=row.onboarding_seen,
     )
 
 
@@ -357,6 +367,220 @@ async def remove_favorite(
     fav = await db.get(UserFavoriteTool, (user.id, tool_id))
     if fav:
         await db.delete(fav)
+        await db.commit()
+
+
+# ── Tool Groups ─────────────────────────────────────────────────────────────
+
+MAX_TOOL_GROUPS_PER_USER = 20
+MAX_TOOLS_PER_GROUP = 50
+
+
+def _group_to_response(g: UserToolGroup) -> ToolGroupResponse:
+    return ToolGroupResponse(
+        id=str(g.id),
+        name=g.name,
+        sort_order=g.sort_order,
+        tools=[
+            ToolGroupItemOut(tool_id=i.tool_id, sort_order=i.sort_order)
+            for i in sorted(g.items, key=lambda i: i.sort_order)
+        ],
+        created_at=g.created_at.isoformat(),
+        updated_at=g.updated_at.isoformat(),
+    )
+
+
+async def _get_owned_group(
+    db: AsyncSession, group_id: uuid.UUID, user_id: uuid.UUID
+) -> UserToolGroup:
+    """Load a group with items, or 404 if it doesn't exist / isn't the user's."""
+    result = await db.execute(
+        select(UserToolGroup)
+        .where(UserToolGroup.id == group_id, UserToolGroup.user_id == user_id)
+        .options(selectinload(UserToolGroup.items))
+    )
+    group = result.scalar_one_or_none()
+    if not group:
+        raise HTTPException(status_code=404, detail="Tool group not found")
+    return group
+
+
+@router.get("/tool-groups", response_model=ToolGroupsResponse)
+async def list_tool_groups(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all of the authenticated user's tool groups in display order."""
+    result = await db.execute(
+        select(UserToolGroup)
+        .where(UserToolGroup.user_id == user.id)
+        .options(selectinload(UserToolGroup.items))
+        .order_by(UserToolGroup.sort_order, UserToolGroup.created_at)
+    )
+    return ToolGroupsResponse(
+        groups=[_group_to_response(g) for g in result.scalars().all()]
+    )
+
+
+@router.post("/tool-groups", response_model=ToolGroupResponse, status_code=201)
+async def create_tool_group(
+    body: ToolGroupCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a named tool group, optionally pre-filled with tools.
+
+    Idempotent by name: if the user already has a group with this name, the
+    existing group is returned unchanged (200) — tool_ids are NOT merged in.
+    This keeps guest-adoption retries and double-clicked starter-kit cards
+    from erroring or duplicating.
+    """
+    existing_result = await db.execute(
+        select(UserToolGroup)
+        .where(UserToolGroup.user_id == user.id, UserToolGroup.name == body.name)
+        .options(selectinload(UserToolGroup.items))
+    )
+    existing = existing_result.scalar_one_or_none()
+    if existing:
+        return JSONResponse(
+            content=_group_to_response(existing).model_dump(), status_code=200
+        )
+
+    count_result = await db.execute(
+        select(func.count()).where(UserToolGroup.user_id == user.id)
+    )
+    if (count_result.scalar() or 0) >= MAX_TOOL_GROUPS_PER_USER:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tool group limit reached ({MAX_TOOL_GROUPS_PER_USER})",
+        )
+
+    max_result = await db.execute(
+        select(func.max(UserToolGroup.sort_order)).where(
+            UserToolGroup.user_id == user.id
+        )
+    )
+    max_order = max_result.scalar()
+    next_order = 0 if max_order is None else max_order + 1
+
+    group = UserToolGroup(user_id=user.id, name=body.name, sort_order=next_order)
+    db.add(group)
+    await db.flush()
+
+    deduped: list[str] = []
+    for tool_id in body.tool_ids:
+        if tool_id not in deduped:
+            deduped.append(tool_id)
+    for i, tool_id in enumerate(deduped[:MAX_TOOLS_PER_GROUP]):
+        db.add(UserToolGroupItem(group_id=group.id, tool_id=tool_id, sort_order=i))
+
+    await db.commit()
+    result = await db.execute(
+        select(UserToolGroup)
+        .where(UserToolGroup.id == group.id)
+        .options(selectinload(UserToolGroup.items))
+    )
+    return _group_to_response(result.scalar_one())
+
+
+@router.put("/tool-groups/{group_id}", response_model=ToolGroupResponse)
+async def rename_tool_group(
+    group_id: uuid.UUID,
+    body: ToolGroupUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rename a tool group owned by the authenticated user."""
+    group = await _get_owned_group(db, group_id, user.id)
+
+    if body.name is not None and body.name != group.name:
+        dup = await db.execute(
+            select(UserToolGroup.id).where(
+                UserToolGroup.user_id == user.id, UserToolGroup.name == body.name
+            )
+        )
+        if dup.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409, detail="A group with that name already exists"
+            )
+        group.name = body.name
+
+    await db.commit()
+    result = await db.execute(
+        select(UserToolGroup)
+        .where(UserToolGroup.id == group_id)
+        .options(selectinload(UserToolGroup.items))
+    )
+    return _group_to_response(result.scalar_one())
+
+
+@router.delete("/tool-groups/{group_id}", status_code=204)
+async def delete_tool_group(
+    group_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a tool group (and its items) owned by the authenticated user."""
+    group = await _get_owned_group(db, group_id, user.id)
+    await db.delete(group)
+    await db.commit()
+
+
+@router.post("/tool-groups/{group_id}/tools/{tool_id}", status_code=201)
+async def add_tool_to_group(
+    group_id: uuid.UUID,
+    tool_id: str = Path(max_length=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a tool to one of the authenticated user's groups.
+
+    Idempotent: returns the existing entry if the tool is already in the group.
+    """
+    await _get_owned_group(db, group_id, user.id)
+
+    existing = await db.get(UserToolGroupItem, (group_id, tool_id))
+    if existing:
+        return JSONResponse(
+            content={"tool_id": tool_id, "sort_order": existing.sort_order},
+            status_code=200,
+        )
+
+    count_result = await db.execute(
+        select(func.count()).where(UserToolGroupItem.group_id == group_id)
+    )
+    if (count_result.scalar() or 0) >= MAX_TOOLS_PER_GROUP:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tool limit per group reached ({MAX_TOOLS_PER_GROUP})",
+        )
+
+    max_result = await db.execute(
+        select(func.max(UserToolGroupItem.sort_order)).where(
+            UserToolGroupItem.group_id == group_id
+        )
+    )
+    max_order = max_result.scalar()
+    next_order = 0 if max_order is None else max_order + 1
+
+    db.add(UserToolGroupItem(group_id=group_id, tool_id=tool_id, sort_order=next_order))
+    await db.commit()
+    return {"tool_id": tool_id, "sort_order": next_order}
+
+
+@router.delete("/tool-groups/{group_id}/tools/{tool_id}", status_code=204)
+async def remove_tool_from_group(
+    group_id: uuid.UUID,
+    tool_id: str = Path(max_length=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a tool from one of the authenticated user's groups."""
+    await _get_owned_group(db, group_id, user.id)
+
+    item = await db.get(UserToolGroupItem, (group_id, tool_id))
+    if item:
+        await db.delete(item)
         await db.commit()
 
 

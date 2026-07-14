@@ -67,6 +67,8 @@ OWNED_TABLES = {
     (_ACT, "user_pipelines"),
     (_ACT, "user_pipeline_steps"),
     (_ACT, "user_tool_stats"),
+    (_ACT, "user_tool_groups"),
+    (_ACT, "user_tool_group_items"),
 }
 
 config = context.config
