@@ -273,19 +273,35 @@ share's view counter.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/subscription/create-order` | Yes | Create Razorpay order |
+| GET | `/subscription/status` | Yes | Tier, usage, credit balance, Pro expiry (`pro_expires_at`, `pro_cancelled`) |
+| POST | `/subscription/checkout` | Yes | Create Razorpay order for Pro (one-time 30-day purchase; renewal opens 7 days before expiry) |
+| POST | `/subscription/verify` | Yes | Verify Pro payment signature and fulfil (may return `status: refunded`) |
+| POST | `/subscription/cancel` | Yes | Cancel Pro — access continues until `access_until` (period end) |
 | POST | `/subscription/webhook` | No* | Razorpay webhook (*HMAC verified) |
-| GET | `/subscription/status` | Yes | Get subscription status |
-| GET | `/passes/` | Yes | List available passes |
-| POST | `/passes/purchase` | Yes | Purchase a prepaid pass |
+| GET | `/passes/catalog` | No | Passes + credit packs with regional pricing |
+| GET | `/passes/active` | Yes | Active passes and per-pack credit balances |
+| POST | `/passes/order` | Yes | Create Razorpay order for a pass (scoped passes require exactly `tools` tool_ids) |
+| POST | `/passes/credit-order` | Yes | Create Razorpay order for a credit pack |
+| POST | `/passes/verify` | Yes | Verify pass/credit payment and fulfil (may return `status: refunded`) |
+| POST | `/passes/spin` | Yes | Weekly reward spin |
+| GET | `/passes/referral-code` | Yes | Get/generate referral code |
+| POST | `/passes/claim-referral` | Yes | Claim a referral code |
+
+Fulfillment is exactly-once: the verify callback and the webhook converge on a
+UNIQUE-keyed payment ledger. A **captured** payment whose order fails
+validation (wrong amount/scope) is **automatically refunded** via the Razorpay
+refund API and reported as `status: refunded`; signature failures are plain
+400s with no refund. First purchase (pass, credit, or Pro) also grants a
+one-time welcome credit gift (`WELCOME_GIFT_CREDITS`, default 10), surfaced in
+the verify response as `welcome_gift` / `welcome_credits`.
 
 ## Rate Limits
 
 | User Type | Limit |
 |-----------|-------|
 | Anonymous visitor | 3 uses per tool per day (fingerprint tracked) |
-| Free tier (logged in) | 3 uses per tool per day |
-| Premium subscriber | Unlimited |
+| Free tier (logged in) | 3 uses per tool per day (+1 daily login bonus) |
+| Premium subscriber | Unlimited while `pro_expires_at` is in the future |
 | Pass holder | Deducted from pass balance |
 | AI endpoints | Additional per-user rate limiting |
 

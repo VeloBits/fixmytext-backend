@@ -93,12 +93,15 @@ def _db(results=None, scalar=None) -> AsyncMock:
 
 
 async def test_get_subscription_tier_pro():
-    db = _db([_result(scalar="pro")])
+    # Any in-period subscription row (the query already filters on
+    # status IN ('active','cancelled') AND expires_at > now()) means pro.
+    sub = SimpleNamespace(status="active", tier="pro")
+    db = _db([_result(scalar_one_or_none=sub)])
     assert await get_subscription_tier(uuid.uuid4(), db) == "pro"
 
 
 async def test_get_subscription_tier_free_when_no_active_sub():
-    db = _db([_result(scalar=None)])
+    db = _db([_result(scalar_one_or_none=None)])
     assert await get_subscription_tier(uuid.uuid4(), db) == "free"
 
 

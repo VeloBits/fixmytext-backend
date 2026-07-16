@@ -3,7 +3,7 @@
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import and_, select
@@ -20,7 +20,11 @@ from app.schemas.subscription import (
     RazorpayProVerifyRequest,
     SubscriptionStatus,
 )
-from app.services.fulfillment_service import AlreadyFulfilled, fulfill_payment
+from app.services.fulfillment_service import (
+    AlreadyFulfilled,
+    fulfill_payment,
+    refund_unfulfillable_payment,
+)
 from app.services.order_validation import (
     validate_order_scope_and_amount,
     validate_pro_amount,
@@ -29,6 +33,7 @@ from app.services.pass_service import (
     get_active_passes,
     get_all_tool_uses_today,
     get_credit_balance,
+    get_pro_subscription,
     get_subscription_tier,
     has_logged_in_today,
     maybe_grant_welcome_gift,
@@ -82,15 +87,18 @@ async def subscription_status(
 
     credit_balance = await get_credit_balance(user, db)
     active_passes = await get_active_passes(user, db)
+    pro_sub = await get_pro_subscription(user.id, db)
 
     return SubscriptionStatus(
-        tier=await get_subscription_tier(user.id, db),
+        tier="pro" if pro_sub else "free",
         tool_uses_today=tool_uses,
         free_uses_per_tool=settings.FREE_USES_PER_TOOL_PER_DAY,
         daily_login_bonus=daily_bonus,
         credit_balance=credit_balance,
         active_passes_count=len(active_passes),
         region=user.region,
+        pro_expires_at=pro_sub.expires_at if pro_sub else None,
+        pro_cancelled=bool(pro_sub and pro_sub.status == "cancelled"),
     )
 
 
@@ -109,19 +117,32 @@ async def create_pro_checkout(
         f"ratelimit:order:{user.id}", settings.ORDER_RATE_LIMIT_PER_MINUTE
     )
 
-    if await get_subscription_tier(user.id, db) == "pro":
-        raise HTTPException(400, "Already subscribed to Pro")
+    # Renewal window: an ACTIVE Pro can re-purchase only within the last
+    # PRO_RENEWAL_WINDOW_DAYS of the period (fulfillment extends from the
+    # current expiry, so early renewal never loses paid days). A cancelled
+    # in-period Pro can re-subscribe any time — that reactivates the plan.
+    pro_sub = await get_pro_subscription(user.id, db)
+    if pro_sub and pro_sub.status == "active":
+        window = timedelta(days=settings.PRO_RENEWAL_WINDOW_DAYS)
+        if pro_sub.expires_at - datetime.now(UTC) > window:
+            expiry = pro_sub.expires_at.date().isoformat()
+            raise HTTPException(
+                400,
+                f"You're subscribed until {expiry}. Renewal opens "
+                f"{settings.PRO_RENEWAL_WINDOW_DAYS} days before expiry.",
+            )
 
     region = user.region or "IN"
     pricing = PRO_PLAN_PRICES.get(region, PRO_PLAN_PRICES["IN"])
 
-    idempotency_key = f"pro_{user.id}"
+    # Short enough to survive Razorpay's 40-char receipt cap untruncated.
+    idempotency_key = f"pro_{user.id.hex[:8]}"
 
     try:
         order = create_order(
             amount=pricing["amount"],
             currency=pricing["currency"],
-            receipt=f"pro_{str(user.id)[:8]}",
+            receipt=idempotency_key,
             notes={"user_id": str(user.id), "item_type": "pro_subscription"},
             idempotency_key=idempotency_key,
         )
@@ -183,10 +204,48 @@ async def verify_pro_payment(
 
     # Block amount tampering, then fulfill exactly once through the shared
     # authority — a double verify or a verify/webhook race activates Pro once.
-    validate_pro_amount(order.get("amount"), order.get("currency"))
+    # The signature above is VALID, so an amount-validation failure means a
+    # real customer paid for an order we cannot fulfil — auto-refund it.
+    try:
+        validate_pro_amount(order.get("amount"), order.get("currency"))
+    except HTTPException as validation_error:
+        try:
+            await refund_unfulfillable_payment(
+                db=db,
+                user_id=user.id,
+                keycloak_sub=str(user.keycloak_id),
+                razorpay_payment_id=req.razorpay_payment_id,
+                razorpay_order_id=req.razorpay_order_id,
+                item_type="pro_subscription",
+                item_id=None,
+                amount_subunits=order.get("amount"),
+                currency=order.get("currency"),
+                via="verify",
+                reason=str(validation_error.detail),
+            )
+            await db.commit()
+        except AlreadyFulfilled:
+            await db.rollback()
+            return {"status": "success", "detail": "already_fulfilled"}
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "Refund attempt failed (pro verify): payment=%s",
+                _s(req.razorpay_payment_id),
+            )
+            raise HTTPException(
+                502, "Could not refund the payment — please contact support"
+            ) from validation_error
+        return {
+            "status": "refunded",
+            "detail": "order_validation_failed",
+            "message": "Your payment was refunded because the order could not be "
+            "validated. The amount should reach your account in 5-7 business days.",
+        }
 
     await db.execute(select(User).where(User.id == user.id).with_for_update())
 
+    welcome = False
     try:
         await fulfill_payment(
             db=db,
@@ -200,6 +259,11 @@ async def verify_pro_payment(
             currency=order.get("currency"),
             fulfilled_via="verify",
         )
+        # First-purchase welcome gift: a first-ever purchase that happens to be
+        # Pro earns the same one-time bonus as a pass/credit first purchase.
+        welcome = await maybe_grant_welcome_gift(user, db)
+        if welcome:
+            logger.info("Welcome gift granted (pro): user=%s", user.id)
         await db.commit()
     except (AlreadyFulfilled, IntegrityError):
         # Already fulfilled (replay) or an active subscription already exists —
@@ -221,7 +285,12 @@ async def verify_pro_payment(
         _s(req.razorpay_order_id),
         _s(req.razorpay_payment_id),
     )
-    return {"status": "success", "tier": "pro"}
+    return {
+        "status": "success",
+        "tier": "pro",
+        "welcome_gift": welcome,
+        "welcome_credits": settings.WELCOME_GIFT_CREDITS if welcome else 0,
+    }
 
 
 # ── Cancel Pro ────────────────────────────────────────────────────────
@@ -232,28 +301,24 @@ async def cancel_pro(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Cancel Pro subscription (immediate downgrade)."""
-    tier = await get_subscription_tier(user.id, db)
-    if tier != "pro":
+    """Cancel Pro. Access continues until the paid period ends (expires_at).
+
+    Idempotent: cancelling an already-cancelled in-period plan returns the
+    same response without changing anything.
+    """
+    pro_sub = await get_pro_subscription(user.id, db)
+    if not pro_sub:
         raise HTTPException(400, "No active Pro subscription")
 
-    # Update Subscription row
-    sub_result = await db.execute(
-        select(Subscription).where(
-            and_(
-                Subscription.user_id == user.id,
-                Subscription.status == "active",
-                Subscription.tier == "pro",
-            )
-        )
-    )
-    active_sub = sub_result.scalars().first()
-    if active_sub:
-        active_sub.status = "cancelled"
-        active_sub.cancelled_at = datetime.now(UTC)
+    if pro_sub.status == "active":
+        pro_sub.status = "cancelled"
+        pro_sub.cancelled_at = datetime.now(UTC)
+        await db.commit()
 
-    await db.commit()
-    return {"status": "cancelled"}
+    return {
+        "status": "cancelled",
+        "access_until": pro_sub.expires_at.isoformat() if pro_sub.expires_at else None,
+    }
 
 
 # ── Webhook ───────────────────────────────────────────────────────────
@@ -464,10 +529,52 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 pe.processed_at = datetime.now(UTC)
                 await db.commit()
                 return {"status": "ok"}
-        except HTTPException:
-            pe.status = "failed"
-            await db.commit()
-            raise
+        except HTTPException as validation_error:
+            # The webhook signature is VALID and the payment is CAPTURED, so a
+            # validation failure here is real customer money we cannot fulfil
+            # (e.g. a legacy scoped-pass order with empty tool_ids) —
+            # auto-refund exactly once and acknowledge with 200 so Razorpay
+            # stops retrying. A refund-API failure rolls everything back and
+            # re-raises → non-2xx → Razorpay redelivers → refund re-attempted.
+            if keycloak_sub is None:
+                # Unknown user: no fulfillment row possible (FK); keep the
+                # old failed-event behavior for the audit trail.
+                pe.status = "failed"
+                await db.commit()
+                raise
+            try:
+                await refund_unfulfillable_payment(
+                    db=db,
+                    user_id=user_id,
+                    keycloak_sub=keycloak_sub,
+                    razorpay_payment_id=payment_id,
+                    razorpay_order_id=order_id,
+                    item_type=item_type,
+                    item_id=item_id,
+                    amount_subunits=amount,
+                    currency=currency,
+                    via="webhook",
+                    reason=str(validation_error.detail),
+                )
+                pe.status = "processed"
+                pe.processed_at = datetime.now(UTC)
+                await db.commit()
+                return {"status": "ok", "detail": "refunded"}
+            except AlreadyFulfilled:
+                # Already fulfilled or already refunded — acknowledge without
+                # a second refund; commit the event row for the audit trail.
+                pe.status = "processed"
+                pe.processed_at = datetime.now(UTC)
+                await db.commit()
+                return {"status": "ok", "detail": "duplicate"}
+            except Exception as refund_error:
+                await db.rollback()
+                logger.exception(
+                    "Refund attempt failed (webhook): payment=%s", safe_payment_id
+                )
+                raise HTTPException(
+                    500, "Refund attempt failed — Razorpay will retry"
+                ) from refund_error
 
         try:
             # Lock + load the user for welcome-gift atomicity vs the verify path.
@@ -493,7 +600,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 currency=currency,
                 fulfilled_via="webhook",
             )
-            if item_type in ("pass", "credit"):
+            if item_type in ("pass", "credit", "pro_subscription"):
                 await maybe_grant_welcome_gift(user, db)
 
             pe.status = "processed"

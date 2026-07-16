@@ -1,5 +1,6 @@
 """Pass & credit endpoints: catalog, active, order, verify, spin, referral."""
 
+import hashlib
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -35,8 +36,15 @@ from app.schemas.passes import (
     ReferralCodeResponse,
     SpinResult,
 )
-from app.services.fulfillment_service import AlreadyFulfilled, fulfill_payment
-from app.services.order_validation import validate_order_scope_and_amount
+from app.services.fulfillment_service import (
+    AlreadyFulfilled,
+    fulfill_payment,
+    refund_unfulfillable_payment,
+)
+from app.services.order_validation import (
+    validate_order_scope_and_amount,
+    validate_tool_selection,
+)
 from app.services.pass_service import (
     claim_referral,
     ensure_referral_code,
@@ -174,6 +182,14 @@ async def create_pass_order(
     if not pass_def:
         raise HTTPException(400, f"Unknown pass: {req.pass_id}")
 
+    # Order-time scope validation: a tool-scoped pass with the wrong tool count
+    # can never be fulfilled (verify AND webhook reject it), so reject BEFORE
+    # money moves. Behind a rollout flag so a stale frontend without the tool
+    # picker degrades to the auto-refund path instead of hard-failing.
+    tool_ids = req.tool_ids
+    if settings.PASS_ORDER_STRICT_TOOL_SCOPE:
+        tool_ids = validate_tool_selection(pass_def, tool_ids)
+
     from app.services.region_service import resolve_user_region
 
     region = await resolve_user_region(user, None, db, explicit_region=req.region)
@@ -181,17 +197,23 @@ async def create_pass_order(
     amount = get_price(req.pass_id, region)
     currency = get_currency(region)
 
-    idempotency_key = f"pass_{req.pass_id}_{user.id}"
+    # Key includes the (sorted) tool scope: Razorpay order reuse matches on
+    # receipt, and reusing an unpaid order created for DIFFERENT tools would
+    # silently grant the old selection (its notes win at fulfillment). Max
+    # length 2+12+1+8+1+8 = 32 ≤ Razorpay's 40-char receipt cap, so the
+    # distinguishing hash is never truncated away.
+    scope_hash = hashlib.sha256(",".join(sorted(tool_ids)).encode()).hexdigest()[:8]
+    idempotency_key = f"p_{req.pass_id[:12]}_{user.id.hex[:8]}_{scope_hash}"
     try:
         order = create_order(
             amount=amount,
             currency=currency,
-            receipt=f"pass_{req.pass_id}_{str(user.id)[:8]}",
+            receipt=idempotency_key,
             notes={
                 "user_id": str(user.id),
                 "item_id": req.pass_id,
                 "item_type": "pass",
-                "tool_ids": ",".join(req.tool_ids),
+                "tool_ids": ",".join(tool_ids),
             },
             idempotency_key=idempotency_key,
         )
@@ -243,12 +265,13 @@ async def create_credit_order(
     amount = get_price(req.pack_id, region)
     currency = get_currency(region)
 
-    idempotency_key = f"credit_{req.pack_id}_{user.id}"
+    # Short enough to survive Razorpay's 40-char receipt cap untruncated.
+    idempotency_key = f"c_{req.pack_id[:12]}_{user.id.hex[:8]}"
     try:
         order = create_order(
             amount=amount,
             currency=currency,
-            receipt=f"credit_{req.pack_id}_{str(user.id)[:8]}",
+            receipt=idempotency_key,
             notes={
                 "user_id": str(user.id),
                 "item_id": req.pack_id,
@@ -297,19 +320,57 @@ async def verify_pass_payment(
         req.razorpay_order_id, req.razorpay_payment_id, req.razorpay_signature, user
     )
 
+    safe_item_id = str(req.item_id).replace("\r", "").replace("\n", "")
+    safe_payment_id = str(req.razorpay_payment_id).replace("\r", "").replace("\n", "")
+
     # Server-side scope + amount validation. tool_ids come from the order notes
     # fixed at creation time, NOT from req.tool_ids; amount is reconciled against
-    # the catalog price for the charged currency.
-    tool_ids, amount, currency = validate_order_scope_and_amount(
-        order=order, expected_item_id=req.item_id, expected_item_type=req.item_type
-    )
+    # the catalog price for the charged currency. The signature above is VALID,
+    # so a validation failure here means a real customer paid for an order we
+    # cannot fulfil (e.g. a legacy scoped-pass order with empty tool_ids) —
+    # auto-refund instead of stranding captured money.
+    try:
+        tool_ids, amount, currency = validate_order_scope_and_amount(
+            order=order, expected_item_id=req.item_id, expected_item_type=req.item_type
+        )
+    except HTTPException as validation_error:
+        try:
+            await refund_unfulfillable_payment(
+                db=db,
+                user_id=user.id,
+                keycloak_sub=str(user.keycloak_id),
+                razorpay_payment_id=req.razorpay_payment_id,
+                razorpay_order_id=req.razorpay_order_id,
+                item_type=req.item_type,
+                item_id=req.item_id,
+                amount_subunits=order.get("amount"),
+                currency=order.get("currency"),
+                via="verify",
+                reason=str(validation_error.detail),
+            )
+            await db.commit()
+        except AlreadyFulfilled:
+            await db.rollback()
+            return {"status": "success", "detail": "already_fulfilled"}
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "Refund attempt failed (verify): payment=%s", safe_payment_id
+            )
+            raise HTTPException(
+                502, "Could not refund the payment — please contact support"
+            ) from validation_error
+        return {
+            "status": "refunded",
+            "detail": "order_validation_failed",
+            "message": "Your payment was refunded because the order could not be "
+            "validated. The amount should reach your account in 5-7 business days.",
+        }
 
     # Lock the user row so the welcome-gift check is atomic against the webhook.
     await db.execute(select(User).where(User.id == user.id).with_for_update())
 
-    safe_item_id = str(req.item_id).replace("\r", "").replace("\n", "")
-    safe_payment_id = str(req.razorpay_payment_id).replace("\r", "").replace("\n", "")
-
+    welcome = False
     try:
         await fulfill_payment(
             db=db,
@@ -324,7 +385,8 @@ async def verify_pass_payment(
             fulfilled_via="verify",
         )
         # First-purchase welcome gift (idempotent; user row locked above).
-        if await maybe_grant_welcome_gift(user, db):
+        welcome = await maybe_grant_welcome_gift(user, db)
+        if welcome:
             logger.info("Welcome gift granted: user=%s", user.id)
         await db.commit()
     except AlreadyFulfilled:
@@ -347,7 +409,11 @@ async def verify_pass_payment(
         safe_item_id,
         safe_payment_id,
     )
-    return {"status": "success"}
+    return {
+        "status": "success",
+        "welcome_gift": welcome,
+        "welcome_credits": settings.WELCOME_GIFT_CREDITS if welcome else 0,
+    }
 
 
 # ── Spin the Wheel ─────────────────────────────────────────────────────────

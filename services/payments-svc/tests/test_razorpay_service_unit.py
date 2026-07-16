@@ -233,3 +233,32 @@ def test_verify_webhook_signature_valid_and_invalid(monkeypatch):
     good = hmac.new(b"whsec", body, hashlib.sha256).hexdigest()
     assert rz.verify_webhook_signature(body, good) is True
     assert rz.verify_webhook_signature(body, "tampered") is False
+
+
+# ── refund_payment ────────────────────────────────────────────────────────────
+
+
+def test_fake_refund_payment_shape(monkeypatch):
+    monkeypatch.setattr(settings, "PAYMENTS_BACKEND", "fake")
+    monkeypatch.setattr(rz, "_fake_refunds", {})
+
+    refund = rz.refund_payment("pay_abc123", notes={"reason": "test"})
+
+    assert refund["id"] == "rfnd_fake_pay_abc123"
+    assert refund["payment_id"] == "pay_abc123"
+    assert refund["status"] == "processed"
+    assert rz._fake_refunds["pay_abc123"] is refund
+
+
+def test_real_refund_payment_calls_client(monkeypatch):
+    monkeypatch.setattr(settings, "PAYMENTS_BACKEND", "razorpay")
+    client = MagicMock()
+    client.payment.refund.return_value = {"id": "rfnd_1", "status": "processed"}
+    monkeypatch.setattr(rz, "_client", client)
+
+    refund = rz.refund_payment("pay_real", notes={"reason": "validation"})
+
+    client.payment.refund.assert_called_once_with(
+        "pay_real", {"notes": {"reason": "validation"}}
+    )
+    assert refund["id"] == "rfnd_1"

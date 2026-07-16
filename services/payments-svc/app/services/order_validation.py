@@ -6,10 +6,60 @@ granted tool scope comes from the server-set order notes — never the client
 request body. Fixes scope/quantity and amount tampering (H-3, BE-PAY-03).
 """
 
+import re
+
 from fastapi import HTTPException
 
-from app.core.pass_catalog import REGIONS, get_credit_pack, get_pass, get_price
+from app.core.pass_catalog import (
+    ALWAYS_FREE_TOOL_IDS,
+    REGIONS,
+    get_credit_pack,
+    get_pass,
+    get_price,
+)
 from app.services.razorpay_service import PRO_PLAN_PRICES
+
+_TOOL_ID_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+
+
+def validate_tool_selection(pass_def: dict, tool_ids: list[str]) -> list[str]:
+    """Normalize and validate an order-time tool selection for a pass.
+
+    Returns the canonical tool list to store in the order notes:
+    - all-tools passes (``tools == -1``) always return ``[]`` (scope is the
+      wildcard; any client-sent ids are ignored),
+    - scoped passes must select exactly ``pass_def["tools"]`` distinct,
+      well-formed, non-always-free tool ids.
+
+    Raises ``HTTPException(400)`` with a user-facing message otherwise. This is
+    the order-time twin of the fulfillment check in
+    :func:`validate_order_scope_and_amount` — rejecting here means money never
+    moves for an unfulfillable selection.
+    """
+    if pass_def["tools"] == -1:
+        return []
+
+    # Dedupe preserving order so the notes stay stable for idempotency hashing.
+    unique: list[str] = []
+    for tool_id in tool_ids:
+        if tool_id not in unique:
+            unique.append(tool_id)
+
+    for tool_id in unique:
+        if not _TOOL_ID_RE.match(tool_id):
+            raise HTTPException(400, f"Invalid tool id: {tool_id[:64]!r}")
+        if tool_id in ALWAYS_FREE_TOOL_IDS:
+            raise HTTPException(
+                400, f"'{tool_id}' is always free — pick a tool that uses your pass"
+            )
+
+    required = pass_def["tools"]
+    if len(unique) != required:
+        raise HTTPException(
+            400,
+            f"Select exactly {required} tool{'s' if required > 1 else ''} for this pass",
+        )
+    return unique
 
 
 def region_for_currency(currency: str | None) -> str | None:

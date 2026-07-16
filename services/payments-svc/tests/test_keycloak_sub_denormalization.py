@@ -40,6 +40,12 @@ def _fake_db():
     nested.__aenter__ = AsyncMock(return_value=None)
     nested.__aexit__ = AsyncMock(return_value=False)
     db.begin_nested = MagicMock(return_value=nested)
+    # Pro fulfillment queries for an in-period subscription first (renewal
+    # extend-in-place); "no existing row" routes it to the fresh-insert path.
+    empty_result = MagicMock()
+    empty_result.scalar_one_or_none.return_value = None
+    empty_result.scalars.return_value.first.return_value = None
+    db.execute = AsyncMock(return_value=empty_result)
     return db
 
 

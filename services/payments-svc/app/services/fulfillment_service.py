@@ -10,16 +10,21 @@ granted exactly once. Fixes C-1 (replay) and H-2 (double-grant).
 """
 
 import logging
+import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.pass_catalog import get_credit_pack
 from app.db.models.billing_subscription import Subscription
 from app.db.models.payment_fulfillment import PaymentFulfillment
 from app.db.models.user import User
 from app.services.pass_service import grant_credits, grant_pass
+from app.services.razorpay_service import refund_payment
 
 logger = logging.getLogger(__name__)
 
@@ -115,30 +120,143 @@ async def fulfill_payment(
         fulfillment.result_ref = {"credit_id": str(billing_credit.id)}
 
     elif item_type == "pro_subscription":
-        subscription = Subscription(
-            user_id=user.id,
-            keycloak_sub=str(user.keycloak_id),
-            tier="pro",
-            status="active",
-            razorpay_order_id=razorpay_order_id,
-            razorpay_payment_id=razorpay_payment_id,
-            amount_paid_subunits=amount_subunits,
-            currency=currency,
-            region=user.region,
-        )
-        # The one-active-subscription partial unique index guards this insert; a
-        # pre-existing active sub (a legacy row without a ledger entry, or a
-        # race) surfaces as AlreadyFulfilled so callers stay idempotent.
-        try:
-            async with db.begin_nested():
-                db.add(subscription)
-                await db.flush()
-        except IntegrityError as exc:
-            raise AlreadyFulfilled(razorpay_payment_id) from exc
-        fulfillment.result_ref = {"subscription_id": str(subscription.id)}
+        now = datetime.now(UTC)
+        duration = timedelta(days=settings.PRO_DURATION_DAYS)
+
+        # Renewal path: an in-period pro row (active OR cancelled-with-grace)
+        # is extended in place from max(now, current expiry) — early renewal
+        # never loses paid days, and updating in place sidesteps the
+        # one-active-subscription partial unique index entirely.
+        existing = (
+            await db.execute(
+                select(Subscription)
+                .where(
+                    Subscription.user_id == user.id,
+                    Subscription.tier == "pro",
+                    Subscription.status.in_(["active", "cancelled"]),
+                    Subscription.expires_at > now,
+                )
+                .order_by(Subscription.expires_at.desc())
+                .limit(1)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+        if existing is not None:
+            base = max(now, existing.expires_at)
+            existing.status = "active"
+            existing.expires_at = base + duration
+            existing.cancelled_at = None
+            existing.razorpay_order_id = razorpay_order_id
+            existing.razorpay_payment_id = razorpay_payment_id
+            existing.amount_paid_subunits = amount_subunits
+            existing.currency = currency
+            fulfillment.result_ref = {
+                "subscription_id": str(existing.id),
+                "renewal": True,
+            }
+        else:
+            # Lazy-expiry write-time flip: stale 'active' rows whose period
+            # ended (reads never flip them) would otherwise trip the partial
+            # unique index on the fresh insert.
+            await db.execute(
+                update(Subscription)
+                .where(
+                    Subscription.user_id == user.id,
+                    Subscription.status == "active",
+                    Subscription.expires_at <= now,
+                )
+                .values(status="expired")
+            )
+            subscription = Subscription(
+                user_id=user.id,
+                keycloak_sub=str(user.keycloak_id),
+                tier="pro",
+                status="active",
+                expires_at=now + duration,
+                razorpay_order_id=razorpay_order_id,
+                razorpay_payment_id=razorpay_payment_id,
+                amount_paid_subunits=amount_subunits,
+                currency=currency,
+                region=user.region,
+            )
+            # The one-active-subscription partial unique index guards this
+            # insert; a pre-existing active sub (a legacy row without a ledger
+            # entry, or a race) surfaces as AlreadyFulfilled so callers stay
+            # idempotent.
+            try:
+                async with db.begin_nested():
+                    db.add(subscription)
+                    await db.flush()
+            except IntegrityError as exc:
+                raise AlreadyFulfilled(razorpay_payment_id) from exc
+            fulfillment.result_ref = {"subscription_id": str(subscription.id)}
 
     else:
         raise HTTPException(400, f"Unknown item_type: {item_type}")
 
     fulfillment.status = "fulfilled"
+    return fulfillment
+
+
+async def refund_unfulfillable_payment(
+    *,
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    keycloak_sub: str,
+    razorpay_payment_id: str,
+    razorpay_order_id: str | None,
+    item_type: str | None,
+    item_id: str | None,
+    amount_subunits: int | None,
+    currency: str | None,
+    via: str,
+    reason: str,
+) -> PaymentFulfillment:
+    """Refund a CAPTURED payment that failed order validation, exactly once.
+
+    The ledger row is inserted first (status ``refund_pending``) inside a
+    SAVEPOINT — the UNIQUE payment-id index is the idempotency guard, so a
+    payment that was already fulfilled OR already refunded raises
+    :class:`AlreadyFulfilled` and no second refund is issued. Only after the
+    row exists is the Razorpay refund API called; if that call fails, the
+    caller's rollback removes the row and a retry (webhook re-delivery) safely
+    re-attempts. The caller owns the final ``commit()``.
+
+    Never call this for signature/ownership failures — those are attack
+    traffic, not customer money.
+    """
+    fulfillment = PaymentFulfillment(
+        razorpay_payment_id=razorpay_payment_id,
+        razorpay_order_id=razorpay_order_id,
+        user_id=user_id,
+        keycloak_sub=keycloak_sub,
+        item_type=item_type or "unknown",
+        item_id=item_id,
+        amount_subunits=amount_subunits,
+        currency=currency,
+        fulfilled_via=via,
+        status="refund_pending",
+        result_ref={"reason": reason},
+    )
+    try:
+        async with db.begin_nested():
+            db.add(fulfillment)
+            await db.flush()
+    except IntegrityError as exc:
+        raise AlreadyFulfilled(razorpay_payment_id) from exc
+
+    refund = refund_payment(
+        razorpay_payment_id, notes={"reason": reason[:120], "via": via}
+    )
+    fulfillment.status = "refunded"
+    fulfillment.result_ref = {"reason": reason, "refund_id": refund.get("id")}
+    safe_payment_id = razorpay_payment_id.replace("\r", "").replace("\n", "")
+    logger.warning(
+        "Auto-refunded unfulfillable payment: payment=%s user=%s via=%s reason=%s",
+        safe_payment_id,
+        user_id,
+        via,
+        reason,
+    )
     return fulfillment
