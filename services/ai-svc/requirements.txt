@@ -1,7 +1,7 @@
 # FastAPI + ASGI
 fastapi==0.136.1
 uvicorn[standard]==0.46.0
-pydantic-settings==2.14.1
+pydantic-settings==2.14.2
 
 # AI / keyword extraction
 groq==1.2.0
@@ -10,8 +10,9 @@ yake==0.7.3
 # Emoji (used by some AI tools)
 emoji==2.15.0
 
-# Redis (for rate limiting)
+# Redis (for rate limiting + arq task queue)
 redis[hiredis]==7.4.0
+# arq installed via --no-deps in Dockerfile to bypass its redis<6 constraint (API-compatible with redis 7.x)
 
 # Structured logging
 python-json-logger==4.1.0
@@ -33,7 +34,7 @@ opentelemetry-instrumentation-logging==0.55b1
 cachetools>=5.5
 
 # PyJWT for token verification
-PyJWT[crypto]==2.12.1
+PyJWT[crypto]==2.13.0
 
 # Shared internal package
 -e ./shared

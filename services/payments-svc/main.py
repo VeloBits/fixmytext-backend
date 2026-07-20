@@ -15,9 +15,10 @@ Run locally:
 import logging
 from contextlib import asynccontextmanager
 
+from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
+
 # Observability — must init before framework imports so SDK can patch httpx
 from app.core.sentry import init_sentry
-from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
 
 init_sentry()
 
@@ -29,7 +30,9 @@ from fixmytext_shared.middleware import (
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
 )
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from app.api.v1.endpoints.internal import router as internal_router
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.services.razorpay_service import init_razorpay
@@ -70,6 +73,10 @@ def _configure_logging() -> None:
     else:
         handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT))
     root.addHandler(handler)
+    # Redact secrets/PII before they hit stdout, not only the OTLP handler (M-9).
+    from fixmytext_shared.observability.logs import attach_log_sanitizers
+
+    attach_log_sanitizers(handler)
 
     # Tame noisy loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -86,6 +93,7 @@ def _configure_logging() -> None:
         else:
             uv_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT))
         uv_logger.addHandler(uv_handler)
+        attach_log_sanitizers(uv_handler)  # also redact uvicorn.access query strings
         uv_logger.propagate = False
 
 
@@ -101,6 +109,36 @@ logger = logging.getLogger("fixmytext.payments-svc")
 async def lifespan(app: FastAPI):
     """Initialize/cleanup shared clients on startup/shutdown."""
     init_logs_otel()
+
+    # Fail fast in prod on missing security-critical config (M-6, BE-AUTH-01)
+    # and the internal entitlement secret (without it the gate fails closed).
+    from fixmytext_shared.config.validation import (
+        assert_required_in_prod,
+        is_production_like,
+    )
+
+    assert_required_in_prod(
+        settings.ENVIRONMENT,
+        KEYCLOAK_REALM=settings.KEYCLOAK_REALM,
+        KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
+        KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
+        KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
+        INTERNAL_SHARED_SECRET=settings.INTERNAL_SHARED_SECRET,
+        RAZORPAY_KEY_ID=settings.RAZORPAY_KEY_ID,
+        RAZORPAY_KEY_SECRET=settings.RAZORPAY_KEY_SECRET,
+        RAZORPAY_WEBHOOK_SECRET=settings.RAZORPAY_WEBHOOK_SECRET,
+    )
+    # BE-PAY-09: the fake backend bypasses Razorpay signature verification —
+    # it must never run in a production environment.
+    if (
+        is_production_like(settings.ENVIRONMENT)
+        and settings.PAYMENTS_BACKEND.lower() == "fake"
+    ):
+        raise RuntimeError(
+            "Refusing to start: PAYMENTS_BACKEND=fake in a production environment "
+            "(bypasses payment signature verification — BE-PAY-09)."
+        )
+
     init_razorpay()
     logger.info("Razorpay client initialized")
 
@@ -124,15 +162,16 @@ app = FastAPI(
     title="FixMyText Payments Service",
     description="Billing: subscriptions, passes, credits, referrals, Razorpay.",
     version=settings.VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    # OpenAPI docs are served only in development (BE-CFG-01).
+    docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
+    redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None,
+    openapi_url="/openapi.json" if settings.ENVIRONMENT == "development" else None,
     lifespan=lifespan,
 )
 
 # ── Cross-cutting middleware ──────────────────────────────────────────────────
 # Order matters: starlette runs middleware in REVERSE registration order.
-# request → CorrelationId → SecurityHeaders → RequestLogging → app
+# request → ProxyHeaders → CORS → RequestLogging → SecurityHeaders → CorrelationId → app
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,
@@ -149,8 +188,14 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Visitor-Id", "X-Request-ID"],
 )
 
+# ── Proxy headers — must be outermost so real client IP is visible to all ─────
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(api_router, prefix="/api/v1")
+# Internal service-to-service router (entitlement gate). Mounted at the app root
+# (/internal/v1/...) and NOT exposed through the public gateway.
+app.include_router(internal_router)
 
 
 # ── Health checks ─────────────────────────────────────────────────────────────

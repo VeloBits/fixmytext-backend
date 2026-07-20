@@ -5,6 +5,7 @@ recording new operations, per-tool stats, and soft-delete for both individual
 entries and bulk clear.
 """
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,11 +23,11 @@ from app.schemas.history import (
     HistoryStatsResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/history", tags=["History"])
 
-# Use the centralized config value so operators can tune truncation without
-# a code change; falls back to 500 if the setting is absent.
-PREVIEW_MAX = getattr(settings, "HISTORY_PREVIEW_MAX_LENGTH", 500)
+PREVIEW_MAX = settings.HISTORY_PREVIEW_MAX_LENGTH
 
 
 def _row_to_response(row: OperationHistory) -> HistoryResponse:
@@ -148,21 +149,27 @@ async def get_history_stats(
     instead of issuing a separate query.  Soft-deleted entries are excluded.
     """
     # Combined query: per-tool count + last-used timestamp in one round-trip
-    all_stats = (
-        await db.execute(
-            select(
-                OperationHistory.tool_id,
-                func.count().label("count"),
-                func.max(OperationHistory.created_at).label("last_used"),
+    try:
+        all_stats = (
+            await db.execute(
+                select(
+                    OperationHistory.tool_id,
+                    func.count().label("count"),
+                    func.max(OperationHistory.created_at).label("last_used"),
+                )
+                .where(
+                    OperationHistory.user_id == user.id,
+                    OperationHistory.is_deleted == False,  # noqa: E712
+                )
+                .group_by(OperationHistory.tool_id)
+                .order_by(func.count().desc())
             )
-            .where(
-                OperationHistory.user_id == user.id,
-                OperationHistory.is_deleted == False,  # noqa: E712
-            )
-            .group_by(OperationHistory.tool_id)
-            .order_by(func.count().desc())
-        )
-    ).all()
+        ).all()
+    except Exception:
+        logger.exception("Failed to fetch history stats for user %s", user.id)
+        raise HTTPException(
+            status_code=503, detail="Stats temporarily unavailable"
+        ) from None
 
     # Total is the sum of per-tool counts
     total = sum(row.count for row in all_stats)

@@ -13,9 +13,10 @@ Run locally:
 import logging
 from contextlib import asynccontextmanager
 
+from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
+
 # Observability — must init before framework imports so SDK can patch httpx
 from app.core.sentry import init_sentry
-from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
 
 init_sentry()
 
@@ -27,9 +28,11 @@ from fixmytext_shared.middleware import (
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
 )
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.api.v1.endpoints.text import router as text_router
 from app.core.config import settings
+from app.services.entitlement_client import close_http_client, init_http_client
 
 # ── Logging configuration ────────────────────────────────────────────────────
 
@@ -67,6 +70,10 @@ def _configure_logging() -> None:
     else:
         handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT))
     root.addHandler(handler)
+    # Redact secrets/PII before they hit stdout, not only the OTLP handler (M-9).
+    from fixmytext_shared.observability.logs import attach_log_sanitizers
+
+    attach_log_sanitizers(handler)
 
     # Tame noisy loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -83,6 +90,7 @@ def _configure_logging() -> None:
         else:
             uv_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT))
         uv_logger.addHandler(uv_handler)
+        attach_log_sanitizers(uv_handler)  # also redact uvicorn.access query strings
         uv_logger.propagate = False
 
 
@@ -99,6 +107,25 @@ async def lifespan(app: FastAPI):
     """Initialize/cleanup shared clients on startup/shutdown."""
     init_logs_otel()
 
+    # Without the internal secret the entitlement gate fails closed and every
+    # billable tool returns 503 — refuse to start prod misconfigured.
+    from fixmytext_shared.config.validation import assert_required_in_prod
+
+    assert_required_in_prod(
+        settings.ENVIRONMENT,
+        KEYCLOAK_REALM=settings.KEYCLOAK_REALM,
+        KEYCLOAK_JWKS_URL=settings.KEYCLOAK_JWKS_URL,
+        # Empty KEYCLOAK_ISSUER/AUDIENCE silently disable JWT validation checks;
+        # require them in production so misconfiguration fails loudly.
+        KEYCLOAK_ISSUER=settings.KEYCLOAK_ISSUER,
+        KEYCLOAK_AUDIENCE=settings.KEYCLOAK_AUDIENCE,
+        INTERNAL_SHARED_SECRET=settings.INTERNAL_SHARED_SECRET,
+        # Required so the text rate limit holds across replicas (M-4, H-4).
+        REDIS_URL=settings.REDIS_URL,
+    )
+
+    init_http_client()
+
     from app.core.redis import close_redis, init_redis
 
     await init_redis()
@@ -111,6 +138,7 @@ async def lifespan(app: FastAPI):
     sentry_sdk.flush(timeout=2.0)
     shutdown_logs_otel(timeout_millis=5000)
     await close_redis()
+    await close_http_client()
 
 
 # ── Application ───────────────────────────────────────────────────────────────
@@ -119,15 +147,16 @@ app = FastAPI(
     title="FixMyText Text Service",
     description="Local (non-AI) text transformation tools.",
     version=settings.VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    # OpenAPI docs are served only in development (BE-CFG-01).
+    docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
+    redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None,
+    openapi_url="/openapi.json" if settings.ENVIRONMENT == "development" else None,
     lifespan=lifespan,
 )
 
 # ── Cross-cutting middleware ──────────────────────────────────────────────────
 # Order matters: starlette runs middleware in REVERSE registration order.
-# request → CorrelationId → SecurityHeaders → RequestLogging → app
+# request → ProxyHeaders → CORS → RequestLogging → SecurityHeaders → CorrelationId → app
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,
@@ -143,6 +172,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Visitor-Id", "X-Request-ID"],
 )
+
+# ── Proxy headers — must be outermost so real client IP is visible to all ─────
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(text_router, prefix="/api/v1")
@@ -160,6 +192,10 @@ async def health_check():
 @app.get("/health/ready", tags=["health"])
 async def readiness_check():
     """Readiness probe — always ready (no external AI dependency)."""
+    # TODO: stub — unconditionally returns ready. text-svc now initializes Redis
+    # (rate limiter) and calls payments-svc for entitlements in its lifespan, so a
+    # true readiness check should probe Redis connectivity. Acceptable while those
+    # deps fail-closed at request time; tighten when adding k8s readiness gating.
     return {"status": "ready"}
 
 

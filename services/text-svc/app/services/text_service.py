@@ -14,6 +14,7 @@ import html
 import io
 import json
 import re
+import time
 import unicodedata
 from urllib.parse import quote, unquote
 
@@ -23,6 +24,9 @@ import yaml
 # blow past this are assumed to be ReDoS (intentional or accidental) and the
 # request is rejected.
 USER_REGEX_TIMEOUT_S = 0.2
+
+# Hard wall-clock cap for executing a user-supplied Brainfuck program (H-5).
+_BRAINFUCK_MAX_SECONDS = 1.0
 
 
 class RegexTimeoutError(Exception):
@@ -683,13 +687,23 @@ def brainfuck_decode(code: str) -> str:
     if stack:
         raise ValueError(f"Unmatched '[' at position {stack[-1]}")
 
-    max_steps = 10_000_000  # prevent infinite loops
+    # Bound CPU per request: a short nested-loop program can otherwise burn
+    # many seconds. Cap both total steps and wall-clock — the VM runs in a
+    # worker thread that cannot be force-cancelled, so it must self-limit (H-5).
+    max_steps = 1_000_000
+    deadline = time.monotonic() + _BRAINFUCK_MAX_SECONDS
     steps = 0
     while ip < len(code):
         steps += 1
         if steps > max_steps:
             raise ValueError(
                 "Execution exceeded maximum step limit (possible infinite loop)"
+            )
+        # Wall-clock guard, checked cheaply (every 65536 steps) to avoid the
+        # per-step cost of time.monotonic().
+        if steps & 0xFFFF == 0 and time.monotonic() > deadline:
+            raise ValueError(
+                "Execution exceeded maximum time limit (possible infinite loop)"
             )
         ch = code[ip]
         if ch == ">":

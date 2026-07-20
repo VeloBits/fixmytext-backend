@@ -30,12 +30,26 @@ class BaseSharedSettings(BaseSettings):
     # Redis (optional)
     REDIS_URL: str = ""
 
+    # Internal service-to-service shared secret (entitlement gate, etc.).
+    # Sent as the X-Internal-Secret header; verified with hmac.compare_digest.
+    # Empty => internal endpoints fail closed (deny all) so a missing secret
+    # never silently disables the gate.
+    INTERNAL_SHARED_SECRET: str = ""
+
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # Rate limiting
     RATE_LIMIT_MAX_REQUESTS: int = 25
     RATE_LIMIT_WINDOW_SECONDS: int = 60
+
+    # Keycloak (shared across all services)
+    KEYCLOAK_REALM: str = "Velobits-Dev"
+    KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
+    # Expected token issuer (Keycloak realm URL). REQUIRED in prod — empty
+    # disables issuer checks (dev only).
+    KEYCLOAK_ISSUER: str = ""
+    KEYCLOAK_JWKS_URL: str = ""
 
     @property
     def allowed_origins_list(self) -> list[str]:

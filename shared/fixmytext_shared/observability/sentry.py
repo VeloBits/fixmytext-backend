@@ -6,6 +6,7 @@ context before events leave the process.
 """
 
 import sentry_sdk
+from sentry_sdk.integrations import DidNotEnable
 
 from fixmytext_shared.config.base import BaseSharedSettings
 
@@ -63,17 +64,30 @@ def init_sentry(settings: BaseSharedSettings) -> None:
     """Initialise Sentry SDK. No-op if SENTRY_DSN is unset.
 
     Integrations are imported lazily inside this function so the shared
-    package can be imported without asyncpg/fastapi/httpx being present
-    (e.g. in the isolated shared-tests CI job or lightweight services).
+    package can be imported without asyncpg/fastapi/httpx being present.
+    The asyncpg integration is optional even at init time: services that
+    don't ship the driver (text-svc, ai-svc, the shared-tests CI job)
+    simply skip it instead of crashing with DidNotEnable.
     """
     dsn = settings.SENTRY_DSN
     if not dsn:
         return
 
     # Lazy imports — only required when actually initialising Sentry.
-    from sentry_sdk.integrations.asyncpg import AsyncPGIntegration
     from sentry_sdk.integrations.fastapi import FastApiIntegration
     from sentry_sdk.integrations.httpx import HttpxIntegration
+
+    integrations = [FastApiIntegration(), HttpxIntegration()]
+
+    # asyncpg is not a shared dependency — only Postgres-backed services
+    # (account-svc, payments-svc) install it. Sentry raises DidNotEnable at
+    # import time when the driver is absent, so probe before enabling.
+    try:
+        from sentry_sdk.integrations.asyncpg import AsyncPGIntegration
+
+        integrations.append(AsyncPGIntegration())
+    except (DidNotEnable, ImportError):
+        pass
 
     environment = settings.SENTRY_ENVIRONMENT or settings.ENVIRONMENT
 
@@ -81,11 +95,7 @@ def init_sentry(settings: BaseSharedSettings) -> None:
         dsn=dsn,
         environment=environment,
         release=settings.SENTRY_RELEASE or None,
-        integrations=[
-            FastApiIntegration(),
-            AsyncPGIntegration(),
-            HttpxIntegration(),
-        ],
+        integrations=integrations,
         traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
         send_default_pii=False,
         include_local_variables=False,

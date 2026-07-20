@@ -1,10 +1,9 @@
 """Pass service — unified tool access checking, pass/credit granting and consuming."""
 
-import random
 import secrets
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy import cast as sa_cast
 from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -30,22 +29,36 @@ from app.db.models.visitor_tool_usage import VisitorToolUsage
 from app.db.models.visitor_usage import VisitorUsage
 
 
-async def get_subscription_tier(user_id, db: AsyncSession) -> str:
-    """Return 'pro' if user has an active Pro subscription, else 'free'."""
+async def get_pro_subscription(user_id, db: AsyncSession):
+    """Return the user's in-period Pro subscription row, or None.
+
+    Pro is a one-time 30-day purchase: a row grants access while
+    ``expires_at`` is in the future, whether ``active`` or ``cancelled``
+    (cancelling keeps access until the paid period ends). Expiry is lazy —
+    reads only filter; stale ``active`` rows are flipped to ``expired`` at the
+    next fulfillment write (see fulfillment_service).
+    """
     from app.db.models.billing_subscription import Subscription
 
     result = await db.execute(
-        select(Subscription.tier)
+        select(Subscription)
         .where(
             and_(
                 Subscription.user_id == user_id,
-                Subscription.status == "active",
                 Subscription.tier == "pro",
+                Subscription.status.in_(["active", "cancelled"]),
+                Subscription.expires_at > datetime.now(UTC),
             )
         )
+        .order_by(Subscription.expires_at.desc())
         .limit(1)
     )
-    return "pro" if result.scalar() else "free"
+    return result.scalar_one_or_none()
+
+
+async def get_subscription_tier(user_id, db: AsyncSession) -> str:
+    """Return 'pro' if user has an in-period Pro subscription, else 'free'."""
+    return "pro" if await get_pro_subscription(user_id, db) else "free"
 
 
 # ── New-table helper functions ────────────────────────────────────────────────
@@ -58,7 +71,7 @@ async def get_tool_use_count_today(user_id: str, tool_id: str, db: AsyncSession)
             and_(
                 UserToolUsage.user_id == user_id,
                 UserToolUsage.tool_id == tool_id,
-                UserToolUsage.usage_date == date.today(),
+                UserToolUsage.usage_date == datetime.now(UTC).date(),
             )
         )
     )
@@ -73,7 +86,7 @@ async def increment_tool_usage(user_id: str, tool_id: str, db: AsyncSession) -> 
         .values(
             user_id=user_id,
             tool_id=tool_id,
-            usage_date=date.today(),
+            usage_date=datetime.now(UTC).date(),
             use_count=1,
         )
         .on_conflict_do_update(
@@ -95,7 +108,7 @@ async def get_all_tool_uses_today(user_id: str, db: AsyncSession) -> dict[str, i
         select(UserToolUsage.tool_id, UserToolUsage.use_count).where(
             and_(
                 UserToolUsage.user_id == user_id,
-                UserToolUsage.usage_date == date.today(),
+                UserToolUsage.usage_date == datetime.now(UTC).date(),
             )
         )
     )
@@ -111,7 +124,7 @@ async def get_visitor_tool_use_count_today(
             and_(
                 VisitorToolUsage.visitor_id == visitor_id,
                 VisitorToolUsage.tool_id == tool_id,
-                VisitorToolUsage.usage_date == date.today(),
+                VisitorToolUsage.usage_date == datetime.now(UTC).date(),
             )
         )
     )
@@ -128,7 +141,7 @@ async def increment_visitor_tool_usage(
         .values(
             visitor_id=visitor_id,
             tool_id=tool_id,
-            usage_date=date.today(),
+            usage_date=datetime.now(UTC).date(),
             use_count=1,
         )
         .on_conflict_do_update(
@@ -150,15 +163,25 @@ async def has_logged_in_today(user_id, db: AsyncSession) -> bool:
         select(UserDailyLogin).where(
             and_(
                 UserDailyLogin.user_id == user_id,
-                UserDailyLogin.login_date == date.today(),
+                UserDailyLogin.login_date == datetime.now(UTC).date(),
             )
         )
     )
     return result.scalars().first() is not None
 
 
+# TODO(partial-impl): this helper has NO callers — text-svc/ai-svc no longer record
+# tool discovery after the service split, so `user_discovered_tools` is never populated
+# for new usage and GET /user/discovered-tools only returns pre-split rows. Wire a
+# fire-and-forget call (Redis pub/sub or direct payments-svc call) after a transform
+# completes. See docs/PARTIAL_IMPLEMENTATIONS.md (#2).
 async def record_tool_discovery(user_id: str, tool_id: str, db: AsyncSession) -> None:
-    """Record that a user discovered a tool. Fire-and-forget, ignores duplicates."""
+    """Record that a user discovered a tool. Fire-and-forget, ignores duplicates.
+
+    OWNS ITS COMMIT — do not call from within an active transaction, because
+    this function commits the session, which will also commit any pending work
+    the caller has not yet committed.
+    """
     stmt = (
         pg_insert(UserDiscoveredTool)
         .values(
@@ -231,60 +254,58 @@ async def check_tool_access(
     tool_id: str,
     tool_type: str,
     db: AsyncSession,
+    auto_commit: bool = True,
 ) -> dict:
-    """Check if an authenticated user can use a tool.
+    """Check (and consume) a tool entitlement for an authenticated user.
 
     Checks access sources in priority order: always-free tools, Pro
     subscription, active passes, credit balance, and finally the daily
     free-use limit. Returns a dict with ``allowed`` (bool) and ``reason``.
-    """
-    today_str = date.today().isoformat()
 
-    # Always-free tools
+    The whole check-and-consume runs in a single transaction with exactly one
+    commit (when ``auto_commit``), so the pass/credit decrement and the daily
+    counter never partially apply. The internal endpoint passes
+    ``auto_commit=False`` and owns the commit.
+    """
+    # Always-free tools (no consumption, no write)
     if tool_id in ALWAYS_FREE_TOOL_IDS or tool_type == "drawer":
         return {"allowed": True, "reason": "free"}
 
-    # Pro subscriber
+    # Pro subscriber (no consumption)
     if await get_subscription_tier(user.id, db) == "pro":
         return {"allowed": True, "reason": "pro"}
 
-    # Check active passes
-    pass_result = await _check_passes(user, tool_id, today_str, db)
-    if pass_result:
-        return pass_result
+    # Active passes, then credit balance, then daily free limit.
+    result = await _check_passes(user, tool_id, db)
+    if result is None:
+        result = await _check_credits(user, db)
+    if result is None:
+        max_free = settings.FREE_USES_PER_TOOL_PER_DAY
+        if await has_logged_in_today(user.id, db):
+            max_free += settings.DAILY_LOGIN_BONUS
+        result = await _check_daily_limit("user", user.id, tool_id, max_free, db)
+        if result and not result["allowed"]:
+            result["message"] = f"Daily limit reached for this tool ({max_free} uses)."
 
-    # Check credit balance
-    credit_result = await _check_credits(user, db)
-    if credit_result:
-        return credit_result
+    if result is None:  # defensive fallback — should not be reached
+        result = {"allowed": False, "reason": "blocked", "message": "Access denied."}
 
-    # Check daily free limit using shared helper
-    max_free = settings.FREE_USES_PER_TOOL_PER_DAY
-    if await has_logged_in_today(user.id, db):
-        max_free += settings.DAILY_LOGIN_BONUS
-
-    result = await _check_daily_limit("user", user.id, tool_id, max_free, db)
-    if result and result["allowed"]:
+    if auto_commit:
         await db.commit()
-        return result
-
-    if result and not result["allowed"]:
-        result["message"] = f"Daily limit reached for this tool ({max_free} uses)."
-        return result
-
-    # Fallback — should not be reached
-    return {
-        "allowed": False,
-        "reason": "blocked",
-        "message": "Access denied.",
-    }
+    return result
 
 
-async def _check_passes(
-    user: User, tool_id: str, today_str: str, db: AsyncSession
-) -> dict | None:
-    """Check if any active pass covers this tool with remaining uses."""
+async def _check_passes(user: User, tool_id: str, db: AsyncSession) -> dict | None:
+    """Consume one use from an active pass covering this tool, atomically.
+
+    Candidate passes (active, unexpired, covering the tool) are selected without
+    a lock, then each is consumed via a single guarded ``UPDATE`` that resets the
+    daily counter and increments it only while under the cap — so two concurrent
+    requests can never push ``uses_today`` past ``uses_per_day`` (BE-DATA-01,
+    BE-PAY-06). No commit here; the caller owns the transaction.
+    """
     now = datetime.now(UTC)
+    today = now.date()
     result = await db.execute(
         select(BillingUserPass)
         .options(selectinload(BillingUserPass.tools))
@@ -295,22 +316,43 @@ async def _check_passes(
                 BillingUserPass.expires_at > now,
             )
         )
+        # Consume soonest-expiring pass first so long-duration passes are not
+        # burned before short-duration ones expire.
+        .order_by(BillingUserPass.expires_at.asc())
     )
     passes = result.scalars().all()
 
     for p in passes:
-        # Reset pass daily uses if needed (date comparison, not string)
-        if p.uses_reset_date != date.today():
-            p.uses_today = 0
-            p.uses_reset_date = date.today()
-
-        # Check if this pass covers the tool
         covers = p.tools_count == -1 or any(
             t.tool_id in ("*", tool_id) for t in p.tools
         )
-        if covers and p.uses_today < p.uses_per_day:
-            p.uses_today += 1
-            await db.commit()
+        if not covers:
+            continue
+
+        # Atomic check-and-consume: reset to 1 on a new day, else increment only
+        # while strictly under the per-day cap. RETURNING tells us if it applied.
+        stmt = (
+            update(BillingUserPass)
+            .where(
+                BillingUserPass.id == p.id,
+                BillingUserPass.is_active == True,  # noqa: E712
+                BillingUserPass.expires_at > now,
+                or_(
+                    BillingUserPass.uses_reset_date.is_distinct_from(today),
+                    BillingUserPass.uses_today < BillingUserPass.uses_per_day,
+                ),
+            )
+            .values(
+                uses_today=case(
+                    (BillingUserPass.uses_reset_date.is_distinct_from(today), 1),
+                    else_=BillingUserPass.uses_today + 1,
+                ),
+                uses_reset_date=today,
+            )
+            .returning(BillingUserPass.id)
+        )
+        consumed = await db.execute(stmt)
+        if consumed.scalar_one_or_none() is not None:
             return {
                 "allowed": True,
                 "reason": "pass",
@@ -323,9 +365,15 @@ async def _check_passes(
 
 
 async def _check_credits(user: User, db: AsyncSession) -> dict | None:
-    """Check if user has any remaining credits. Consume one if so (FIFO order)."""
-    result = await db.execute(
-        select(BillingUserCredit)
+    """Consume one credit from the oldest pack with balance, atomically.
+
+    The oldest credit row with balance is selected ``FOR UPDATE SKIP LOCKED`` and
+    decremented in a single statement guarded by ``credits_remaining > 0``, so
+    two concurrent requests can never grab the same credit or drive the balance
+    negative (BE-DATA-02). No commit here; the caller owns the transaction.
+    """
+    oldest_with_balance = (
+        select(BillingUserCredit.id)
         .where(
             and_(
                 BillingUserCredit.user_id == user.id,
@@ -333,11 +381,21 @@ async def _check_credits(user: User, db: AsyncSession) -> dict | None:
             )
         )
         .order_by(BillingUserCredit.created_at.asc())  # FIFO
+        .with_for_update(skip_locked=True)
+        .limit(1)
+        .scalar_subquery()
     )
-    credit = result.scalars().first()
-    if credit:
-        credit.credits_remaining -= 1
-        await db.commit()
+    stmt = (
+        update(BillingUserCredit)
+        .where(
+            BillingUserCredit.id == oldest_with_balance,
+            BillingUserCredit.credits_remaining > 0,
+        )
+        .values(credits_remaining=BillingUserCredit.credits_remaining - 1)
+        .returning(BillingUserCredit.id)
+    )
+    consumed = await db.execute(stmt)
+    if consumed.scalar_one_or_none() is not None:
         total_remaining = await get_credit_balance(user, db)
         return {
             "allowed": True,
@@ -356,11 +414,15 @@ async def check_visitor_access(
     tool_id: str,
     tool_type: str,
     db: AsyncSession,
+    auto_commit: bool = True,
 ) -> dict:
-    """Check tool access for an unauthenticated visitor using fingerprint + IP.
+    """Check (and consume) tool access for an unauthenticated visitor.
 
-    Creates a new visitor record if none exists. Uses the shared daily-limit
-    helper for usage tracking.
+    ``fingerprint`` is expected to be a **server-derived** key (IP + UA hash),
+    not the client-supplied X-Visitor-Id, so a visitor cannot reset their free
+    counter by rotating the header (BE-PAY-10). Creates a new visitor record if
+    none exists. No commit here unless ``auto_commit``; the caller owns the
+    transaction.
     """
     if tool_id in ALWAYS_FREE_TOOL_IDS or tool_type == "drawer":
         return {"allowed": True, "reason": "free"}
@@ -380,7 +442,7 @@ async def check_visitor_access(
         visitor = result.scalars().first()
 
     if visitor:
-        # Check daily limit using shared helper
+        # Check daily limit using shared helper (atomic UPSERT increment)
         limit_result = await _check_daily_limit(
             "visitor",
             visitor.id,
@@ -390,6 +452,8 @@ async def check_visitor_access(
         )
         if limit_result and not limit_result["allowed"]:
             limit_result["message"] = "Sign in to get more free uses, or buy a pass!"
+            if auto_commit:
+                await db.commit()
             return limit_result
 
         # Update fingerprint/IP if we found by the other
@@ -397,7 +461,8 @@ async def check_visitor_access(
             visitor.fingerprint = fingerprint
         if ip_address and str(visitor.ip_address) != ip_address:
             visitor.ip_address = ip_address
-        await db.commit()
+        if auto_commit:
+            await db.commit()
         return limit_result if limit_result else {"allowed": True, "reason": "free"}
 
     # New visitor
@@ -411,7 +476,8 @@ async def check_visitor_access(
     # Also insert into new table
     await increment_visitor_tool_usage(new_visitor.id, tool_id, db)
 
-    await db.commit()
+    if auto_commit:
+        await db.commit()
     return {"allowed": True, "reason": "free", "uses_today": 1}
 
 
@@ -457,6 +523,7 @@ async def grant_pass(
 
     billing_pass = BillingUserPass(
         user_id=user.id,
+        keycloak_sub=str(user.keycloak_id),
         pass_id=pass_id,
         tools_count=pass_def["tools"],
         uses_per_day=pass_def["uses_per_day"],
@@ -493,6 +560,7 @@ async def grant_credits(
     """
     billing_credit = BillingUserCredit(
         user_id=user.id,
+        keycloak_sub=str(user.keycloak_id),
         credits_total=amount,
         credits_remaining=amount,
         source=source,
@@ -503,6 +571,40 @@ async def grant_credits(
     if auto_commit:
         await db.commit()
     return billing_credit
+
+
+# ── Welcome gift (first purchase) ─────────────────────────────────────────────
+
+
+async def maybe_grant_welcome_gift(
+    user: User, db: AsyncSession, amount: int | None = None
+) -> bool:
+    """Grant a one-time welcome credit gift on the user's first purchase.
+
+    The amount comes from ``settings.WELCOME_GIFT_CREDITS`` unless overridden
+    (0 or negative disables the gift entirely). Idempotent: grants only if the
+    user has no prior ``welcome`` credit row. Called from the verify endpoints
+    and the webhook (whichever fulfills the first purchase — pass, credit, or
+    Pro), so the gift lands exactly once regardless of which path wins the
+    race. The caller holds the user row lock and owns the commit.
+    Returns True if the gift was granted.
+    """
+    if amount is None:
+        amount = settings.WELCOME_GIFT_CREDITS
+    if amount <= 0:
+        return False
+    existing = await db.execute(
+        select(func.count()).where(
+            and_(
+                BillingUserCredit.user_id == user.id,
+                BillingUserCredit.source == "welcome",
+            )
+        )
+    )
+    if existing.scalar() == 0:
+        await grant_credits(user, amount, "welcome", db, auto_commit=False)
+        return True
+    return False
 
 
 # ── Credit balance ───────────────────────────────────────────────────────────
@@ -564,8 +666,13 @@ async def get_active_credits(user: User, db: AsyncSession) -> list[BillingUserCr
 
 
 async def record_daily_login(user: User, db: AsyncSession) -> bool:
-    """Record daily login. Returns True if this is the first login today (bonus granted)."""
-    today = date.today()
+    """Record daily login. Returns True if this is the first login today.
+
+    OWNS ITS COMMIT — do not call from within an active transaction, because
+    this function commits the session, which will also commit any pending work
+    the caller has not yet committed.
+    """
+    today = datetime.now(UTC).date()
 
     stmt = (
         pg_insert(UserDailyLogin)
@@ -591,7 +698,7 @@ async def spin_wheel(user: User, db: AsyncSession) -> dict:
     Each user gets one spin per ISO week. Returns a dict describing the
     reward (credits or a pass), or an ``{"error": ...}`` dict if already spun.
     """
-    today = date.today()
+    today = datetime.now(UTC).date()
     iso_cal = today.isocalendar()
 
     # Check if already spun this week
@@ -608,9 +715,10 @@ async def spin_wheel(user: User, db: AsyncSession) -> dict:
     if existing_spin:
         return {"error": "Already spun this week. Come back next week!"}
 
-    # Weighted random selection
+    # Weighted random selection — use a cryptographic RNG so the outcome can't
+    # be predicted/seeded by a caller chasing the rare high-value prizes (BE-PAY-07).
     total_weight = sum(r["weight"] for r in SPIN_REWARDS)
-    roll = random.randint(1, total_weight)  # noqa: S311
+    roll = secrets.randbelow(total_weight) + 1
     cumulative = 0
     reward = SPIN_REWARDS[-1]
     for r in SPIN_REWARDS:
@@ -694,19 +802,34 @@ async def claim_referral(user: User, code: str, db: AsyncSession) -> dict:
         return {"error": "You've already used a referral code."}
     if user.referral_code == code:
         return {"error": "You can't use your own referral code."}
+    # M-10: require a verified email so a script can't farm referrals with a
+    # swarm of throwaway, never-confirmed accounts.
+    if not user.is_email_verified:
+        return {"error": "Verify your email before claiming a referral code."}
 
     result = await db.execute(select(User).where(User.referral_code == code))
     referrer = result.scalars().first()
     if not referrer:
         return {"error": "Invalid referral code."}
 
+    # M-10: cap how many referral payouts a single referrer can earn. Past the
+    # cap the new user still gets their reward, but the referrer earns nothing —
+    # so farming via burner accounts stops paying out.
+    referred_count = await db.scalar(
+        select(func.count()).select_from(User).where(User.referred_by == referrer.id)
+    )
+    referrer_eligible = (referred_count or 0) < settings.REFERRAL_MAX_PER_REFERRER
+
     try:
-        # Reward referrer
-        rr = REFERRAL_REWARDS["referrer"]
-        await grant_pass(
-            referrer, rr["pass_id"], ["*"], "referral", db, auto_commit=False
-        )
-        await grant_credits(referrer, rr["credits"], "referral", db, auto_commit=False)
+        # Reward referrer (only while under the per-referrer cap)
+        if referrer_eligible:
+            rr = REFERRAL_REWARDS["referrer"]
+            await grant_pass(
+                referrer, rr["pass_id"], ["*"], "referral", db, auto_commit=False
+            )
+            await grant_credits(
+                referrer, rr["credits"], "referral", db, auto_commit=False
+            )
 
         # Reward new user
         nr = REFERRAL_REWARDS["new_user"]

@@ -87,9 +87,10 @@ def verify_session(token: str, secret: str) -> SessionClaims | None:
     ):
         return None
 
-    # Expiry check
+    # Expiry check — 5-second leeway matches the JWKS RS256 verifier tolerance.
+    _LEEWAY = 5
     exp = claims.get("exp")
-    if not isinstance(exp, int) or exp < int(time.time()):
+    if not isinstance(exp, int) or exp < int(time.time()) - _LEEWAY:
         return None
 
     return claims

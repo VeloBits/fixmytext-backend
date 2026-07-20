@@ -14,4 +14,11 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "S105", "S106"]
 "app/db/models/*.py" = ["F821"]  # SQLAlchemy Mapped["Type"] forward refs
+# Alembic migrations: auto-generated; SA types imported for column defs (F401),
+# import ordering not meaningful (I001), env.py imports after sys.path edits (E402).
+"migrations/versions/*.py" = ["F401", "I001"]
+"migrations/env.py" = ["E402", "I001", "F401"]
+# main.py calls init_sentry() before framework imports so the Sentry SDK can
+# instrument httpx/FastAPI — the late imports are intentional.
+"main.py" = ["E402"]
 

@@ -2,10 +2,31 @@
 
 import ipaddress
 import logging
+import time
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# ── In-process TTL cache for IP → region lookups ─────────────────────────────
+# ip-api.com free tier: 45 req/min; at 1k-10k users this exhausts instantly
+# without caching. Each entry is (region_code, expiry_unix_float). A 1-hour
+# TTL keeps the table small while absorbing user-session traffic patterns.
+_REGION_CACHE: dict[str, tuple[str, float]] = {}
+_CACHE_TTL = 3600  # seconds
+
+
+def _cache_get(ip: str) -> str | None:
+    entry = _REGION_CACHE.get(ip)
+    if entry and time.monotonic() < entry[1]:
+        return entry[0]
+    _REGION_CACHE.pop(ip, None)
+    return None
+
+
+def _cache_set(ip: str, region: str) -> None:
+    _REGION_CACHE[ip] = (region, time.monotonic() + _CACHE_TTL)
+
 
 # Maps country codes to our pricing regions
 _COUNTRY_TO_REGION = {
@@ -44,6 +65,9 @@ _COUNTRY_TO_REGION = {
     "CY": "EU",
 }
 
+# Geolocation-failure fallback: "US" (USD pricing) for unresolvable IPs.
+# Distinct from pass_catalog.DEFAULT_REGION ("IN") which is the price-lookup
+# fallback inside get_price()/get_currency() for unknown region codes.
 DEFAULT_REGION = "US"
 
 
@@ -60,8 +84,17 @@ def _is_local_ip(ip_address: str) -> bool:
 
 async def detect_region(ip_address: str) -> str:
     """Detect pricing region from IP address. Returns region code (IN, US, GB, EU).
-    For local/private IPs, detects the server's public IP automatically."""
+
+    Results are cached for 1 hour per IP to stay well under ip-api.com's
+    free-tier rate limit (45 req/min).  Local/private IPs are resolved via
+    the server's own public IP and cached under the sentinel key "__local__".
+    """
     is_local = _is_local_ip(ip_address)
+    cache_key = "__local__" if is_local else ip_address
+
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -75,7 +108,9 @@ async def detect_region(ip_address: str) -> str:
 
             if resp.status_code == 200:
                 country = resp.json().get("countryCode", "")
-                return _COUNTRY_TO_REGION.get(country, DEFAULT_REGION)
+                region = _COUNTRY_TO_REGION.get(country, DEFAULT_REGION)
+                _cache_set(cache_key, region)
+                return region
     except Exception:
         logger.warning("Region detection failed for %s", ip_address, exc_info=True)
 

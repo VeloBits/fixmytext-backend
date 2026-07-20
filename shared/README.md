@@ -17,8 +17,8 @@ Shared Python package for FixMyText microservices. Installed as an **editable** 
 | `rate_limit.redis_limiter` | `RedisRateLimiter` — sliding window over Redis sorted sets |
 | `rate_limit.factory` | `create_limiter()` — picks Redis when configured, else in-memory |
 | `security.jwt` | `verify_jwt(token, *, algorithm=None)` — dispatcher to HS256 or JWKS adapter |
-| `security.hs256` | HS256 adapter (legacy, active during the auth-cutover transition) |
-| `security.jwks` | RS256 + JWKS adapter (dormant until Keycloak issues tokens) |
+| `security.hs256` | HS256 adapter (legacy fallback — not used in normal operation) |
+| `security.jwks` | RS256 + JWKS adapter — active production path for Keycloak-issued tokens |
 | `security.claims` | `ClaimSchema` — typed JWT payload (B2C now, optional `org_id` for B2B later) |
 | `schemas.errors` | `ErrorResponse`, `HTTPErrorEnvelope` |
 | `exceptions.http` | `AuthError`, `RateLimitError`, `ConfigError` |
@@ -50,4 +50,4 @@ Smoke tests cover sanitization, rate-limiting, HS256 round-trip, and JWKS adapte
 
 - **No business logic.** This package is cross-cutting concerns only — observability, middleware, rate limit, JWT. Business utilities live in services.
 - **No global state.** Functions take `settings` as argument. `init_*()` is idempotent; safe to call multiple times.
-- **JWT dispatcher.** `verify_jwt()` reads `JWT_ALGORITHM` env var once and routes to the right adapter. HS256 path is active during the strangler-fig auth migration; JWKS path becomes default after Keycloak goes live.
+- **JWT dispatcher.** `verify_jwt()` reads `JWT_ALGORITHM` env var (default `RS256`) and routes to the right adapter. RS256/JWKS is the production path (Keycloak tokens). HS256 is the legacy fallback; no service uses it in normal operation.

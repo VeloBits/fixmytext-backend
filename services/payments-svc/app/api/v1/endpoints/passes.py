@@ -1,16 +1,17 @@
 """Pass & credit endpoints: catalog, active, order, verify, spin, referral."""
 
+import hashlib
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import func, select
+from fixmytext_shared.observability import sanitize_log_value
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.pass_catalog import (
     CREDIT_PACKS,
-    DEFAULT_REGION,
     PASSES,
     REGIONS,
     get_credit_pack,
@@ -19,7 +20,6 @@ from app.core.pass_catalog import (
     get_price,
     get_symbol,
 )
-from app.db.models.billing_credit import BillingUserCredit
 from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.passes import (
@@ -37,17 +37,26 @@ from app.schemas.passes import (
     ReferralCodeResponse,
     SpinResult,
 )
+from app.services.fulfillment_service import (
+    AlreadyFulfilled,
+    fulfill_payment,
+    refund_unfulfillable_payment,
+)
+from app.services.order_validation import (
+    validate_order_scope_and_amount,
+    validate_tool_selection,
+)
 from app.services.pass_service import (
     claim_referral,
     ensure_referral_code,
     get_active_credits,
     get_active_passes,
     get_credit_balance,
-    grant_credits,
-    grant_pass,
+    maybe_grant_welcome_gift,
     spin_wheel,
 )
 from app.services.payment_service import verify_razorpay_payment
+from app.services.rate_limit import check_rate_limit
 from app.services.razorpay_service import create_order, payments_configured
 
 logger = logging.getLogger(__name__)
@@ -69,8 +78,8 @@ async def get_catalog(request: Request, region: str = ""):
 
         ip = request.client.host if request.client else ""
         region = await detect_region(ip)
-    if region not in REGIONS:
-        region = DEFAULT_REGION
+        # detect_region() always returns a REGIONS-valid code or its own
+        # DEFAULT_REGION ("US"), so no second fallback guard is needed here.
 
     currency = get_currency(region)
     symbol = get_symbol(region)
@@ -166,10 +175,21 @@ async def create_pass_order(
     """
     if not payments_configured():
         raise HTTPException(503, "Payments not configured")
+    await check_rate_limit(
+        f"ratelimit:order:{user.id}", settings.ORDER_RATE_LIMIT_PER_MINUTE
+    )
 
     pass_def = get_pass(req.pass_id)
     if not pass_def:
         raise HTTPException(400, f"Unknown pass: {req.pass_id}")
+
+    # Order-time scope validation: a tool-scoped pass with the wrong tool count
+    # can never be fulfilled (verify AND webhook reject it), so reject BEFORE
+    # money moves. Behind a rollout flag so a stale frontend without the tool
+    # picker degrades to the auto-refund path instead of hard-failing.
+    tool_ids = req.tool_ids
+    if settings.PASS_ORDER_STRICT_TOOL_SCOPE:
+        tool_ids = validate_tool_selection(pass_def, tool_ids)
 
     from app.services.region_service import resolve_user_region
 
@@ -178,19 +198,35 @@ async def create_pass_order(
     amount = get_price(req.pass_id, region)
     currency = get_currency(region)
 
-    idempotency_key = f"pass_{req.pass_id}_{user.id}"
-    order = create_order(
-        amount=amount,
-        currency=currency,
-        receipt=f"pass_{req.pass_id}_{str(user.id)[:8]}",
-        notes={
-            "user_id": str(user.id),
-            "item_id": req.pass_id,
-            "item_type": "pass",
-            "tool_ids": ",".join(req.tool_ids),
-        },
-        idempotency_key=idempotency_key,
-    )
+    # Key includes the (sorted) tool scope: Razorpay order reuse matches on
+    # receipt, and reusing an unpaid order created for DIFFERENT tools would
+    # silently grant the old selection (its notes win at fulfillment). Max
+    # length 2+12+1+8+1+8 = 32 ≤ Razorpay's 40-char receipt cap, so the
+    # distinguishing hash is never truncated away.
+    scope_hash = hashlib.sha256(",".join(sorted(tool_ids)).encode()).hexdigest()[:8]
+    idempotency_key = f"p_{req.pass_id[:12]}_{user.id.hex[:8]}_{scope_hash}"
+    try:
+        order = create_order(
+            amount=amount,
+            currency=currency,
+            receipt=idempotency_key,
+            notes={
+                "user_id": str(user.id),
+                "item_id": req.pass_id,
+                "item_type": "pass",
+                "tool_ids": ",".join(tool_ids),
+            },
+            idempotency_key=idempotency_key,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create Razorpay order for pass %s, user %s",
+            sanitize_log_value(req.pass_id),
+            user.id,
+        )
+        raise HTTPException(
+            502, "Failed to start checkout — please try again later"
+        ) from None
     return RazorpayOrderResponse(
         order_id=order["id"],
         amount=order["amount"],
@@ -217,6 +253,9 @@ async def create_credit_order(
     """
     if not payments_configured():
         raise HTTPException(503, "Payments not configured")
+    await check_rate_limit(
+        f"ratelimit:order:{user.id}", settings.ORDER_RATE_LIMIT_PER_MINUTE
+    )
 
     pack = get_credit_pack(req.pack_id)
     if not pack:
@@ -229,14 +268,29 @@ async def create_credit_order(
     amount = get_price(req.pack_id, region)
     currency = get_currency(region)
 
-    idempotency_key = f"credit_{req.pack_id}_{user.id}"
-    order = create_order(
-        amount=amount,
-        currency=currency,
-        receipt=f"credit_{req.pack_id}_{str(user.id)[:8]}",
-        notes={"user_id": str(user.id), "item_id": req.pack_id, "item_type": "credit"},
-        idempotency_key=idempotency_key,
-    )
+    # Short enough to survive Razorpay's 40-char receipt cap untruncated.
+    idempotency_key = f"c_{req.pack_id[:12]}_{user.id.hex[:8]}"
+    try:
+        order = create_order(
+            amount=amount,
+            currency=currency,
+            receipt=idempotency_key,
+            notes={
+                "user_id": str(user.id),
+                "item_id": req.pack_id,
+                "item_type": "credit",
+            },
+            idempotency_key=idempotency_key,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create Razorpay order for credit pack %s, user %s",
+            sanitize_log_value(req.pack_id),
+            user.id,
+        )
+        raise HTTPException(
+            502, "Failed to start checkout — please try again later"
+        ) from None
     return RazorpayOrderResponse(
         order_id=order["id"],
         amount=order["amount"],
@@ -258,92 +312,111 @@ async def verify_pass_payment(
 ):
     """Verify a Razorpay payment signature, then grant the purchased pass or credits.
 
-    Delegates signature and ownership checks to the payment service. On success,
-    grants the purchased item and a one-time welcome gift (10 credits) for
-    first-time purchasers. All grants are wrapped in a single transaction.
+    Fulfillment is idempotent and exactly-once: this verify callback and the
+    Razorpay webhook converge on a single ledger keyed by the payment id, so a
+    replayed body or a verify/webhook race grants the entitlement only once.
+    Tool scope and the paid amount are validated server-side against the order
+    notes and the catalog — the client-supplied ``tool_ids`` are ignored.
     """
     # Verify signature and ownership via centralized payment service
     order = await verify_razorpay_payment(
         req.razorpay_order_id, req.razorpay_payment_id, req.razorpay_signature, user
     )
 
-    # Validate that the order metadata matches the client's claimed item
-    notes = order.get("notes", {})
-    if notes.get("item_id") != req.item_id or notes.get("item_type") != req.item_type:
-        raise HTTPException(
-            400, "Order details do not match — item_id or item_type mismatch"
-        )
+    safe_item_id = sanitize_log_value(req.item_id)
+    safe_payment_id = sanitize_log_value(req.razorpay_payment_id)
 
-    # Lock user row first to ensure atomicity for grant + welcome gift
+    # Server-side scope + amount validation. tool_ids come from the order notes
+    # fixed at creation time, NOT from req.tool_ids; amount is reconciled against
+    # the catalog price for the charged currency. The signature above is VALID,
+    # so a validation failure here means a real customer paid for an order we
+    # cannot fulfil (e.g. a legacy scoped-pass order with empty tool_ids) —
+    # auto-refund instead of stranding captured money.
+    try:
+        tool_ids, amount, currency = validate_order_scope_and_amount(
+            order=order, expected_item_id=req.item_id, expected_item_type=req.item_type
+        )
+    except HTTPException as validation_error:
+        try:
+            await refund_unfulfillable_payment(
+                db=db,
+                user_id=user.id,
+                keycloak_sub=str(user.keycloak_id),
+                razorpay_payment_id=req.razorpay_payment_id,
+                razorpay_order_id=req.razorpay_order_id,
+                item_type=req.item_type,
+                item_id=req.item_id,
+                amount_subunits=order.get("amount"),
+                currency=order.get("currency"),
+                via="verify",
+                reason=str(validation_error.detail),
+            )
+            await db.commit()
+        except AlreadyFulfilled:
+            await db.rollback()
+            return {"status": "success", "detail": "already_fulfilled"}
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "Refund attempt failed (verify): payment=%s", safe_payment_id
+            )
+            raise HTTPException(
+                502, "Could not refund the payment — please contact support"
+            ) from validation_error
+        return {
+            "status": "refunded",
+            "detail": "order_validation_failed",
+            "message": "Your payment was refunded because the order could not be "
+            "validated. The amount should reach your account in 5-7 business days.",
+        }
+
+    # Lock the user row so the welcome-gift check is atomic against the webhook.
     await db.execute(select(User).where(User.id == user.id).with_for_update())
 
+    welcome = False
     try:
-        if req.item_type == "pass":
-            pass_def = get_pass(req.item_id)
-            if not pass_def:
-                raise HTTPException(400, f"Unknown pass: {req.item_id}")
-            tool_ids = req.tool_ids if req.tool_ids else ["*"]
-            await grant_pass(
-                user,
-                req.item_id,
-                tool_ids,
-                "razorpay",
-                db,
-                razorpay_payment_id=req.razorpay_payment_id,
-                auto_commit=False,
-            )
-            safe_item_id = str(req.item_id).replace("\r", "").replace("\n", "")
-            safe_payment_id = (
-                str(req.razorpay_payment_id).replace("\r", "").replace("\n", "")
-            )
-            logger.info(
-                "Pass granted: user=%s pass=%s payment=%s",
-                user.id,
-                safe_item_id,
-                safe_payment_id,
-            )
-
-        elif req.item_type == "credit":
-            pack = get_credit_pack(req.item_id)
-            if not pack:
-                raise HTTPException(400, f"Unknown credit pack: {req.item_id}")
-            await grant_credits(
-                user,
-                pack["credits"],
-                "purchase",
-                db,
-                razorpay_payment_id=req.razorpay_payment_id,
-                auto_commit=False,
-            )
-            safe_item_id = str(req.item_id).replace("\r", "").replace("\n", "")
-            safe_payment_id = (
-                str(req.razorpay_payment_id).replace("\r", "").replace("\n", "")
-            )
-            logger.info(
-                "Credits granted: user=%s pack=%s credits=%d payment=%s",
-                user.id,
-                safe_item_id,
-                pack["credits"],
-                safe_payment_id,
-            )
-
-        # First purchase welcome gift (idempotent — user row already locked above)
-        already_welcomed = await db.execute(
-            select(func.count()).where(
-                BillingUserCredit.user_id == user.id,
-                BillingUserCredit.source == "welcome",
-            )
+        await fulfill_payment(
+            db=db,
+            user=user,
+            razorpay_payment_id=req.razorpay_payment_id,
+            razorpay_order_id=req.razorpay_order_id,
+            item_type=req.item_type,
+            item_id=req.item_id,
+            tool_ids=tool_ids,
+            amount_subunits=amount,
+            currency=currency,
+            fulfilled_via="verify",
         )
-        if already_welcomed.scalar() == 0:
-            await grant_credits(user, 10, "welcome", db, auto_commit=False)
+        # First-purchase welcome gift (idempotent; user row locked above).
+        welcome = await maybe_grant_welcome_gift(user, db)
+        if welcome:
             logger.info("Welcome gift granted: user=%s", user.id)
-
         await db.commit()
+    except AlreadyFulfilled:
+        await db.rollback()
+        logger.info(
+            "Payment already fulfilled (verify): user=%s item=%s payment=%s",
+            user.id,
+            safe_item_id,
+            safe_payment_id,
+        )
+        return {"status": "success", "detail": "already_fulfilled"}
     except Exception:
         await db.rollback()
         raise
 
-    return {"status": "success"}
+    logger.info(
+        "Payment fulfilled (verify): user=%s type=%s item=%s payment=%s",
+        user.id,
+        sanitize_log_value(req.item_type),
+        safe_item_id,
+        safe_payment_id,
+    )
+    return {
+        "status": "success",
+        "welcome_gift": welcome,
+        "welcome_credits": settings.WELCOME_GIFT_CREDITS if welcome else 0,
+    }
 
 
 # ── Spin the Wheel ─────────────────────────────────────────────────────────

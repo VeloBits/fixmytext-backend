@@ -1,36 +1,34 @@
 # services/
 
-Reserved for extracted microservices. Each service is a self-contained
-FastAPI app that depends on the editable `shared/` package at
-`backend/shared/`.
+Extracted microservices. Each service is a self-contained FastAPI app that
+depends on the editable `shared/` package at `backend/shared/`.
 
-## Planned services
+## Services
 
 | Directory | Owns |
 |---|---|
-| `services/identity/` | OIDC integration with Keycloak; onboarding / profile sync |
 | `services/text-svc/` | Local text-transformation tools + `tool_registry` |
 | `services/ai-svc/` | Groq-backed AI text tools (translate, transliterate, tone, format) |
 | `services/payments-svc/` | Razorpay subscriptions, passes, credits, webhook |
-| `services/account-svc/` | User preferences, gamification, history, templates, pipelines, shares |
-| `services/monolith/` | TODO — surviving monolith routes during the strangler-fig migration |
+| `services/account-svc/` | User preferences, history, templates, pipelines, shares, plus auth/session (`/auth/me`, session cookie, backchannel logout, registration proxy to Keycloak) |
 
-## Per-service layout (target)
+Keycloak OIDC integration and onboarding/profile sync — originally scoped as a
+separate `identity` service — live inside `account-svc` (see `app/core/` and
+`app/services/keycloak_admin.py`). No surviving monolith service remains; the
+strangler-fig extraction is complete.
+
+## Per-service layout
 
 ```
 services/<name>/
+├── main.py        (app entry: lifespan, middleware, router mount — at the service root)
 ├── app/
 │   ├── api/
 │   ├── core/      (service-local config, deps; thin glue to shared/)
 │   ├── db/        (only if the service owns DB models)
-│   ├── schemas/
-│   └── main.py
+│   └── schemas/
 ├── tests/
-├── alembic/       (per-service migrations)
 ├── Dockerfile
 ├── pyproject.toml
 └── requirements.txt
 ```
-
-This directory is intentionally empty for now — services will be added as
-each extraction lands.

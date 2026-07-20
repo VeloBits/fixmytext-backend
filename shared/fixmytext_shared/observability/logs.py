@@ -1,6 +1,7 @@
 """OpenTelemetry Logs SDK init — ships log records over OTLP HTTP to a Loki backend."""
 
 import logging
+from urllib.parse import unquote
 
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
@@ -17,6 +18,16 @@ from fixmytext_shared.observability.sanitize import (
 _logger_provider: LoggerProvider | None = None
 
 
+def attach_log_sanitizers(handler: logging.Handler) -> None:
+    """Attach secret-sanitization + PII-redaction filters to a log handler.
+
+    The stdout StreamHandler must get these too — not only the OTLP handler —
+    or secrets/PII passed as query params reach Docker logs unredacted (M-9).
+    """
+    handler.addFilter(LogSanitizationFilter())
+    handler.addFilter(PiiRedactionFilter())
+
+
 def init_logs_otel(settings: BaseSharedSettings) -> None:
     """Configure OTel logs export. No-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset."""
     global _logger_provider
@@ -31,7 +42,7 @@ def init_logs_otel(settings: BaseSharedSettings) -> None:
         for part in raw_headers.split(","):
             if "=" in part:
                 k, _, v = part.partition("=")
-                headers[k.strip()] = v.strip()
+                headers[k.strip()] = unquote(v.strip())
 
     resource = Resource.create(
         {
