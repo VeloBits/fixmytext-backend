@@ -10,6 +10,7 @@ import logging
 
 import httpx
 from fastapi import HTTPException
+from fixmytext_shared.observability import sanitize_log_value
 
 from app.core.config import settings
 
@@ -71,7 +72,9 @@ async def check_access(
         resp = await _get_http_client().post(url, json=payload, headers=headers)
     except (httpx.HTTPError, OSError) as exc:
         logger.error(
-            "entitlement gate unreachable (%s) — blocking AI tool %s", exc, tool_id
+            "entitlement gate unreachable (%s) — blocking AI tool %s",
+            sanitize_log_value(exc),
+            sanitize_log_value(tool_id),
         )
         raise HTTPException(status_code=503, detail=_UNAVAILABLE) from exc
 
@@ -79,7 +82,7 @@ async def check_access(
         logger.error(
             "entitlement gate status %s — blocking AI tool %s",
             resp.status_code,
-            tool_id,
+            sanitize_log_value(tool_id),
         )
         raise HTTPException(status_code=503, detail=_UNAVAILABLE)
 

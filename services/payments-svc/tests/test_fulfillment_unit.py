@@ -54,18 +54,18 @@ def _fake_db(existing_sub=None):
 
 
 def _pro_kwargs(user, db, payment_id="pay_pro_1"):
-    return dict(
-        db=db,
-        user=user,
-        razorpay_payment_id=payment_id,
-        razorpay_order_id="order_pro_1",
-        item_type="pro_subscription",
-        item_id=None,
-        tool_ids=[],
-        amount_subunits=39900,
-        currency="INR",
-        fulfilled_via="verify",
-    )
+    return {
+        "db": db,
+        "user": user,
+        "razorpay_payment_id": payment_id,
+        "razorpay_order_id": "order_pro_1",
+        "item_type": "pro_subscription",
+        "item_id": None,
+        "tool_ids": [],
+        "amount_subunits": 39900,
+        "currency": "INR",
+        "fulfilled_via": "verify",
+    }
 
 
 # ── Pro expiry stamping ───────────────────────────────────────────────────────
@@ -141,19 +141,19 @@ async def test_renewal_reactivates_cancelled_in_period_plan():
 
 
 def _refund_kwargs(db, payment_id="pay_bad_1"):
-    return dict(
-        db=db,
-        user_id=uuid.uuid4(),
-        keycloak_sub=str(uuid.uuid4()),
-        razorpay_payment_id=payment_id,
-        razorpay_order_id="order_bad_1",
-        item_type="pass",
-        item_id="day_triple",
-        amount_subunits=2500,
-        currency="INR",
-        via="verify",
-        reason="tool_ids count does not match the purchased pass",
-    )
+    return {
+        "db": db,
+        "user_id": uuid.uuid4(),
+        "keycloak_sub": str(uuid.uuid4()),
+        "razorpay_payment_id": payment_id,
+        "razorpay_order_id": "order_bad_1",
+        "item_type": "pass",
+        "item_id": "day_triple",
+        "amount_subunits": 2500,
+        "currency": "INR",
+        "via": "verify",
+        "reason": "tool_ids count does not match the purchased pass",
+    }
 
 
 @pytest.mark.asyncio
@@ -178,11 +178,11 @@ async def test_refund_is_exactly_once_via_unique_payment_id():
     Razorpay refund API is never called again."""
     db = _fake_db()
     db.flush = AsyncMock(side_effect=IntegrityError("stmt", {}, Exception("dup")))
-    with patch(
-        "app.services.fulfillment_service.refund_payment"
-    ) as mock_refund:
-        with pytest.raises(AlreadyFulfilled):
-            await refund_unfulfillable_payment(**_refund_kwargs(db))
+    with (
+        patch("app.services.fulfillment_service.refund_payment") as mock_refund,
+        pytest.raises(AlreadyFulfilled),
+    ):
+        await refund_unfulfillable_payment(**_refund_kwargs(db))
 
     mock_refund.assert_not_called()
 
@@ -192,9 +192,11 @@ async def test_refund_api_failure_propagates_for_retry():
     """A Razorpay failure re-raises so the caller rolls back the ledger row
     and Razorpay's webhook retry re-attempts the refund safely."""
     db = _fake_db()
-    with patch(
-        "app.services.fulfillment_service.refund_payment",
-        side_effect=RuntimeError("razorpay down"),
+    with (
+        patch(
+            "app.services.fulfillment_service.refund_payment",
+            side_effect=RuntimeError("razorpay down"),
+        ),
+        pytest.raises(RuntimeError),
     ):
-        with pytest.raises(RuntimeError):
-            await refund_unfulfillable_payment(**_refund_kwargs(db))
+        await refund_unfulfillable_payment(**_refund_kwargs(db))

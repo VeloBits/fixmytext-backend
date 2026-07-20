@@ -88,11 +88,6 @@ async def test_subscription_status_returns_200_with_correct_shape(async_client, 
                 new_callable=AsyncMock,
                 return_value=[],
             ),
-            patch(
-                "app.api.v1.endpoints.subscription.get_subscription_tier",
-                new_callable=AsyncMock,
-                return_value="free",
-            ),
         ):
             response = await async_client.get(
                 "/api/v1/subscription/status",
@@ -151,11 +146,6 @@ async def test_subscription_status_first_call_grants_daily_bonus(async_client, a
                 "app.api.v1.endpoints.subscription.get_active_passes",
                 new_callable=AsyncMock,
                 return_value=[],
-            ),
-            patch(
-                "app.api.v1.endpoints.subscription.get_subscription_tier",
-                new_callable=AsyncMock,
-                return_value="free",
             ),
         ):
             response = await async_client.get(

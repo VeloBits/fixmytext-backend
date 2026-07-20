@@ -83,11 +83,6 @@ async def test_checkout_happy_path_creates_order_with_regional_price(async_clien
                 new_callable=AsyncMock,
             ),
             patch(
-                "app.api.v1.endpoints.subscription.get_subscription_tier",
-                new_callable=AsyncMock,
-                return_value="free",
-            ),
-            patch(
                 "app.api.v1.endpoints.subscription.create_order",
                 return_value={"id": "order_pro_1", "amount": 39900, "currency": "INR"},
             ) as mock_create,
@@ -125,11 +120,6 @@ async def test_checkout_razorpay_failure_returns_502(async_client, app):
             patch(
                 "app.api.v1.endpoints.subscription.check_rate_limit",
                 new_callable=AsyncMock,
-            ),
-            patch(
-                "app.api.v1.endpoints.subscription.get_subscription_tier",
-                new_callable=AsyncMock,
-                return_value="free",
             ),
             patch(
                 "app.api.v1.endpoints.subscription.create_order",
@@ -473,11 +463,6 @@ async def test_status_resolves_region_when_missing(async_client, app):
                 "app.api.v1.endpoints.subscription.get_active_passes",
                 new_callable=AsyncMock,
                 return_value=[],
-            ),
-            patch(
-                "app.api.v1.endpoints.subscription.get_subscription_tier",
-                new_callable=AsyncMock,
-                return_value="free",
             ),
         ):
             response = await async_client.get(

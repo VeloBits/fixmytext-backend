@@ -10,6 +10,7 @@ import logging
 
 import httpx
 from fastapi import HTTPException, Request
+from fixmytext_shared.observability import sanitize_log_value
 
 from app.core.auth import OptionalUser
 from app.core.config import settings
@@ -64,13 +65,15 @@ def _fail_closed(tool_id: str, tool_type: str, reason: str) -> None:
     """Allow only always-free tools when the gate is unreachable; else 503."""
     if tool_id in ALWAYS_FREE_TOOL_IDS or tool_type == "drawer":
         logger.warning(
-            "entitlement gate unavailable (%s) — serving free tool %s", reason, tool_id
+            "entitlement gate unavailable (%s) — serving free tool %s",
+            sanitize_log_value(reason),
+            sanitize_log_value(tool_id),
         )
         return
     logger.error(
         "entitlement gate unavailable (%s) — blocking billable tool %s",
-        reason,
-        tool_id,
+        sanitize_log_value(reason),
+        sanitize_log_value(tool_id),
     )
     raise HTTPException(
         status_code=503,

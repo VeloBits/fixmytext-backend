@@ -9,6 +9,7 @@ gracefully too: if Redis is unavailable, revocations are not persisted
 import logging
 import time
 
+from fixmytext_shared.observability import sanitize_log_value
 from redis.asyncio import Redis
 
 from app.core.config import settings
@@ -72,7 +73,7 @@ async def revoke_session(sub: str, ttl_seconds: int) -> None:
     if redis is None:
         logger.warning(
             "revoke_session: Redis unavailable — revocation not persisted for sub=%s",
-            sub,
+            sanitize_log_value(sub),
         )
         return
     await redis.set(

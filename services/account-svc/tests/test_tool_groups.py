@@ -289,9 +289,7 @@ async def test_delete_tool_group_not_found(async_client, app):
     mock_db.execute = AsyncMock(return_value=_result(scalar_one_or_none=None))
     _override_deps(app, mock_db)
     try:
-        response = await async_client.delete(
-            f"/api/v1/user/tool-groups/{uuid.uuid4()}"
-        )
+        response = await async_client.delete(f"/api/v1/user/tool-groups/{uuid.uuid4()}")
         assert response.status_code == 404
         mock_db.delete.assert_not_awaited()
     finally:
@@ -334,9 +332,7 @@ async def test_add_tool_to_group_idempotent(async_client, app):
     mock_db = AsyncMock()
     mock_db.add = MagicMock()
     mock_db.get = AsyncMock(return_value=existing_item)
-    mock_db.execute = AsyncMock(
-        return_value=_result(scalar_one_or_none=_fake_group())
-    )
+    mock_db.execute = AsyncMock(return_value=_result(scalar_one_or_none=_fake_group()))
     _override_deps(app, mock_db)
     try:
         response = await async_client.post(
@@ -379,9 +375,7 @@ async def test_remove_tool_from_group(async_client, app):
     item = MagicMock()
     mock_db = AsyncMock()
     mock_db.get = AsyncMock(return_value=item)
-    mock_db.execute = AsyncMock(
-        return_value=_result(scalar_one_or_none=_fake_group())
-    )
+    mock_db.execute = AsyncMock(return_value=_result(scalar_one_or_none=_fake_group()))
     _override_deps(app, mock_db)
     try:
         response = await async_client.delete(
@@ -398,9 +392,7 @@ async def test_remove_tool_from_group_absent_is_silent(async_client, app):
     """DELETE for a tool not in the group still returns 204 (no error)."""
     mock_db = AsyncMock()
     mock_db.get = AsyncMock(return_value=None)
-    mock_db.execute = AsyncMock(
-        return_value=_result(scalar_one_or_none=_fake_group())
-    )
+    mock_db.execute = AsyncMock(return_value=_result(scalar_one_or_none=_fake_group()))
     _override_deps(app, mock_db)
     try:
         response = await async_client.delete(

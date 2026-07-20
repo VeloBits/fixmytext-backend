@@ -34,7 +34,6 @@ from app.services.pass_service import (
     get_all_tool_uses_today,
     get_credit_balance,
     get_pro_subscription,
-    get_subscription_tier,
     has_logged_in_today,
     maybe_grant_welcome_gift,
     record_daily_login,

@@ -13,6 +13,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from fixmytext_shared.observability import sanitize_log_value
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -107,7 +108,9 @@ async def check_access(
         raise
     except SQLAlchemyError as exc:
         await db.rollback()
-        logger.exception("check-access DB error for tool=%s", req.tool_id)
+        logger.exception(
+            "check-access DB error for tool=%s", sanitize_log_value(req.tool_id)
+        )
         raise HTTPException(503, "entitlement service unavailable") from exc
 
     return CheckAccessResponse(

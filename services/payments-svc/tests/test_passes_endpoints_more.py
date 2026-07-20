@@ -619,6 +619,7 @@ async def test_claim_referral_success_returns_result(async_client, app):
 
 # ── POST /passes/order — order-time tool-scope validation (strict flag) ──────
 
+
 def _order_patches(stack):
     """Enter the common /passes/order patches on an ExitStack."""
     stack.enter_context(

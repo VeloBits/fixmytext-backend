@@ -219,7 +219,9 @@ class TestValidateToolSelection:
         from app.services.order_validation import validate_tool_selection
 
         with pytest.raises(HTTPException) as exc:
-            validate_tool_selection(self._pass(3), ["uppercase", "uppercase", "translate"])
+            validate_tool_selection(
+                self._pass(3), ["uppercase", "uppercase", "translate"]
+            )
         assert exc.value.status_code == 400
         assert "exactly 3 tools" in exc.value.detail.lower()
 
