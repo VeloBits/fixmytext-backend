@@ -29,8 +29,9 @@ Use **Keycloak** as the identity provider.
   with cached public keys — no per-request roundtrip to Keycloak.
 - **Storage**: Keycloak runs its own PostgreSQL (`keycloak-db` service in
   docker-compose), separate from the monolith's `db-service`.
-- **Realm**: `fixmytext`. Two clients: `fixmytext-frontend` (public, PKCE)
-  and `fixmytext-backend` (confidential, service account for Admin API).
+- **Realms**: `Velobits-Dev` (dev) and `Velobits-Prod` (prod). Two clients per realm:
+  `develop-fixmytext` / `fixmytext` (public, PKCE — frontend) and `fixmytext-backend`
+  (confidential, service account for Admin API).
 - **Migration path**: TODO — read `auth.users` from the monolith DB and
   push each row into Keycloak via the Admin API; bcrypt hashes are
   imported as opaque credentials so users keep their existing passwords.
@@ -56,9 +57,9 @@ re-platform.
 **Positive:**
 - Auth complexity moves out of our codebase. No more bcrypt, password
   policy, password-reset email flow, or token issuance to maintain.
-- Frontend gets a real OIDC client (`fixmytext-frontend`) with PKCE —
-  industry-standard and immediately compatible with mobile SDKs if/when we
-  add native apps.
+- Frontend gets a real OIDC client (`develop-fixmytext` in dev, `fixmytext`
+  in prod) with PKCE — industry-standard and immediately compatible with
+  mobile SDKs if/when we add native apps.
 - Future B2B features (SSO via Okta / Azure AD, SAML, social login) are
   config in the Keycloak admin console rather than code work.
 
@@ -75,7 +76,31 @@ re-platform.
 
 ## Current status
 
-Keycloak is started by docker-compose and the realm is auto-imported, but
-**no users are provisioned and no traffic flows through it**. Activation
-is TODO (user migration script, JWT_ALGORITHM flip, frontend OIDC,
-Kong route to Keycloak, SMTP wiring).
+Keycloak is the **sole, fully-active auth path**. All services verify
+RS256 JWTs locally against the realm's JWKS (no DIY HS256 issuance remains
+in the request path). `account-svc` owns the identity surface: registration
+and login proxy to Keycloak, sessions are tracked via a host-only signed
+cookie, and OIDC single-logout is handled by the `/auth/backchannel-logout`
+endpoint that Keycloak calls server-to-server. The frontend authenticates
+through the public PKCE client (`develop-fixmytext` dev / `fixmytext` prod)
+and the backend authenticates to the Admin API via the `fixmytext-backend`
+service account. SMTP, email verification, and password reset run through
+Keycloak.
+
+## Amendment (2026-06-23): service-account admin auth
+
+`account-svc` now authenticates to the Keycloak Admin API using a dual
+strategy (`app/services/keycloak_admin.py`, added in commit `c8d1539`):
+
+- **Preferred** — dedicated service-account client (`fixmytext-backend`)
+  via the `client_credentials` grant against the **product realm**'s token
+  endpoint. Used when `KEYCLOAK_SERVICE_ACCOUNT_ID` and
+  `KEYCLOAK_SERVICE_ACCOUNT_SECRET` are both set. The client is granted the
+  `manage-users` / `view-users` roles from `realm-management` by
+  `bootstrap.sh`, so it never needs master-realm credentials.
+- **Fallback** — master-realm `admin-cli` `password` grant using
+  `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD`. Used only when the service
+  account is not yet provisioned.
+
+Admin tokens are cached for their lifetime to avoid hammering the token
+endpoint.

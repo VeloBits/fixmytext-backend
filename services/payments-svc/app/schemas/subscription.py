@@ -1,5 +1,7 @@
 """Pydantic schemas for subscription/billing."""
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -13,6 +15,10 @@ class SubscriptionStatus(BaseModel):
     credit_balance: int = 0
     active_passes_count: int = 0
     region: str | None = None
+    # When the current Pro period ends (None when not Pro). Pro is a one-time
+    # 30-day purchase; a cancelled plan keeps access until this date.
+    pro_expires_at: datetime | None = None
+    pro_cancelled: bool = False
 
 
 class RazorpayProOrderResponse(BaseModel):

@@ -1,6 +1,6 @@
 fastapi==0.136.1
 uvicorn[standard]==0.46.0
-pydantic-settings==2.14.1
+pydantic-settings==2.14.2
 PyYAML==6.0.3
 regex>=2026.5.9
 emoji==2.15.0

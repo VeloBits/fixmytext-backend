@@ -1,41 +1,61 @@
 # Backend Architecture
 
-> System overview of the FixMyText FastAPI backend.
+> System overview of the FixMyText backend microservices.
 
-## Layered Architecture
+## Topology
+
+The monolith has been extracted into four standalone FastAPI services behind a
+Kong API gateway (itself fronted by a Traefik edge proxy). Keycloak is the
+identity provider; auth/session handling lives in `account-svc`.
 
 ```mermaid
 graph TD
     Client["HTTP Client"]
-    Middleware["ASGI Middleware Stack"]
-    Routers["FastAPI Routers\n(/auth · /text · /user-data · /history · /share · /subscription · /passes)"]
-    Services["Services Layer\n(text_service · ai_service · payment_service · pass_service)"]
+    Traefik["Traefik\n(edge proxy — Host routing)"]
+    Kong["Kong\n(API gateway — /api/v1/* fan-out)"]
+    Account["account-svc\n(/auth · /user · /history · /share)"]
+    Text["text-svc\n(/text local tools)"]
+    AI["ai-svc\n(/text AI tools)"]
+    Payments["payments-svc\n(/subscription · /passes)"]
+    Keycloak["Keycloak\n(OIDC IdP / JWKS)"]
     DB["PostgreSQL\n(asyncpg / SQLAlchemy 2.x)"]
-    Redis["Redis\n(optional — rate limiting)"]
+    Redis["Redis\n(rate limiting · session revocation)"]
     Groq["Groq API\n(llama-3.3-70b-versatile)"]
     Razorpay["Razorpay\n(payment gateway)"]
 
-    Client -->|"HTTP request"| Middleware
-    Middleware --> Routers
-    Routers --> Services
-    Services --> DB
-    Services -->|"if REDIS_URL set"| Redis
-    Services -->|"AI tool calls"| Groq
-    Services -->|"billing"| Razorpay
+    Client --> Traefik --> Kong
+    Kong --> Account
+    Kong --> Text
+    Kong --> AI
+    Kong --> Payments
+    Account -->|"JWKS verify · Admin API"| Keycloak
+    Account --> DB
+    Account -->|"sessions · revocation"| Redis
+    Payments --> DB
+    Payments -->|"billing"| Razorpay
+    Text --> DB
+    AI -->|"AI tool calls"| Groq
 ```
+
+Each service is a self-contained FastAPI app (`main.py` at the service root)
+that shares the editable `fixmytext-shared` package for cross-cutting config,
+middleware, security, and observability. Within each service the request still
+flows Endpoint → service/business logic → Database.
 
 ---
 
 ## Middleware Stack
 
-FastAPI calls middleware in reverse registration order — the last `add_middleware()` call wraps outermost. The effective request-processing order is:
+Cross-cutting middleware comes from `fixmytext_shared.middleware` and is
+registered per-service in each service's `main.py`. FastAPI/Starlette calls
+middleware in reverse registration order — the last `add_middleware()` call
+wraps outermost. For `account-svc` the effective request-processing order is:
 
-1. **CORSMiddleware** — validates `Origin` header against `CORS_ORIGINS`, sets `Access-Control-*` response headers.
-2. **RequestLoggingMiddleware** — logs method, path, status code, latency, and the `X-Correlation-ID` set by the next layer.
-3. **SecurityHeadersMiddleware** — injects `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Content-Security-Policy` on every response.
-4. **CorrelationIdMiddleware** — reads or generates a UUID `X-Correlation-ID` header and attaches it to the request state.
-
-All four middleware classes are defined directly in `main.py`.
+1. **ProxyHeadersMiddleware** (outermost) — trusts `X-Forwarded-For` only from `TRUSTED_PROXY_HOSTS` so the real client IP is visible to the rate limiter (Kong is the sole trusted upstream in compose).
+2. **CORSMiddleware** — validates `Origin` against the allowed-origins list, sets `Access-Control-*` response headers; `allow_credentials=True` for the session cookie.
+3. **RequestLoggingMiddleware** — logs method, path, status code, latency, and the correlation ID.
+4. **SecurityHeadersMiddleware** — injects `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Content-Security-Policy` on every response.
+5. **CorrelationIdMiddleware** (innermost) — reads or generates a UUID correlation ID and attaches it to the request state.
 
 ---
 
@@ -108,7 +128,7 @@ Models are split across three PostgreSQL schemas:
 | Schema | Tables |
 |--------|--------|
 | `auth` | `user`, `preferences`, `user_ui_settings` |
-| `activity` | `operation_history`, `user_tool_stats`, `user_tool_usage`, `visitor_usage`, `visitor_tool_usage`, `user_daily_login`, `user_discovered_tool`, `user_favorite_tool`, `user_pipeline`, `gamification`, `shared_result`, `template`, `user_spin_log` |
+| `activity` | `operation_history`, `user_tool_stats`, `user_tool_usage`, `visitor_usage`, `visitor_tool_usage`, `user_daily_login`, `user_discovered_tool`, `user_favorite_tool`, `user_pipeline`, `shared_result`, `template`, `user_spin_log` |
 | `billing` | `billing_catalog`, `billing_subscription`, `billing_credit`, `billing_pass` |
 
 Schema names are configured via `DB_SCHEMA_AUTH`, `DB_SCHEMA_ACTIVITY`, and `DB_SCHEMA_BILLING` in `app/core/config.py` (defaults: `auth`, `activity`, `billing`).
@@ -117,11 +137,12 @@ Schema names are configured via `DB_SCHEMA_AUTH`, `DB_SCHEMA_ACTIVITY`, and `DB_
 
 ## Redis Integration
 
-Redis is **optional**. When `REDIS_URL` is set in the environment, `app/core/redis.py` opens an `asyncio`-backed connection pool at startup (FastAPI lifespan). When Redis is unavailable or `REDIS_URL` is empty, the application falls back to in-memory rate-limit counters that do not persist across restarts or scale across multiple workers.
+When `REDIS_URL` is set, `app/core/redis.py` opens an `asyncio`-backed connection pool at startup (FastAPI lifespan). When `REDIS_URL` is empty, services fall back to in-memory counters that do not persist across restarts or scale across workers. For `account-svc`, `REDIS_URL` is **required in production** (asserted at startup) so rate limits and session revocation hold across replicas.
 
 Redis is used for:
 
-- **Distributed rate limiting** — per-user and per-visitor daily tool counts
+- **Distributed rate limiting** — per-user/per-visitor tool counts and the per-IP registration throttle (`/auth/register`)
+- **Session revocation** — `/auth/session/clear` and `/auth/backchannel-logout` add sessions to a revocation set so a stolen/logged-out cookie cannot be replayed
 - **Auth cooldowns** — per-user throttle on password-reset and email-verification requests
 
 ---

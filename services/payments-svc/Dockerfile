@@ -19,8 +19,8 @@ WORKDIR /app
 COPY services/payments-svc/requirements.txt .
 COPY shared/ ./shared/
 RUN python -m venv .venv && \
-    .venv/bin/pip install --upgrade pip --quiet && \
-    .venv/bin/pip install --no-cache-dir -r requirements.txt
+    .venv/bin/pip install --upgrade pip setuptools wheel --quiet && \
+    .venv/bin/pip install --no-cache-dir --no-build-isolation -r requirements.txt
 
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
@@ -31,6 +31,10 @@ FROM python:${PYTHON_VERSION}-slim AS runtime
 ARG APP_VERSION=0.0.0-dev
 ENV VERSION=${APP_VERSION}
 LABEL org.opencontainers.image.version=${APP_VERSION}
+
+# Apply available OS security patches (e.g. openssl) so the base image's fixable
+# CVEs don't trip the CI Trivy gate. Runs as root before dropping privileges.
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
 # Non-root user for security
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser

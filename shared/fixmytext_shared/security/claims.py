@@ -8,11 +8,10 @@ from typing import Any
 class ClaimSchema:
     """Strongly-typed view of a JWT payload.
 
-    Tokens issued by the legacy HS256 path carry only ``sub``, ``exp``,
-    ``iat``, ``type``. Tokens issued by Keycloak (once the auth cutover
-    lands) carry ``email``, ``email_verified``, ``roles``, plus standard
-    OIDC claims (``iss``, ``aud``). ``org_id`` is the B2B-ready hook —
-    None today.
+    Tokens issued by Keycloak (RS256) carry ``email``, ``email_verified``,
+    ``roles``, plus standard OIDC claims (``iss``, ``aud``). The legacy HS256
+    path only carries ``sub``, ``exp``, ``iat``, ``type`` — it is no longer
+    used in normal operation. ``org_id`` is the B2B-ready hook — None today.
     """
 
     sub: str
@@ -25,6 +24,7 @@ class ClaimSchema:
     org_id: str | None = None
     iss: str | None = None
     aud: str | None = None
+    preferred_username: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "ClaimSchema":
@@ -32,15 +32,23 @@ class ClaimSchema:
 
         Unknown extra keys are ignored; missing optional fields use defaults.
         """
+        sub = str(payload.get("sub", "")).strip()
+        if not sub:
+            raise ValueError("JWT claim 'sub' is required and must not be empty")
         roles = payload.get("roles") or payload.get("realm_access", {}).get("roles", [])
         if not isinstance(roles, list):
             roles = []
         aud = payload.get("aud")
         if isinstance(aud, list):
-            aud = aud[0] if aud else None
+            aud = next((a for a in aud if isinstance(a, str)), None)
+        elif not isinstance(aud, str):
+            aud = None
+        exp_raw = payload.get("exp")
+        if exp_raw is None:
+            raise ValueError("JWT claim 'exp' is required")
         return cls(
-            sub=str(payload.get("sub", "")),
-            exp=int(payload.get("exp", 0)),
+            sub=sub,
+            exp=int(exp_raw),
             iat=int(payload.get("iat", 0)),
             type=str(payload.get("type", "access")),
             email=payload.get("email"),
@@ -49,6 +57,7 @@ class ClaimSchema:
             org_id=payload.get("org_id"),
             iss=payload.get("iss"),
             aud=aud,
+            preferred_username=payload.get("preferred_username"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -60,8 +69,9 @@ class ClaimSchema:
             "type": self.type,
             "email": self.email,
             "email_verified": self.email_verified,
-            "roles": self.roles,
+            "roles": list(self.roles),
             "org_id": self.org_id,
             "iss": self.iss,
             "aud": self.aud,
+            "preferred_username": self.preferred_username,
         }

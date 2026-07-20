@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, SmallInteger, String, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, SmallInteger, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,15 @@ class BillingUserCredit(Base):
             "credits_remaining",
             postgresql_where=text("credits_remaining > 0"),
         ),
+        CheckConstraint(
+            "credits_remaining >= 0 AND credits_remaining <= credits_total",
+            name="ck_credits_remaining_valid",
+        ),
+        CheckConstraint(
+            "source IN ('purchase', 'streak', 'quest', 'achievement', 'referral', 'welcome', 'spin')",
+            name="ck_credit_source",
+        ),
+        Index("ix_billing_user_credits_keycloak_sub", "keycloak_sub"),
         {"schema": settings.DB_SCHEMA_BILLING},
     )
 
@@ -41,6 +50,8 @@ class BillingUserCredit(Base):
         nullable=False,
         index=True,
     )
+    # Keycloak subject denormalized from auth.users.keycloak_id (migrations 0027/0028).
+    keycloak_sub: Mapped[str] = mapped_column(String(255), nullable=False)
     pack_id: Mapped[str | None] = mapped_column(
         String(50),
         ForeignKey(f"{settings.DB_SCHEMA_BILLING}.credit_pack_catalog.id"),

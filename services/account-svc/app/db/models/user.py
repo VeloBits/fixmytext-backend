@@ -1,79 +1,33 @@
-"""User ORM model — lives in the 'auth' schema."""
+"""User ORM model for account-svc — lives in the 'auth' schema.
 
-import uuid
-from datetime import datetime
+The column set is defined once in fixmytext_shared.db.models.user via the
+make_user_class() factory.  Service-specific activity relationships are attached
+here after the class is created.
+"""
 
-import sqlalchemy as sa
-from sqlalchemy import Boolean, ForeignKey, Index, String, text
-from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from fixmytext_shared.db.models.user import make_user_class
+from sqlalchemy.orm import relationship
 
 from app.core.config import settings
 from app.db.session import Base
 
+User = make_user_class(Base, settings.DB_SCHEMA_AUTH)
 
-class User(Base):
-    __tablename__ = "users"
-    __table_args__ = (
-        Index("uq_users_email", "email", unique=True),
-        Index("uq_users_referral_code", "referral_code", unique=True),
-        Index("ix_auth_users_email", "email"),
-        {"schema": settings.DB_SCHEMA_AUTH},
-    )
+# ── Activity-schema relationships (account-svc only) ──────────────────────────
+User.preferences = relationship(
+    "UserPreferences", back_populates="user", cascade="all, delete-orphan"
+)
+User.ui_settings = relationship(
+    "UserUiSettings", back_populates="user", cascade="all, delete-orphan"
+)
+User.templates = relationship(
+    "UserTemplate", back_populates="user", cascade="all, delete-orphan"
+)
+User.operation_history = relationship(
+    "OperationHistory", back_populates="user", cascade="all, delete-orphan"
+)
+User.pipelines = relationship(
+    "UserPipeline", back_populates="user", cascade="all, delete-orphan"
+)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
-    )
-    email: Mapped[str] = mapped_column(String(255), nullable=False)
-    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    keycloak_id: Mapped[uuid.UUID | None] = mapped_column(
-        sa.UUID(as_uuid=True), nullable=True, unique=True, index=True
-    )
-    display_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, default=True, server_default=text("true")
-    )
-    is_email_verified: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default=text("false"), nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=text("now()")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=text("now()"), onupdate=datetime.now
-    )
-    last_login_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
-    )
-
-    # ── Referral ───────────────────────────────────────────────────────────────
-    referral_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    referred_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    region: Mapped[str | None] = mapped_column(String(5), nullable=True)
-
-    # ── Relationships ──────────────────────────────────────────────────────────
-    preferences: Mapped["UserPreferences | None"] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
-    ui_settings: Mapped["UserUiSettings | None"] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
-    gamification: Mapped["UserGamification | None"] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
-    templates: Mapped[list["UserTemplate"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
-    operation_history: Mapped[list["OperationHistory"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
-    pipelines: Mapped[list["UserPipeline"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
+__all__ = ["User"]
