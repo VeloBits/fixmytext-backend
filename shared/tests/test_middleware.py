@@ -76,8 +76,7 @@ class TestSecurityHeadersMiddleware:
         async with _client_for(app) as client:
             resp = await client.get("/docs")
         csp = resp.headers["Content-Security-Policy"]
-        assert "cdn.jsdelivr.net" in csp
-        assert "script-src" in csp
+        assert "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " in csp
         assert "frame-ancestors 'none'" in csp
 
     async def test_docs_keep_strict_csp_in_production(self):
