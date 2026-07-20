@@ -4,6 +4,7 @@ import hashlib
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fixmytext_shared.observability import sanitize_log_value
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -219,7 +220,9 @@ async def create_pass_order(
         )
     except Exception:
         logger.exception(
-            "Failed to create Razorpay order for pass %s, user %s", req.pass_id, user.id
+            "Failed to create Razorpay order for pass %s, user %s",
+            sanitize_log_value(req.pass_id),
+            user.id,
         )
         raise HTTPException(
             502, "Failed to start checkout — please try again later"
@@ -282,7 +285,7 @@ async def create_credit_order(
     except Exception:
         logger.exception(
             "Failed to create Razorpay order for credit pack %s, user %s",
-            req.pack_id,
+            sanitize_log_value(req.pack_id),
             user.id,
         )
         raise HTTPException(
@@ -320,8 +323,8 @@ async def verify_pass_payment(
         req.razorpay_order_id, req.razorpay_payment_id, req.razorpay_signature, user
     )
 
-    safe_item_id = str(req.item_id).replace("\r", "").replace("\n", "")
-    safe_payment_id = str(req.razorpay_payment_id).replace("\r", "").replace("\n", "")
+    safe_item_id = sanitize_log_value(req.item_id)
+    safe_payment_id = sanitize_log_value(req.razorpay_payment_id)
 
     # Server-side scope + amount validation. tool_ids come from the order notes
     # fixed at creation time, NOT from req.tool_ids; amount is reconciled against
@@ -405,7 +408,7 @@ async def verify_pass_payment(
     logger.info(
         "Payment fulfilled (verify): user=%s type=%s item=%s payment=%s",
         user.id,
-        req.item_type,
+        sanitize_log_value(req.item_type),
         safe_item_id,
         safe_payment_id,
     )
