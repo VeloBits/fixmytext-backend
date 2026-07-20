@@ -8,6 +8,7 @@ and not-configured checkout guards). No live DB or Razorpay required.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -285,6 +286,11 @@ async def test_verify_happy_path_activates_pro(async_client, app):
                 "app.api.v1.endpoints.subscription.fulfill_payment",
                 new_callable=AsyncMock,
             ) as mock_fulfill,
+            patch(
+                "app.api.v1.endpoints.subscription.maybe_grant_welcome_gift",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_gift,
         ):
             response = await async_client.post(
                 "/api/v1/subscription/verify", json=_VERIFY_BODY, headers=_AUTH
@@ -293,9 +299,15 @@ async def test_verify_happy_path_activates_pro(async_client, app):
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == {"status": "success", "tier": "pro"}
+    assert response.json() == {
+        "status": "success",
+        "tier": "pro",
+        "welcome_gift": True,
+        "welcome_credits": 10,
+    }
     mock_fulfill.assert_awaited_once()
     assert mock_fulfill.await_args.kwargs["fulfilled_via"] == "verify"
+    mock_gift.assert_awaited_once()
     db.commit.assert_awaited()
 
 
@@ -349,9 +361,9 @@ async def test_cancel_without_active_pro_returns_400(async_client, app):
 
     try:
         with patch(
-            "app.api.v1.endpoints.subscription.get_subscription_tier",
+            "app.api.v1.endpoints.subscription.get_pro_subscription",
             new_callable=AsyncMock,
-            return_value="free",
+            return_value=None,
         ):
             response = await async_client.post(
                 "/api/v1/subscription/cancel", headers=_AUTH
@@ -365,23 +377,19 @@ async def test_cancel_without_active_pro_returns_400(async_client, app):
 
 @pytest.mark.asyncio
 async def test_cancel_active_pro_marks_subscription_cancelled(async_client, app):
+    """Cancel keeps access until the paid period ends — the response carries
+    access_until and the row flips to 'cancelled' (not deleted/downgraded)."""
     user = _make_user()
-    active_sub = SimpleNamespace(status="active", cancelled_at=None)
+    expires = datetime.now(UTC) + timedelta(days=12)
+    active_sub = SimpleNamespace(status="active", cancelled_at=None, expires_at=expires)
     db = _mock_db()
-    db.execute = AsyncMock(
-        return_value=MagicMock(
-            scalars=MagicMock(
-                return_value=MagicMock(first=MagicMock(return_value=active_sub))
-            )
-        )
-    )
     _override(app, user, db)
 
     try:
         with patch(
-            "app.api.v1.endpoints.subscription.get_subscription_tier",
+            "app.api.v1.endpoints.subscription.get_pro_subscription",
             new_callable=AsyncMock,
-            return_value="pro",
+            return_value=active_sub,
         ):
             response = await async_client.post(
                 "/api/v1/subscription/cancel", headers=_AUTH
@@ -390,10 +398,43 @@ async def test_cancel_active_pro_marks_subscription_cancelled(async_client, app)
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == {"status": "cancelled"}
+    assert response.json() == {
+        "status": "cancelled",
+        "access_until": expires.isoformat(),
+    }
     assert active_sub.status == "cancelled"
     assert active_sub.cancelled_at is not None
     db.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_already_cancelled_pro_is_idempotent(async_client, app):
+    """Re-cancelling an in-period cancelled plan changes nothing."""
+    user = _make_user()
+    expires = datetime.now(UTC) + timedelta(days=5)
+    cancelled_at = datetime.now(UTC) - timedelta(days=1)
+    sub = SimpleNamespace(
+        status="cancelled", cancelled_at=cancelled_at, expires_at=expires
+    )
+    db = _mock_db()
+    _override(app, user, db)
+
+    try:
+        with patch(
+            "app.api.v1.endpoints.subscription.get_pro_subscription",
+            new_callable=AsyncMock,
+            return_value=sub,
+        ):
+            response = await async_client.post(
+                "/api/v1/subscription/cancel", headers=_AUTH
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["access_until"] == expires.isoformat()
+    assert sub.cancelled_at == cancelled_at  # unchanged
+    db.commit.assert_not_awaited()
 
 
 # ── GET /subscription/status — region resolution ─────────────────────────────

@@ -278,10 +278,17 @@ async def test_webhook_captured_pro_subscription_fulfills(async_client, app):
         amount=39900,
         currency="INR",
     )
-    with patch(
-        "app.api.v1.endpoints.subscription.fulfill_payment",
-        new_callable=AsyncMock,
-    ) as mock_fulfill:
+    with (
+        patch(
+            "app.api.v1.endpoints.subscription.fulfill_payment",
+            new_callable=AsyncMock,
+        ) as mock_fulfill,
+        patch(
+            "app.api.v1.endpoints.subscription.maybe_grant_welcome_gift",
+            new_callable=AsyncMock,
+            return_value=False,
+        ) as mock_gift,
+    ):
         response = await _post_webhook(async_client, app, db, event)
 
     assert response.status_code == 200
@@ -289,6 +296,8 @@ async def test_webhook_captured_pro_subscription_fulfills(async_client, app):
     mock_fulfill.assert_awaited_once()
     assert mock_fulfill.await_args.kwargs["fulfilled_via"] == "webhook"
     assert mock_fulfill.await_args.kwargs["item_type"] == "pro_subscription"
+    # A first-ever purchase that happens to be Pro also earns the welcome gift.
+    mock_gift.assert_awaited_once()
     pe = _added_payment_events(db)[0]
     assert pe.status == "processed"
     assert pe.keycloak_sub == str(user.keycloak_id)
@@ -298,7 +307,10 @@ async def test_webhook_captured_pro_subscription_fulfills(async_client, app):
 async def test_webhook_captured_pro_amount_mismatch_blocks_fulfillment(
     async_client, app
 ):
-    """A tampered amount fails validate_pro_amount → 400, event failed, no grant."""
+    """A tampered amount for an UNKNOWN user (no keycloak_sub resolvable, so
+    no refund ledger row is possible) → 400, event failed, no grant.
+    Known-user validation failures take the auto-refund path instead — see
+    test_webhook_captured_validation_failure_auto_refunds."""
     user_id = uuid.uuid4()
     db = _mock_db([_result(first=None)])
 
@@ -526,3 +538,102 @@ async def test_webhook_unhandled_event_type_acknowledged(async_client, app):
     assert response.json() == {"status": "ok"}
     pe = _added_payment_events(db)[0]
     assert pe.status == "processed"
+
+
+# ── payment.captured — auto-refund of unfulfillable captured payments ─────────
+
+
+@pytest.mark.asyncio
+async def test_webhook_captured_validation_failure_auto_refunds(async_client, app):
+    """A KNOWN user's captured payment failing validation (e.g. legacy scoped
+    pass ordered with empty tool_ids) → refunded exactly once, event marked
+    processed, 200 so Razorpay stops retrying. No grant ever happens."""
+    user = SimpleNamespace(id=uuid.uuid4(), keycloak_id=uuid.uuid4(), region="IN")
+    db = _mock_db([_result(first=None)])
+    db.scalar = AsyncMock(return_value=user.keycloak_id)
+
+    event = _event(
+        "payment.captured",
+        # day_triple is a 3-tool pass; empty tool_ids can never be fulfilled.
+        notes={
+            "user_id": str(user.id),
+            "item_type": "pass",
+            "item_id": "day_triple",
+            "tool_ids": "",
+        },
+        amount=2500,
+        currency="INR",
+    )
+    with (
+        patch(
+            "app.api.v1.endpoints.subscription.fulfill_payment",
+            new_callable=AsyncMock,
+        ) as mock_fulfill,
+        patch(
+            "app.api.v1.endpoints.subscription.refund_unfulfillable_payment",
+            new_callable=AsyncMock,
+        ) as mock_refund,
+    ):
+        response = await _post_webhook(async_client, app, db, event)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "detail": "refunded"}
+    mock_fulfill.assert_not_awaited()
+    mock_refund.assert_awaited_once()
+    assert mock_refund.call_args.kwargs["via"] == "webhook"
+    pe = _added_payment_events(db)[0]
+    assert pe.status == "processed"
+
+
+@pytest.mark.asyncio
+async def test_webhook_captured_refund_api_failure_returns_500_for_retry(
+    async_client, app
+):
+    """If the Razorpay refund call fails, respond non-2xx so Razorpay
+    redelivers and the refund is re-attempted (ledger row was rolled back)."""
+    user = SimpleNamespace(id=uuid.uuid4(), keycloak_id=uuid.uuid4(), region="IN")
+    db = _mock_db([_result(first=None)])
+    db.scalar = AsyncMock(return_value=user.keycloak_id)
+
+    event = _event(
+        "payment.captured",
+        notes={"user_id": str(user.id), "item_type": "pro_subscription"},
+        amount=1,  # not a catalog price
+        currency="INR",
+    )
+    with patch(
+        "app.api.v1.endpoints.subscription.refund_unfulfillable_payment",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("razorpay down"),
+    ):
+        response = await _post_webhook(async_client, app, db, event)
+
+    assert response.status_code == 500
+    db.rollback.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_webhook_captured_already_refunded_is_acknowledged(async_client, app):
+    """A redelivered event for an already-refunded (or already-fulfilled)
+    payment is acknowledged without a second refund."""
+    from app.services.fulfillment_service import AlreadyFulfilled
+
+    user = SimpleNamespace(id=uuid.uuid4(), keycloak_id=uuid.uuid4(), region="IN")
+    db = _mock_db([_result(first=None)])
+    db.scalar = AsyncMock(return_value=user.keycloak_id)
+
+    event = _event(
+        "payment.captured",
+        notes={"user_id": str(user.id), "item_type": "pro_subscription"},
+        amount=1,
+        currency="INR",
+    )
+    with patch(
+        "app.api.v1.endpoints.subscription.refund_unfulfillable_payment",
+        new_callable=AsyncMock,
+        side_effect=AlreadyFulfilled("pay_test_1"),
+    ):
+        response = await _post_webhook(async_client, app, db, event)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "detail": "duplicate"}

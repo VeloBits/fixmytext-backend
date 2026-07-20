@@ -192,3 +192,61 @@ def test_check_passes_consumes_soonest_expiring_pass_first():
         "_check_passes must ORDER BY expires_at so the soonest-expiring pass "
         "is consumed first, not an arbitrary DB-order pass (H-2)"
     )
+
+
+# ── validate_tool_selection (order-time scope validation) ─────────────────────
+
+
+class TestValidateToolSelection:
+    def _pass(self, tools: int) -> dict:
+        return {"id": "test_pass", "tools": tools}
+
+    def test_all_tools_pass_ignores_client_ids(self):
+        from app.services.order_validation import validate_tool_selection
+
+        assert validate_tool_selection(self._pass(-1), ["uppercase", "x"]) == []
+        assert validate_tool_selection(self._pass(-1), []) == []
+
+    def test_exact_count_returns_canonical_list(self):
+        from app.services.order_validation import validate_tool_selection
+
+        result = validate_tool_selection(
+            self._pass(3), ["uppercase", "translate", "grammar_fix"]
+        )
+        assert result == ["uppercase", "translate", "grammar_fix"]
+
+    def test_duplicates_collapse_and_fail_count(self):
+        from app.services.order_validation import validate_tool_selection
+
+        with pytest.raises(HTTPException) as exc:
+            validate_tool_selection(self._pass(3), ["uppercase", "uppercase", "translate"])
+        assert exc.value.status_code == 400
+        assert "exactly 3 tools" in exc.value.detail.lower()
+
+    def test_empty_selection_for_scoped_pass_rejected(self):
+        from app.services.order_validation import validate_tool_selection
+
+        with pytest.raises(HTTPException) as exc:
+            validate_tool_selection(self._pass(1), [])
+        assert exc.value.status_code == 400
+        assert "exactly 1 tool" in exc.value.detail.lower()
+
+    def test_too_many_tools_rejected(self):
+        from app.services.order_validation import validate_tool_selection
+
+        with pytest.raises(HTTPException):
+            validate_tool_selection(self._pass(1), ["uppercase", "translate"])
+
+    def test_always_free_tool_rejected(self):
+        from app.services.order_validation import validate_tool_selection
+
+        with pytest.raises(HTTPException) as exc:
+            validate_tool_selection(self._pass(1), ["find_replace"])
+        assert "always free" in exc.value.detail.lower()
+
+    def test_malformed_tool_id_rejected(self):
+        from app.services.order_validation import validate_tool_selection
+
+        for bad in ["UPPER", "has space", "a" * 65, "semi;colon", ""]:
+            with pytest.raises(HTTPException):
+                validate_tool_selection(self._pass(1), [bad])

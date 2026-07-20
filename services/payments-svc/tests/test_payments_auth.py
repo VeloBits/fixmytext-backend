@@ -9,6 +9,8 @@ Covers gaps not in test_payments_endpoints.py:
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -198,9 +200,13 @@ async def test_checkout_already_pro_returns_400(async_client, app):
                 new_callable=AsyncMock,
             ),
             patch(
-                "app.api.v1.endpoints.subscription.get_subscription_tier",
+                "app.api.v1.endpoints.subscription.get_pro_subscription",
                 new_callable=AsyncMock,
-                return_value="pro",  # already subscribed
+                # Active sub with ~20 days left — outside the renewal window.
+                return_value=SimpleNamespace(
+                    status="active",
+                    expires_at=datetime.now(UTC) + timedelta(days=20),
+                ),
             ),
         ):
             response = await async_client.post(
@@ -211,7 +217,7 @@ async def test_checkout_already_pro_returns_400(async_client, app):
         app.dependency_overrides.clear()
 
     assert response.status_code == 400
-    assert "already subscribed" in response.json()["detail"].lower()
+    assert "subscribed until" in response.json()["detail"].lower()
 
 
 @pytest.mark.asyncio

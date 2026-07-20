@@ -56,5 +56,20 @@ class Settings(BaseSharedSettings):
     # Order-creation rate limit — max Razorpay order calls per user per minute.
     ORDER_RATE_LIMIT_PER_MINUTE: int = 10
 
+    # One-time credit gift granted on a user's first purchase (0 disables it).
+    WELCOME_GIFT_CREDITS: int = 10
+
+    # Reject tool-scoped pass orders whose tool_ids count doesn't match the
+    # pass at ORDER time (not just at verify/webhook). Rollout flag: keep False
+    # until every deployed frontend ships the tool picker, so a stale client
+    # sending [] fails loudly at order creation instead of after payment.
+    PASS_ORDER_STRICT_TOOL_SCOPE: bool = False
+
+    # Pro is a one-time 30-day purchase; renewal (buying Pro again) opens this
+    # many days before the current period ends. Fulfillment extends from
+    # max(now, current expiry), so early renewal never loses paid days.
+    PRO_DURATION_DAYS: int = 30
+    PRO_RENEWAL_WINDOW_DAYS: int = 7
+
 
 settings = Settings()

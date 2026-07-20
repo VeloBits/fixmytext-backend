@@ -29,22 +29,36 @@ from app.db.models.visitor_tool_usage import VisitorToolUsage
 from app.db.models.visitor_usage import VisitorUsage
 
 
-async def get_subscription_tier(user_id, db: AsyncSession) -> str:
-    """Return 'pro' if user has an active Pro subscription, else 'free'."""
+async def get_pro_subscription(user_id, db: AsyncSession):
+    """Return the user's in-period Pro subscription row, or None.
+
+    Pro is a one-time 30-day purchase: a row grants access while
+    ``expires_at`` is in the future, whether ``active`` or ``cancelled``
+    (cancelling keeps access until the paid period ends). Expiry is lazy —
+    reads only filter; stale ``active`` rows are flipped to ``expired`` at the
+    next fulfillment write (see fulfillment_service).
+    """
     from app.db.models.billing_subscription import Subscription
 
     result = await db.execute(
-        select(Subscription.tier)
+        select(Subscription)
         .where(
             and_(
                 Subscription.user_id == user_id,
-                Subscription.status == "active",
                 Subscription.tier == "pro",
+                Subscription.status.in_(["active", "cancelled"]),
+                Subscription.expires_at > datetime.now(UTC),
             )
         )
+        .order_by(Subscription.expires_at.desc())
         .limit(1)
     )
-    return "pro" if result.scalar() else "free"
+    return result.scalar_one_or_none()
+
+
+async def get_subscription_tier(user_id, db: AsyncSession) -> str:
+    """Return 'pro' if user has an in-period Pro subscription, else 'free'."""
+    return "pro" if await get_pro_subscription(user_id, db) else "free"
 
 
 # ── New-table helper functions ────────────────────────────────────────────────
@@ -563,16 +577,22 @@ async def grant_credits(
 
 
 async def maybe_grant_welcome_gift(
-    user: User, db: AsyncSession, amount: int = 10
+    user: User, db: AsyncSession, amount: int | None = None
 ) -> bool:
     """Grant a one-time welcome credit gift on the user's first purchase.
 
-    Idempotent: grants only if the user has no prior ``welcome`` credit row.
-    Called from both ``/passes/verify`` and the webhook (whichever fulfills the
-    first purchase), so the gift lands exactly once regardless of which path
-    wins the race. The caller holds the user row lock and owns the commit.
+    The amount comes from ``settings.WELCOME_GIFT_CREDITS`` unless overridden
+    (0 or negative disables the gift entirely). Idempotent: grants only if the
+    user has no prior ``welcome`` credit row. Called from the verify endpoints
+    and the webhook (whichever fulfills the first purchase — pass, credit, or
+    Pro), so the gift lands exactly once regardless of which path wins the
+    race. The caller holds the user row lock and owns the commit.
     Returns True if the gift was granted.
     """
+    if amount is None:
+        amount = settings.WELCOME_GIFT_CREDITS
+    if amount <= 0:
+        return False
     existing = await db.execute(
         select(func.count()).where(
             and_(
