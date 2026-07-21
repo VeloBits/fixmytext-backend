@@ -1,12 +1,13 @@
-# Deploy to Docker Hub
+# Release Build Gate
 # Triggered when a GitHub Release is published, or manually via workflow_dispatch.
-# Builds a multi-arch (linux/amd64, linux/arm64) image, pushes it to Docker Hub
-# with semver fan-out tags (1.0.1, 1.0, 1, latest, sha-<short>), scans the
-# published image with Trivy, and syncs the Docker Hub README.
+# Validates that a release is shippable: builds every Dockerfile in the repo
+# for linux/amd64 + linux/arm64, scans each image with Trivy, and uploads the
+# results to GitHub Security. Nothing is published anywhere — Docker Hub
+# publishing was removed when the monolith image (velobits/fixmytext-backend)
+# was decommissioned in favour of per-service images built at deploy time.
 #
 # Tag convention: vX.Y.Z or vX.Y.Z-<prerelease> (e.g. v1.0.1, v1.1.0-rc.1).
-# Prereleases skip the `latest` tag.
-name: Deploy to Docker Hub
+name: Release Build Gate
 
 on:
   release:
@@ -19,7 +20,7 @@ on:
         default: "main"
         type: string
       tag:
-        description: "Release tag to publish (e.g. v1.0.0 or v1.0.0-beta.1)"
+        description: "Release tag to validate (e.g. v1.0.0 or v1.0.0-beta.1)"
         required: true
         type: string
 
@@ -31,20 +32,16 @@ concurrency:
   group: cd-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
   cancel-in-progress: false
 
-env:
-  IMAGE_NAME: velobits/fixmytext-backend
-
 jobs:
-  publish:
-    name: Build & Publish to Docker Hub
+  validate:
+    name: Validate release tag
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      version: ${{ steps.ver.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.event.release.tag_name }}
-
       - name: Validate tag and derive version
+        id: ver
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TAG="${{ inputs.tag }}"
@@ -55,16 +52,44 @@ jobs:
             echo "::error::Tag '$TAG' does not match v<major>.<minor>.<patch>[-prerelease]"
             exit 1
           fi
-          VERSION="${TAG#v}"
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          # Derive prerelease flag from tag so latest logic works for both event types
-          if [[ "$TAG" == *"-"* ]]; then
-            echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
-          else
-            echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
-          fi
-          echo "Release version: $VERSION (prerelease: $([[ "$TAG" == *"-"* ]] && echo true || echo false))"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "Release version: ${TAG#v}"
+
+  build:
+    name: Build & Scan (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    needs: [validate]
+    # Every Dockerfile in the repo. All builds use the repo root as context —
+    # each Dockerfile COPYs shared/ (and the migrate image copies two service
+    # trees), so a service-dir context would break the build.
+    # version_arg: the four service Dockerfiles consume APP_VERSION (baked into
+    # ENV VERSION and the OCI version label); the migrate Dockerfile takes no
+    # build args.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: account-svc
+            dockerfile: services/account-svc/Dockerfile
+            version_arg: true
+          - image: ai-svc
+            dockerfile: services/ai-svc/Dockerfile
+            version_arg: true
+          - image: text-svc
+            dockerfile: services/text-svc/Dockerfile
+            version_arg: true
+          - image: payments-svc
+            dockerfile: services/payments-svc/Dockerfile
+            version_arg: true
+          - image: migrate
+            dockerfile: migrations/Dockerfile.migrate
+            version_arg: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.event.release.tag_name }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -72,46 +97,40 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Compute image tags and labels
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}},value=${{ env.TAG }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
-            type=semver,pattern={{major}},value=${{ env.TAG }}
-            type=raw,value=latest,enable=${{ env.IS_PRERELEASE == 'false' }}
-            type=sha,prefix=sha-,format=short
-
-      - name: Build and push multi-arch image
-        id: build
+      - name: Build multi-arch image (validation only, no push)
+        # Validates the cross-build for both platforms. The arm64 leg builds
+        # under QEMU emulation; the gcc-less python:3.12-slim base means any
+        # dependency without an aarch64 wheel fails here fast — which is the
+        # point of the gate.
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            APP_VERSION=${{ env.VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
+          push: false
+          build-args: ${{ matrix.version_arg && format('APP_VERSION={0}', needs.validate.outputs.version) || '' }}
+          cache-from: type=gha,scope=cd-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=cd-${{ matrix.image }}
 
-      - name: Scan published image with Trivy
+      - name: Load amd64 image for scanning
+        # Buildx cannot --load a multi-platform build; rebuild the amd64 leg
+        # from the warm cache so Trivy has a local image to scan.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          load: true
+          tags: fixmytext-${{ matrix.image }}:${{ needs.validate.outputs.version }}
+          build-args: ${{ matrix.version_arg && format('APP_VERSION={0}', needs.validate.outputs.version) || '' }}
+          cache-from: type=gha,scope=cd-${{ matrix.image }}
+
+      - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
-          image-ref: ${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+          image-ref: fixmytext-${{ matrix.image }}:${{ needs.validate.outputs.version }}
           format: sarif
-          output: trivy-published.sarif
+          output: trivy-${{ matrix.image }}.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
@@ -119,31 +138,36 @@ jobs:
         if: always()
         uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
         with:
-          sarif_file: trivy-published.sarif
-          category: cd-image-scan
+          sarif_file: trivy-${{ matrix.image }}.sarif
+          category: cd-image-scan-${{ matrix.image }}
 
-      - name: Sync Docker Hub description
-        uses: peter-evans/dockerhub-description@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ env.IMAGE_NAME }}
-          short-description: "FastAPI backend for FixMyText — 200+ text transformation tools with AI writing assistance."
-          readme-filepath: ./DOCKERHUB_README.md
-
+  summary:
+    name: Release gate summary
+    runs-on: ubuntu-latest
+    needs: [validate, build]
+    if: always()
+    steps:
       - name: Write run summary
         run: |
           {
-            echo "## Deployed to Docker Hub"
+            echo "## Release Build Gate — ${{ needs.validate.outputs.tag }}"
             echo ""
-            echo "**Image:** \`${{ env.IMAGE_NAME }}\`"
-            echo "**Version:** \`${{ env.VERSION }}\`"
-            echo "**Digest:** \`${{ steps.build.outputs.digest }}\`"
+            echo "**Version:** \`${{ needs.validate.outputs.version }}\`"
+            echo "**Build result:** ${{ needs.build.result }}"
             echo ""
-            echo "### Tags pushed"
-            echo '```'
-            echo "${{ steps.meta.outputs.tags }}"
-            echo '```'
+            echo "Images validated (multi-arch linux/amd64 + linux/arm64, Trivy-scanned):"
             echo ""
-            echo "**Docker Hub:** https://hub.docker.com/r/velobits/fixmytext-backend/tags"
+            echo "- account-svc"
+            echo "- ai-svc"
+            echo "- text-svc"
+            echo "- payments-svc"
+            echo "- migrate"
+            echo ""
+            echo "_No images are published — this workflow is a build/scan gate only._"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if any build failed
+        if: needs.build.result != 'success'
+        run: |
+          echo "::error::One or more release builds failed"
+          exit 1

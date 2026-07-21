@@ -1,7 +1,15 @@
 # Test & Build
-# Runs on all PRs and pushes to main.
-# Enforces lint, type safety, tests with coverage, security scanning,
-# and Docker build validation.
+# Runs on all PRs and pushes to main/develop.
+# Enforces lint, per-service tests with calibrated coverage gates, dependency
+# audits, Docker build validation for every Dockerfile in the repo, image
+# vulnerability scanning, and gateway/infra config validation (Kong, Traefik,
+# Keycloak realm exports, docker-compose).
+#
+# Branch protection note: the *-check summary jobs exist to keep the legacy
+# required-status-check names ("Lint & Format Check", "Tests & Coverage",
+# "Security Scan", "Docker Build & Scan") stable while the real work runs in
+# per-service matrix jobs. Do not rename them without updating branch
+# protection first.
 name: Backend Test & Build
 
 on:
@@ -27,12 +35,54 @@ on:
           - test
           - security
           - docker
+          - gateway
 
 env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  # ── Compatibility shim ─────────────────────────────────────────────────────
+  # ── Lint ───────────────────────────────────────────────────────────────────
+
+  lint:
+    name: Lint & Format (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    # One matrix entry per service. Add a new entry when a new service is extracted.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: ai-svc
+            ruff_target: "services/ai-svc/app/ services/ai-svc/tests/"
+          - service: text-svc
+            ruff_target: "services/text-svc/app/ services/text-svc/tests/"
+          - service: payments-svc
+            ruff_target: "services/payments-svc/app/ services/payments-svc/tests/"
+          - service: account-svc
+            ruff_target: "services/account-svc/app/ services/account-svc/tests/"
+          - service: migrations
+            ruff_target: "migrations/"
+          - service: shared
+            ruff_target: "shared/"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install ruff
+        # Pin version to avoid silent behaviour changes across CI runs.
+        run: pip install "ruff==0.15.9"
+
+      - name: Check formatting
+        run: ruff format --check ${{ matrix.ruff_target }}
+
+      - name: Lint
+        run: ruff check ${{ matrix.ruff_target }}
+
   # Branch protection requires "Lint & Format Check" (the old monolith job name).
   # This summary job satisfies that requirement once all per-service matrix jobs pass.
   lint-check:
@@ -49,78 +99,27 @@ jobs:
           fi
           echo "All lint and format checks passed"
 
-  lint:
-    name: Lint & Format (${{ matrix.service }})
+  # ── Tests ──────────────────────────────────────────────────────────────────
+
+  test:
+    name: Test (${{ matrix.service }})
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'test'
     runs-on: ubuntu-latest
-    # One matrix entry per service. Add a new entry when a new service is extracted.
+    # Coverage thresholds are calibrated to measured coverage (2026-07), rounded
+    # down to the nearest 5 to leave headroom: account-svc 70.7%, ai-svc 52.2%,
+    # payments-svc 49.6%, text-svc 40.2%. Raise a threshold when you add tests.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - service: ai-svc
-            path: services/ai-svc
-            ruff_target: "services/ai-svc/app/ services/ai-svc/tests/"
-          - service: text-svc
-            path: services/text-svc
-            ruff_target: "services/text-svc/app/ services/text-svc/tests/"
-          - service: payments-svc
-            path: services/payments-svc
-            ruff_target: "services/payments-svc/app/ services/payments-svc/tests/"
           - service: account-svc
-            path: services/account-svc
-            ruff_target: "services/account-svc/app/ services/account-svc/tests/"
-          - service: migrations
-            path: migrations
-            ruff_target: "migrations/"
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.branch || github.ref }}
-
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install ruff
-        # Pin version to match local pyproject.toml / pre-commit config.
-        # Upgrade intentionally to avoid silent behaviour changes across CI runs.
-        run: pip install "ruff==0.15.9"
-
-      - name: Check formatting
-        run: ruff format --check ${{ matrix.ruff_target }}
-
-      - name: Lint
-        run: ruff check ${{ matrix.ruff_target }}
-
-  shared-tests:
-    name: Shared Package Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install shared package + test deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e './shared[test]'
-
-      - name: Run shared package tests
-        run: pytest shared/tests -v
-
-  test:
-    name: Tests & Coverage
-    if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'test'
-    runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/testdb
-      SECRET_KEY: test-secret-key-at-least-32-characters-long-for-ci
-      DEBUG: "true"
-      ALLOWED_ORIGINS: '["http://localhost:3000"]'
+            cov_threshold: 70
+          - service: ai-svc
+            cov_threshold: 50
+          - service: payments-svc
+            cov_threshold: 45
+          - service: text-svc
+            cov_threshold: 35
     steps:
       - uses: actions/checkout@v6
         with:
@@ -131,36 +130,37 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          cache-dependency-path: services/${{ matrix.service }}/requirements.txt
 
-      - name: Install account-svc dependencies
+      - name: Install dependencies
         # Run from repo root so -e ./shared in requirements.txt resolves to
-        # backend/shared/ (the editable package directory).
+        # shared/ (the editable package directory).
         run: |
           python -m pip install --upgrade pip
-          pip install -r services/account-svc/requirements.txt
+          pip install -r services/${{ matrix.service }}/requirements.txt
 
-      - name: Run account-svc tests with coverage
-        working-directory: services/account-svc
-        env:
-          KEYCLOAK_JWKS_URL: "http://test-keycloak:8080/realms/test/protocol/openid-connect/certs"
+      - name: Run tests with coverage
+        # No env vars needed: every suite is fully mocked/in-process and the
+        # conftest.py files setdefault the required settings (verified for all
+        # four services against python:3.12).
+        working-directory: services/${{ matrix.service }}
         run: |
           pytest \
             --cov=app \
             --cov-report=xml \
             --cov-report=term-missing \
-            --cov-fail-under=70 \
-            -v
+            --cov-fail-under=${{ matrix.cov_threshold }}
 
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-report
-          path: services/account-svc/coverage.xml
+          name: coverage-${{ matrix.service }}
+          path: services/${{ matrix.service }}/coverage.xml
 
-  security:
-    name: Security Scan
-    if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'security'
+  shared-tests:
+    name: Shared Package Tests
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'test'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -171,11 +171,78 @@ jobs:
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: shared/pyproject.toml
+
+      - name: Install shared package + test deps
+        # pytest-cov is installed explicitly — the [test] extra doesn't carry it.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e './shared[test]' pytest-cov
+
+      - name: Run shared package tests with coverage
+        # Threshold calibrated to measured 59.7% coverage (2026-07).
+        working-directory: shared
+        run: |
+          pytest \
+            --cov=fixmytext_shared \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=55
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-shared
+          path: shared/coverage.xml
+
+  # Branch protection may require "Tests & Coverage" (the old single-job name).
+  # This summary job satisfies that requirement once all test jobs pass.
+  test-check:
+    name: Tests & Coverage
+    runs-on: ubuntu-latest
+    needs: [test, shared-tests]
+    if: always()
+    steps:
+      - name: All test jobs passed
+        # "skipped" is accepted so workflow_dispatch subsets (jobs=lint etc.)
+        # don't report a failure for work that was intentionally not run.
+        run: |
+          for result in "${{ needs.test.result }}" "${{ needs.shared-tests.result }}"; do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "One or more test jobs failed"
+              exit 1
+            fi
+          done
+          echo "All test jobs passed"
+
+  # ── Security ───────────────────────────────────────────────────────────────
+
+  security:
+    name: Security Audit (${{ matrix.service }})
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'security'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [account-svc, ai-svc, payments-svc, text-svc]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/${{ matrix.service }}/requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r services/account-svc/requirements.txt
+          pip install -r services/${{ matrix.service }}/requirements.txt
           pip install pip-audit
 
       - name: Audit dependencies for known vulnerabilities
@@ -183,35 +250,61 @@ jobs:
         # Track: https://github.com/jpadilla/pyjwt/issues — remove once patched.
         run: pip-audit --strict --vulnerability-service osv --ignore-vuln PYSEC-2025-183
 
+  # Branch protection may require "Security Scan" (the old single-job name).
+  security-check:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [security]
+    if: always()
+    steps:
+      - name: All security audits passed
+        run: |
+          if [ "${{ needs.security.result }}" != "success" ] && [ "${{ needs.security.result }}" != "skipped" ]; then
+            echo "One or more security audits failed"
+            exit 1
+          fi
+          echo "All security audits passed"
+
+  # ── Docker ─────────────────────────────────────────────────────────────────
+
   docker:
-    name: Docker Build & Scan
+    name: Docker Build (${{ matrix.image }})
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'docker'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       security-events: write
+    # Every Dockerfile in the repo. All builds use the repo root as context —
+    # each Dockerfile COPYs shared/ (and the migrate image copies two service
+    # trees), so a service-dir context would break the build.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: account-svc
+            dockerfile: services/account-svc/Dockerfile
+          - image: ai-svc
+            dockerfile: services/ai-svc/Dockerfile
+          - image: text-svc
+            dockerfile: services/text-svc/Dockerfile
+          - image: payments-svc
+            dockerfile: services/payments-svc/Dockerfile
+          - image: migrate
+            dockerfile: migrations/Dockerfile.migrate
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.branch || github.ref }}
 
-      - name: Build account-svc Docker image
-        run: docker build -t account-svc:${{ github.sha }} -f services/account-svc/Dockerfile .
-
-      - name: Build ai-svc Docker image
-        run: docker build -t ai-svc:${{ github.sha }} -f services/ai-svc/Dockerfile .
-
-      - name: Build text-svc Docker image
-        run: docker build -t text-svc:${{ github.sha }} -f services/text-svc/Dockerfile .
-
-      - name: Build migrate Docker image
-        run: docker build -t migrate:${{ github.sha }} -f migrations/Dockerfile.migrate .
+      - name: Build ${{ matrix.image }} Docker image
+        run: docker build -t ${{ matrix.image }}:${{ github.sha }} -f ${{ matrix.dockerfile }} .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
-          image-ref: 'account-svc:${{ github.sha }}'
+          image-ref: '${{ matrix.image }}:${{ github.sha }}'
           format: 'sarif'
-          output: 'trivy-results.sarif'
+          output: 'trivy-${{ matrix.image }}.sarif'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
 
@@ -219,7 +312,186 @@ jobs:
         uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: 'trivy-${{ matrix.image }}.sarif'
+          category: ci-image-scan-${{ matrix.image }}
+
+  # Branch protection may require "Docker Build & Scan" (the old single-job name).
+  docker-check:
+    name: Docker Build & Scan
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: always()
+    steps:
+      - name: All Docker builds passed
+        run: |
+          if [ "${{ needs.docker.result }}" != "success" ] && [ "${{ needs.docker.result }}" != "skipped" ]; then
+            echo "One or more Docker builds failed"
+            exit 1
+          fi
+          echo "All Docker builds passed"
+
+  # ── Gateway & infra config validation ──────────────────────────────────────
+  # Kong, Traefik, and Keycloak run from upstream images with mounted config
+  # (no Dockerfiles), so CI validates the configs against the exact image tags
+  # pinned in docker-compose.yml instead of building anything.
+
+  gateway:
+    name: Gateway & Infra Config Validation
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'gateway'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Validate Kong declarative config
+        # Parses gateway/kong/kong.yml (routes, plugins) with the same image
+        # tag compose runs. Exit code is the gate.
+        run: |
+          docker run --rm -e KONG_DATABASE=off \
+            -v "$PWD/gateway/kong/kong.yml:/kong.yml:ro" \
+            kong:3.8-ubuntu kong config parse /kong.yml
+
+      - name: Validate Traefik dynamic rules
+        # Boot success is NOT the gate — Traefik boots cleanly with broken
+        # rules and just disables the affected router. Assert via the API that
+        # every file-provider router actually loaded as "enabled".
+        run: |
+          docker run -d --name traefik-ci -p 127.0.0.1:18080:8080 \
+            -v "$PWD/gateway/traefik/rules:/etc/traefik/rules:ro" \
+            traefik:v3.2 \
+            --api.insecure=true \
+            --providers.file.directory=/etc/traefik/rules \
+            --providers.file.watch=false \
+            --entrypoints.web.address=:80
+
+          for i in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:18080/api/http/routers >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$i" -eq 15 ]; then
+              echo "::error::Traefik API did not come up"
+              docker logs traefik-ci
+              exit 1
+            fi
+            sleep 1
+          done
+
+          ROUTERS=$(curl -fsS http://127.0.0.1:18080/api/http/routers)
+          FILE_ROUTERS=$(echo "$ROUTERS" | jq '[.[] | select(.provider == "file")]')
+
+          # Guard against a vacuous pass (wrong mount path => zero routers).
+          if [ "$(echo "$FILE_ROUTERS" | jq 'length')" -lt 2 ]; then
+            echo "::error::Expected at least 2 file-provider routers, got fewer — rules did not load"
+            echo "$ROUTERS" | jq .
+            docker logs traefik-ci
+            exit 1
+          fi
+
+          if ! echo "$FILE_ROUTERS" | jq -e '[.[] | select(.status != "enabled")] | length == 0' >/dev/null; then
+            echo "::error::One or more Traefik file-provider routers failed to load"
+            echo "$FILE_ROUTERS" | jq '[.[] | {name, status, error}]'
+            docker logs traefik-ci
+            exit 1
+          fi
+          echo "All Traefik file-provider routers enabled"
+
+      - name: Clean up Traefik container
+        if: always()
+        run: docker rm -f traefik-ci 2>/dev/null || true
+
+      - name: Validate Keycloak realm exports (JSON)
+        run: |
+          for f in infrastructure/keycloak/realm-export*.json; do
+            echo "checking $f"
+            python -m json.tool "$f" > /dev/null
+          done
+
+      - name: Validate docker-compose config
+        # env_file: .env is required:true in compose, so synthesize a stub.
+        # The interpolation-only vars get dummies to silence warnings.
+        run: |
+          printf 'POSTGRES_PASSWORD=ci-stub\nSESSION_COOKIE_SECRET=ci-stub\n' > .env
+          docker compose --profile dev config -q
+          rm -f .env
+
+  # Cheap path filter so the heavy Keycloak import gate (~90s + 691MB image
+  # pull) only runs when the realm/theme files actually change.
+  changes:
+    name: Detect changed paths
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      keycloak: ${{ steps.filter.outputs.keycloak }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            keycloak:
+              - 'infrastructure/keycloak/**'
+
+  keycloak-import:
+    name: Keycloak Realm Import Gate
+    runs-on: ubuntu-latest
+    needs: [changes]
+    # Runs when infrastructure/keycloak/** changed, or on manual dispatch of
+    # the gateway subset. !cancelled() keeps it eligible when `changes` is
+    # skipped (workflow_dispatch).
+    if: >-
+      !cancelled() && (
+        needs.changes.outputs.keycloak == 'true' ||
+        (github.event_name == 'workflow_dispatch' && (inputs.jobs == 'all' || inputs.jobs == 'gateway'))
+      )
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Boot Keycloak and import dev realm
+        # Verifies realm-export-dev.json actually imports on the pinned image.
+        # Note: /health/* lives on the management port :9000 in KC 26, and the
+        # image has no curl — poll the container logs instead.
+        run: |
+          docker run -d --name kc-ci \
+            -v "$PWD/infrastructure/keycloak/realm-export-dev.json:/opt/keycloak/data/import/realm.json:ro" \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD=ci-only-password \
+            quay.io/keycloak/keycloak:26.0 start-dev --import-realm
+
+          for _ in $(seq 1 90); do
+            LOGS=$(docker logs kc-ci 2>&1)
+            if echo "$LOGS" | grep -q "Import finished successfully"; then
+              echo "Realm import succeeded"
+              exit 0
+            fi
+            if echo "$LOGS" | grep -qE "Failed to import|ERROR \[org\.keycloak"; then
+              echo "::error::Keycloak realm import failed"
+              docker logs kc-ci
+              exit 1
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' kc-ci)" != "true" ]; then
+              echo "::error::Keycloak container exited before import completed"
+              docker logs kc-ci
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::Timed out waiting for realm import (180s)"
+          docker logs kc-ci
+          exit 1
+
+      - name: Clean up Keycloak container
+        if: always()
+        run: docker rm -f kc-ci 2>/dev/null || true
+
+  # ── Sentry release ─────────────────────────────────────────────────────────
 
   create-release:
     name: Create Sentry Release
