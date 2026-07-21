@@ -46,7 +46,7 @@ def _get_http_client() -> httpx.AsyncClient:
     return _HTTP_CLIENT
 
 
-async def check_access(
+async def check_entitlement(
     *,
     tool_id: str,
     user_id: str,
@@ -56,6 +56,10 @@ async def check_access(
     """Consume one AI entitlement for *user_id*. Raise on denial; return on allow.
 
     Raises ``HTTPException`` 402 (quota exhausted) or 503 (gate unreachable).
+
+    Deliberately NOT named ``check_access`` like text-svc's client: CodeQL merges
+    same-dotted-path modules (``app.services.entitlement_client``) across services
+    and cross-validates call signatures, producing false alerts. Keep the name unique.
     """
     payload = {
         "tool_id": tool_id,
@@ -98,4 +102,4 @@ async def check_access(
         )
 
 
-__all__ = ["check_access", "init_http_client", "close_http_client"]
+__all__ = ["check_entitlement", "init_http_client", "close_http_client"]

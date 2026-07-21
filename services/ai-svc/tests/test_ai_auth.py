@@ -91,8 +91,8 @@ async def test_job_status_correct_owner_returns_status(client):
 
     mock_job = AsyncMock()
     mock_job.info = AsyncMock(return_value=mock_info)
-    # result() raises (job not done yet)
-    mock_job.result = AsyncMock(side_effect=Exception("not ready"))
+    # result() times out (job not done yet)
+    mock_job.result = AsyncMock(side_effect=TimeoutError("not ready"))
 
     mock_pool = AsyncMock()
     mock_pool.job = AsyncMock(return_value=mock_job)
@@ -118,6 +118,46 @@ async def test_job_status_correct_owner_returns_status(client):
             "failed",
             "not_found",
         )
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_job_status_failed_job_reports_failed(client):
+    """GET /jobs/{id} — result() re-raises the failed job's exception; the
+    endpoint confirms failure from metadata and reports status=failed."""
+    from app.api.v1.endpoints.ai import get_current_user
+    from main import app
+
+    user_id = "user-owner"
+    requesting_user = _make_verified_user(user_id)
+
+    mock_info = MagicMock()
+    mock_info.args = ["summarize", "some text", user_id, {}]
+    mock_info.start_ms = 1000
+    mock_info.finish_ms = 2000
+    mock_info.success = False
+
+    mock_job = AsyncMock()
+    mock_job.info = AsyncMock(return_value=mock_info)
+    mock_job.result = AsyncMock(side_effect=RuntimeError("job blew up"))
+
+    mock_pool = AsyncMock()
+    mock_pool.job = AsyncMock(return_value=mock_job)
+
+    app.dependency_overrides[get_current_user] = lambda: requesting_user
+    try:
+        with patch(
+            "app.api.v1.endpoints.ai._get_arq_pool",
+            new_callable=AsyncMock,
+            return_value=mock_pool,
+        ):
+            response = await client.get(
+                "/api/v1/ai/jobs/test-job-123",
+                headers={"Authorization": "Bearer valid.token"},
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "failed"
     finally:
         app.dependency_overrides.clear()
 

@@ -43,7 +43,7 @@ def _patch(monkeypatch, resp=None, exc=None):
 
 async def test_allowed_returns_none(monkeypatch):
     _patch(monkeypatch, resp=_Resp(200, {"allowed": True, "reason": "credit"}))
-    assert await ec.check_access(tool_id="summarize", user_id="u1") is None
+    assert await ec.check_entitlement(tool_id="summarize", user_id="u1") is None
 
 
 async def test_denied_raises_402(monkeypatch):
@@ -52,21 +52,21 @@ async def test_denied_raises_402(monkeypatch):
         resp=_Resp(200, {"allowed": False, "reason": "blocked", "message": "no quota"}),
     )
     with pytest.raises(HTTPException) as exc:
-        await ec.check_access(tool_id="summarize", user_id="u1")
+        await ec.check_entitlement(tool_id="summarize", user_id="u1")
     assert exc.value.status_code == 402
 
 
 async def test_gate_5xx_fails_closed_503(monkeypatch):
     _patch(monkeypatch, resp=_Resp(500, {}))
     with pytest.raises(HTTPException) as exc:
-        await ec.check_access(tool_id="summarize", user_id="u1")
+        await ec.check_entitlement(tool_id="summarize", user_id="u1")
     assert exc.value.status_code == 503
 
 
 async def test_gate_unreachable_fails_closed_503(monkeypatch):
     _patch(monkeypatch, exc=httpx.ConnectError("connection refused"))
     with pytest.raises(HTTPException) as exc:
-        await ec.check_access(tool_id="summarize", user_id="u1")
+        await ec.check_entitlement(tool_id="summarize", user_id="u1")
     assert exc.value.status_code == 503
 
 
