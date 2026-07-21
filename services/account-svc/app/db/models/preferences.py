@@ -23,6 +23,11 @@ class UserPreferences(Base):
     theme: Mapped[str] = mapped_column(
         String(10), default="dark", server_default=text("'dark'")
     )
+    # Transitional: personas were replaced by custom tool groups (2026-07-14).
+    # The column is read-only legacy state — migration 0004 consumed it to seed
+    # starter groups + onboarding_seen; PreferencesUpdate no longer accepts it.
+    # Drop the column (and the PreferencesResponse field) in a later migration
+    # once no deployed bundle reads it.
     persona: Mapped[str | None] = mapped_column(String(50), nullable=True)
     theme_skin: Mapped[str | None] = mapped_column(String(50), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(

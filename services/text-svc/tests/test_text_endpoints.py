@@ -68,3 +68,52 @@ async def test_caesar_cipher(client):
     assert data["result"] == "bcd"
     assert data["original"] == "abc"
     assert data["operation"] == "caesar-cipher"
+
+
+@pytest.mark.asyncio
+async def test_empty_text_rejected(client):
+    """Empty text should fail validation with 422."""
+    resp = await client.post("/api/v1/text/uppercase", json={"text": ""})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_whitespace_only_text_rejected(client):
+    """Whitespace-only text should fail validation with 422 (P1-TC-15)."""
+    resp = await client.post(
+        "/api/v1/text/uppercase",
+        json={"text": "   \n\t  "},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_whitespace_only_rejected_on_parameterized_schema(client):
+    """The blank-text rule must also cover schemas with extra params."""
+    resp = await client.post(
+        "/api/v1/text/caesar-cipher",
+        json={"text": " \n ", "shift": 1},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_blank_text_never_consumes_entitlement(client):
+    """Blank input must be rejected BEFORE the quota gate — no free use burned."""
+    from unittest.mock import AsyncMock, patch
+
+    with patch(
+        "app.api.v1.endpoints.text.check_entitlement",
+        new_callable=AsyncMock,
+    ) as gate:
+        resp = await client.post("/api/v1/text/uppercase", json={"text": "   "})
+        assert resp.status_code == 422
+        gate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_surrounding_whitespace_preserved(client):
+    """Real content keeps its surrounding whitespace — the input is not trimmed."""
+    resp = await client.post("/api/v1/text/uppercase", json={"text": "  hi  "})
+    assert resp.status_code == 200
+    assert resp.json()["result"] == "  HI  "

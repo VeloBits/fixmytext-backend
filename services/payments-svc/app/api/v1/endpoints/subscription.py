@@ -3,15 +3,15 @@
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import get_current_user
-from app.core.pass_catalog import get_credit_pack, get_pass, get_price
 from app.db.models.billing_subscription import PaymentEvent, Subscription
 from app.db.models.user import User
 from app.db.session import get_db
@@ -20,16 +20,25 @@ from app.schemas.subscription import (
     RazorpayProVerifyRequest,
     SubscriptionStatus,
 )
+from app.services.fulfillment_service import (
+    AlreadyFulfilled,
+    fulfill_payment,
+    refund_unfulfillable_payment,
+)
+from app.services.order_validation import (
+    validate_order_scope_and_amount,
+    validate_pro_amount,
+)
 from app.services.pass_service import (
     get_active_passes,
     get_all_tool_uses_today,
     get_credit_balance,
-    get_subscription_tier,
-    grant_credits,
-    grant_pass,
+    get_pro_subscription,
     has_logged_in_today,
+    maybe_grant_welcome_gift,
     record_daily_login,
 )
+from app.services.rate_limit import check_rate_limit
 from app.services.razorpay_service import (
     PRO_PLAN_PRICES,
     create_order,
@@ -77,15 +86,18 @@ async def subscription_status(
 
     credit_balance = await get_credit_balance(user, db)
     active_passes = await get_active_passes(user, db)
+    pro_sub = await get_pro_subscription(user.id, db)
 
     return SubscriptionStatus(
-        tier=await get_subscription_tier(user.id, db),
+        tier="pro" if pro_sub else "free",
         tool_uses_today=tool_uses,
         free_uses_per_tool=settings.FREE_USES_PER_TOOL_PER_DAY,
         daily_login_bonus=daily_bonus,
         credit_balance=credit_balance,
         active_passes_count=len(active_passes),
         region=user.region,
+        pro_expires_at=pro_sub.expires_at if pro_sub else None,
+        pro_cancelled=bool(pro_sub and pro_sub.status == "cancelled"),
     )
 
 
@@ -100,20 +112,36 @@ async def create_pro_checkout(
     """Create a Razorpay order for upgrading to Pro (one-time monthly payment)."""
     if not payments_configured():
         raise HTTPException(503, "Payments not configured")
+    await check_rate_limit(
+        f"ratelimit:order:{user.id}", settings.ORDER_RATE_LIMIT_PER_MINUTE
+    )
 
-    if await get_subscription_tier(user.id, db) == "pro":
-        raise HTTPException(400, "Already subscribed to Pro")
+    # Renewal window: an ACTIVE Pro can re-purchase only within the last
+    # PRO_RENEWAL_WINDOW_DAYS of the period (fulfillment extends from the
+    # current expiry, so early renewal never loses paid days). A cancelled
+    # in-period Pro can re-subscribe any time — that reactivates the plan.
+    pro_sub = await get_pro_subscription(user.id, db)
+    if pro_sub and pro_sub.status == "active":
+        window = timedelta(days=settings.PRO_RENEWAL_WINDOW_DAYS)
+        if pro_sub.expires_at - datetime.now(UTC) > window:
+            expiry = pro_sub.expires_at.date().isoformat()
+            raise HTTPException(
+                400,
+                f"You're subscribed until {expiry}. Renewal opens "
+                f"{settings.PRO_RENEWAL_WINDOW_DAYS} days before expiry.",
+            )
 
     region = user.region or "IN"
     pricing = PRO_PLAN_PRICES.get(region, PRO_PLAN_PRICES["IN"])
 
-    idempotency_key = f"pro_{user.id}"
+    # Short enough to survive Razorpay's 40-char receipt cap untruncated.
+    idempotency_key = f"pro_{user.id.hex[:8]}"
 
     try:
         order = create_order(
             amount=pricing["amount"],
             currency=pricing["currency"],
-            receipt=f"pro_{str(user.id)[:8]}",
+            receipt=idempotency_key,
             notes={"user_id": str(user.id), "item_type": "pro_subscription"},
             idempotency_key=idempotency_key,
         )
@@ -164,7 +192,7 @@ async def verify_pro_payment(
     try:
         order = fetch_order(req.razorpay_order_id)
     except Exception as e:
-        logger.exception("Failed to fetch order %s", req.razorpay_order_id)
+        logger.exception("Failed to fetch order %s", _s(req.razorpay_order_id))
         raise HTTPException(502, "Could not verify order details") from e
 
     notes = order.get("notes", {})
@@ -173,27 +201,95 @@ async def verify_pro_payment(
     if notes.get("item_type") != "pro_subscription":
         raise HTTPException(400, "Order is not for Pro subscription")
 
-    # Create/update Subscription row in billing schema
-    sub = Subscription(
-        user_id=user.id,
-        tier="pro",
-        status="active",
-        razorpay_order_id=req.razorpay_order_id,
-        razorpay_payment_id=req.razorpay_payment_id,
-        amount_paid_subunits=order.get("amount"),
-        currency=order.get("currency"),
-        region=user.region,
-    )
-    db.add(sub)
+    # Block amount tampering, then fulfill exactly once through the shared
+    # authority — a double verify or a verify/webhook race activates Pro once.
+    # The signature above is VALID, so an amount-validation failure means a
+    # real customer paid for an order we cannot fulfil — auto-refund it.
+    try:
+        validate_pro_amount(order.get("amount"), order.get("currency"))
+    except HTTPException as validation_error:
+        try:
+            await refund_unfulfillable_payment(
+                db=db,
+                user_id=user.id,
+                keycloak_sub=str(user.keycloak_id),
+                razorpay_payment_id=req.razorpay_payment_id,
+                razorpay_order_id=req.razorpay_order_id,
+                item_type="pro_subscription",
+                item_id=None,
+                amount_subunits=order.get("amount"),
+                currency=order.get("currency"),
+                via="verify",
+                reason=str(validation_error.detail),
+            )
+            await db.commit()
+        except AlreadyFulfilled:
+            await db.rollback()
+            return {"status": "success", "detail": "already_fulfilled"}
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "Refund attempt failed (pro verify): payment=%s",
+                _s(req.razorpay_payment_id),
+            )
+            raise HTTPException(
+                502, "Could not refund the payment — please contact support"
+            ) from validation_error
+        return {
+            "status": "refunded",
+            "detail": "order_validation_failed",
+            "message": "Your payment was refunded because the order could not be "
+            "validated. The amount should reach your account in 5-7 business days.",
+        }
 
-    await db.commit()
+    await db.execute(select(User).where(User.id == user.id).with_for_update())
+
+    welcome = False
+    try:
+        await fulfill_payment(
+            db=db,
+            user=user,
+            razorpay_payment_id=req.razorpay_payment_id,
+            razorpay_order_id=req.razorpay_order_id,
+            item_type="pro_subscription",
+            item_id=None,
+            tool_ids=[],
+            amount_subunits=order.get("amount"),
+            currency=order.get("currency"),
+            fulfilled_via="verify",
+        )
+        # First-purchase welcome gift: a first-ever purchase that happens to be
+        # Pro earns the same one-time bonus as a pass/credit first purchase.
+        welcome = await maybe_grant_welcome_gift(user, db)
+        if welcome:
+            logger.info("Welcome gift granted (pro): user=%s", user.id)
+        await db.commit()
+    except (AlreadyFulfilled, IntegrityError):
+        # Already fulfilled (replay) or an active subscription already exists —
+        # idempotent success instead of a 500 on the one-active-sub constraint.
+        await db.rollback()
+        logger.info(
+            "Pro already active (verify): user=%s payment=%s",
+            user.id,
+            _s(req.razorpay_payment_id),
+        )
+        return {"status": "success", "tier": "pro", "detail": "already_fulfilled"}
+    except Exception:
+        await db.rollback()
+        raise
+
     logger.info(
         "Pro activated: user=%s order=%s payment=%s",
         user.id,
         _s(req.razorpay_order_id),
         _s(req.razorpay_payment_id),
     )
-    return {"status": "success", "tier": "pro"}
+    return {
+        "status": "success",
+        "tier": "pro",
+        "welcome_gift": welcome,
+        "welcome_credits": settings.WELCOME_GIFT_CREDITS if welcome else 0,
+    }
 
 
 # ── Cancel Pro ────────────────────────────────────────────────────────
@@ -204,28 +300,24 @@ async def cancel_pro(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Cancel Pro subscription (immediate downgrade)."""
-    tier = await get_subscription_tier(user.id, db)
-    if tier != "pro":
+    """Cancel Pro. Access continues until the paid period ends (expires_at).
+
+    Idempotent: cancelling an already-cancelled in-period plan returns the
+    same response without changing anything.
+    """
+    pro_sub = await get_pro_subscription(user.id, db)
+    if not pro_sub:
         raise HTTPException(400, "No active Pro subscription")
 
-    # Update Subscription row
-    sub_result = await db.execute(
-        select(Subscription).where(
-            and_(
-                Subscription.user_id == user.id,
-                Subscription.status == "active",
-                Subscription.tier == "pro",
-            )
-        )
-    )
-    active_sub = sub_result.scalars().first()
-    if active_sub:
-        active_sub.status = "cancelled"
-        active_sub.cancelled_at = datetime.now(UTC)
+    if pro_sub.status == "active":
+        pro_sub.status = "cancelled"
+        pro_sub.cancelled_at = datetime.now(UTC)
+        await db.commit()
 
-    await db.commit()
-    return {"status": "cancelled"}
+    return {
+        "status": "cancelled",
+        "access_until": pro_sub.expires_at.isoformat() if pro_sub.expires_at else None,
+    }
 
 
 # ── Webhook ───────────────────────────────────────────────────────────
@@ -241,7 +333,17 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     Idempotent — duplicate events (same razorpay_event_id) are acknowledged
     but not reprocessed.
     """
+    # Reject oversized payloads before reading — protects against memory exhaustion.
+    _cl = request.headers.get("content-length")
+    if _cl:
+        try:
+            if int(_cl) > settings.WEBHOOK_MAX_BODY_BYTES:
+                raise HTTPException(413, "Webhook payload too large")
+        except ValueError:
+            raise HTTPException(413, "Webhook payload too large") from None
     body = await request.body()
+    if len(body) > settings.WEBHOOK_MAX_BODY_BYTES:
+        raise HTTPException(413, "Webhook payload too large")
     signature = request.headers.get("x-razorpay-signature", "")
 
     if not settings.RAZORPAY_WEBHOOK_SECRET:
@@ -303,11 +405,12 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 razorpay_payment_id=payment_id,
                 razorpay_order_id=order_id,
                 user_id=None,
+                keycloak_sub=None,
                 item_type=item_type,
                 item_id=item_id,
                 amount_subunits=amount,
                 currency=currency,
-                status="error",
+                status="failed",
                 raw_payload=event,
             )
             db.add(pe)
@@ -317,6 +420,15 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 status_code=400, detail="Invalid user_id in webhook notes"
             ) from None
 
+    # Denormalized Keycloak subject for audit rows. Events can reference an
+    # unknown user (or none at all), so this may legitimately stay None.
+    keycloak_id = None
+    if user_id:
+        keycloak_id = await db.scalar(
+            select(User.keycloak_id).where(User.id == user_id)
+        )
+    keycloak_sub = str(keycloak_id) if keycloak_id else None
+
     # ── Record the event ─────────────────────────────────────────────
     pe = PaymentEvent(
         event_type=event_type,
@@ -324,6 +436,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         razorpay_payment_id=payment_id,
         razorpay_order_id=order_id,
         user_id=user_id,
+        keycloak_sub=keycloak_sub,
         item_type=item_type,
         item_id=item_id,
         amount_subunits=amount,
@@ -332,7 +445,18 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         raw_payload=event,
     )
     db.add(pe)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # A concurrent delivery of the same razorpay_event_id raced us to the
+        # unique index — treat as a duplicate rather than 500 (BE-DATA-06). The
+        # winning delivery fulfills it, and the payment_fulfillments ledger
+        # guarantees the grant happens exactly once regardless.
+        await db.rollback()
+        logger.info(
+            "Duplicate webhook (concurrent insert) ignored: event_id=%s", safe_event_id
+        )
+        return {"status": "ok", "detail": "duplicate"}
 
     # ── payment.authorized — informational only (capture pending) ────
     if event_type == "payment.authorized":
@@ -364,107 +488,165 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         await db.commit()
         return {"status": "ok"}
 
-    # ── payment.captured — fulfill the purchase ──────────────────────
+    # ── payment.captured — fulfill the purchase (idempotent) ─────────
     if event_type == "payment.captured":
         if not user_id:
             logger.error(
                 "payment.captured missing user_id in notes: order=%s", safe_order_id
             )
-            pe.status = "error"
+            pe.status = "failed"
             await db.commit()
             raise HTTPException(400, "Missing user_id in order notes")
 
-        # Validate amount matches expected catalog price
-        _validate_payment_amount(
-            item_type, item_id, amount, currency, user_id, order_id
-        )
-
+        # Validate amount/scope BEFORE granting; a mismatch now BLOCKS
+        # fulfillment (BE-PAY-03) and records a 'failed' event for audit.
+        tool_ids: list[str] = []
         try:
-            # Look up user
-            user_result = await db.execute(select(User).where(User.id == user_id))
-            user = user_result.scalars().first()
-            if not user:
-                logger.error("Webhook user not found: user_id=%s", user_id)
-                pe.status = "error"
-                await db.commit()
-                raise HTTPException(400, "User not found")
-
             if item_type == "pro_subscription":
-                sub = Subscription(
-                    user_id=user.id,
-                    tier="pro",
-                    status="active",
-                    razorpay_order_id=order_id,
-                    razorpay_payment_id=payment_id,
-                    amount_paid_subunits=amount,
-                    currency=currency,
-                    region=user.region,
+                validate_pro_amount(amount, currency)
+            elif item_type in ("pass", "credit"):
+                tool_ids, _, _ = validate_order_scope_and_amount(
+                    order={"notes": notes, "amount": amount, "currency": currency},
+                    expected_item_id=item_id,
+                    expected_item_type=item_type,
                 )
-                db.add(sub)
-                logger.info(
-                    "Pro activated via webhook: user=%s payment=%s",
-                    user.id,
-                    safe_payment_id,
-                )
-
-            elif item_type == "pass":
-                pass_def = get_pass(item_id)
-                if not pass_def:
-                    logger.error("Unknown pass in webhook: %s", safe_item_id)
-                    pe.status = "error"
-                    await db.commit()
-                    raise HTTPException(400, f"Unknown pass: {item_id}")
-                tool_ids_raw = notes.get("tool_ids", "*")
-                tool_ids = tool_ids_raw.split(",") if tool_ids_raw else ["*"]
-                await grant_pass(
-                    user,
-                    item_id,
-                    tool_ids,
-                    "razorpay",
-                    db,
-                    razorpay_payment_id=payment_id,
-                    auto_commit=False,
-                )
-                logger.info(
-                    "Pass granted via webhook: user=%s pass=%s payment=%s",
-                    user.id,
-                    safe_item_id,
-                    safe_payment_id,
-                )
-
-            elif item_type == "credit":
-                pack = get_credit_pack(item_id)
-                if not pack:
-                    logger.error("Unknown credit pack in webhook: %s", safe_item_id)
-                    pe.status = "error"
-                    await db.commit()
-                    raise HTTPException(400, f"Unknown credit pack: {item_id}")
-                await grant_credits(
-                    user,
-                    pack["credits"],
-                    "purchase",
-                    db,
-                    razorpay_payment_id=payment_id,
-                    auto_commit=False,
-                )
-                logger.info(
-                    "Credits granted via webhook: user=%s pack=%s credits=%d payment=%s",
-                    user.id,
-                    safe_item_id,
-                    pack["credits"],
-                    safe_payment_id,
-                )
+                if item_type == "pass" and not tool_ids:
+                    logger.error(
+                        "Webhook: pass fulfillment with empty tool_ids, aborting: order=%s",
+                        safe_order_id,
+                    )
+                    raise HTTPException(
+                        400, "Invalid order notes: missing tool_ids for pass"
+                    )
             else:
                 logger.warning(
                     "Unknown item_type in webhook: %s order=%s",
                     safe_item_type,
                     safe_order_id,
                 )
+                pe.status = "processed"
+                pe.processed_at = datetime.now(UTC)
+                await db.commit()
+                return {"status": "ok"}
+        except HTTPException as validation_error:
+            # The webhook signature is VALID and the payment is CAPTURED, so a
+            # validation failure here is real customer money we cannot fulfil
+            # (e.g. a legacy scoped-pass order with empty tool_ids) —
+            # auto-refund exactly once and acknowledge with 200 so Razorpay
+            # stops retrying. A refund-API failure rolls everything back and
+            # re-raises → non-2xx → Razorpay redelivers → refund re-attempted.
+            if keycloak_sub is None:
+                # Unknown user: no fulfillment row possible (FK); keep the
+                # old failed-event behavior for the audit trail.
+                pe.status = "failed"
+                await db.commit()
+                raise
+            try:
+                await refund_unfulfillable_payment(
+                    db=db,
+                    user_id=user_id,
+                    keycloak_sub=keycloak_sub,
+                    razorpay_payment_id=payment_id,
+                    razorpay_order_id=order_id,
+                    item_type=item_type,
+                    item_id=item_id,
+                    amount_subunits=amount,
+                    currency=currency,
+                    via="webhook",
+                    reason=str(validation_error.detail),
+                )
+                pe.status = "processed"
+                pe.processed_at = datetime.now(UTC)
+                await db.commit()
+                return {"status": "ok", "detail": "refunded"}
+            except AlreadyFulfilled:
+                # Already fulfilled or already refunded — acknowledge without
+                # a second refund; commit the event row for the audit trail.
+                pe.status = "processed"
+                pe.processed_at = datetime.now(UTC)
+                await db.commit()
+                return {"status": "ok", "detail": "duplicate"}
+            except Exception as refund_error:
+                await db.rollback()
+                logger.exception(
+                    "Refund attempt failed (webhook): payment=%s", safe_payment_id
+                )
+                raise HTTPException(
+                    500, "Refund attempt failed — Razorpay will retry"
+                ) from refund_error
+
+        try:
+            # Lock + load the user for welcome-gift atomicity vs the verify path.
+            user_result = await db.execute(
+                select(User).where(User.id == user_id).with_for_update()
+            )
+            user = user_result.scalars().first()
+            if not user:
+                logger.error("Webhook user not found: user_id=%s", user_id)
+                pe.status = "failed"
+                await db.commit()
+                raise HTTPException(400, "User not found")
+
+            await fulfill_payment(
+                db=db,
+                user=user,
+                razorpay_payment_id=payment_id,
+                razorpay_order_id=order_id,
+                item_type=item_type,
+                item_id=item_id,
+                tool_ids=tool_ids,
+                amount_subunits=amount,
+                currency=currency,
+                fulfilled_via="webhook",
+            )
+            if item_type in ("pass", "credit", "pro_subscription"):
+                await maybe_grant_welcome_gift(user, db)
 
             pe.status = "processed"
             pe.processed_at = datetime.now(UTC)
             await db.commit()
+            logger.info(
+                "Payment fulfilled via webhook: user=%s type=%s item=%s payment=%s",
+                user.id,
+                safe_item_type,
+                safe_item_id,
+                safe_payment_id,
+            )
 
+        except AlreadyFulfilled:
+            # The verify callback (or another delivery) already fulfilled this
+            # payment — acknowledge without a second grant.
+            await db.rollback()
+            logger.info(
+                "Duplicate payment fulfillment ignored (webhook): payment=%s",
+                safe_payment_id,
+            )
+            # The 'received' pe was rolled back; insert a 'duplicate' row in a
+            # new transaction so the audit trail shows this late delivery arrived.
+            try:
+                dup_pe = PaymentEvent(
+                    event_type=event_type,
+                    razorpay_event_id=razorpay_event_id,
+                    razorpay_payment_id=payment_id,
+                    razorpay_order_id=order_id,
+                    user_id=user_id,
+                    keycloak_sub=keycloak_sub,
+                    item_type=item_type,
+                    item_id=item_id,
+                    amount_subunits=amount,
+                    currency=currency,
+                    status="duplicate",
+                    raw_payload=event,
+                )
+                db.add(dup_pe)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                logger.warning(
+                    "Could not record duplicate webhook audit event: payment=%s",
+                    safe_payment_id,
+                )
+            return {"status": "ok", "detail": "already_fulfilled"}
         except HTTPException:
             raise
         except Exception:
@@ -525,59 +707,3 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     pe.processed_at = datetime.now(UTC)
     await db.commit()
     return {"status": "ok"}
-
-
-def _validate_payment_amount(  # noqa: C901
-    item_type: str | None,
-    item_id: str | None,
-    amount: int | None,
-    currency: str | None,
-    user_id: uuid.UUID,
-    order_id: str | None,
-) -> None:
-    """Validate that the payment amount matches catalog pricing.
-
-    Logs a warning on mismatch but does not block fulfillment — Razorpay's
-    signature verification already guarantees the payment is authentic.
-    """
-    if not amount or not item_type:
-        return
-
-    expected: int | None = None
-    if item_type == "pro_subscription":
-        for pricing in PRO_PLAN_PRICES.values():
-            if pricing["currency"].upper() == (currency or "").upper():
-                expected = pricing["amount"]
-                break
-    elif item_type in ("pass", "credit") and item_id:
-        # Collect all catalog prices across regions and warn if the paid
-        # amount does not match any of them.
-        catalog_prices: list[int] = []
-        for region in ("IN", "US", "GB", "EU"):
-            price = get_price(item_id, region)
-            if price is not None and price not in catalog_prices:
-                catalog_prices.append(price)
-        if amount in catalog_prices:
-            expected = amount
-        elif catalog_prices:
-            logger.warning(
-                "Payment amount mismatch: expected_one_of=%s got=%s item_type=%s "
-                "item_id=%s user=%s order=%s",
-                str(catalog_prices).replace("\n", "").replace("\r", ""),
-                str(amount).replace("\n", "").replace("\r", ""),
-                str(item_type).replace("\n", "").replace("\r", ""),
-                str(item_id).replace("\n", "").replace("\r", ""),
-                str(user_id).replace("\n", "").replace("\r", ""),
-                str(order_id).replace("\n", "").replace("\r", ""),
-            )
-
-    if expected is not None and expected != amount:
-        logger.warning(
-            "Payment amount mismatch: expected=%s got=%s item_type=%s item_id=%s user=%s order=%s",
-            str(expected).replace("\n", "").replace("\r", ""),
-            str(amount).replace("\n", "").replace("\r", ""),
-            str(item_type).replace("\n", "").replace("\r", ""),
-            str(item_id).replace("\n", "").replace("\r", ""),
-            str(user_id).replace("\n", "").replace("\r", ""),
-            str(order_id).replace("\n", "").replace("\r", ""),
-        )

@@ -29,8 +29,13 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
+# Route through PgBouncer when PGBOUNCER_URL is configured, falling back to
+# the direct DATABASE_URL. This allows zero-code-change switching between
+# pooled and direct connections via environment variable.
+engine_url = settings.PGBOUNCER_URL or settings.DATABASE_URL
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    engine_url,
     echo=settings.DEBUG,
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
@@ -43,6 +48,15 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db():
-    """FastAPI dependency that yields an async DB session."""
+    """FastAPI dependency that yields an async DB session.
+
+    Commits on clean exit so writes (e.g. JIT-provisioned users) are
+    persisted; rolls back on exception to keep the DB consistent.
+    """
     async with AsyncSessionLocal() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

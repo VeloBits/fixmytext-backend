@@ -87,11 +87,15 @@ def create_order(
 
     client = get_client()
 
+    # Razorpay limits receipt to 40 chars. Truncate consistently so the lookup
+    # and creation always use the same value.
+    receipt_value = (idempotency_key or receipt)[:40]
+
     # Check for an existing unpaid order with the same receipt to avoid
     # duplicate orders on network retries or double-clicks.
     if idempotency_key:
         try:
-            existing_orders = client.order.all({"receipt": idempotency_key})
+            existing_orders = client.order.all({"receipt": receipt_value})
             for order in existing_orders.get("items", []):
                 if (
                     order.get("status") == "created"
@@ -102,7 +106,7 @@ def create_order(
                     logger.debug(
                         "Returning existing order %s for receipt=%s",
                         str(order["id"]).replace("\n", "").replace("\r", ""),
-                        str(idempotency_key).replace("\n", "").replace("\r", ""),
+                        str(receipt_value).replace("\n", "").replace("\r", ""),
                     )
                     return order
         except Exception:
@@ -112,7 +116,7 @@ def create_order(
         {
             "amount": amount,
             "currency": currency.upper(),
-            "receipt": idempotency_key or receipt,
+            "receipt": receipt_value,
             "notes": notes,
         }
     )
@@ -126,6 +130,30 @@ def fetch_order(order_id: str) -> dict:
             raise RuntimeError(f"Fake order {order_id} not found")
         return order
     return get_client().order.fetch(order_id)
+
+
+# In-memory store for fake refunds when PAYMENTS_BACKEND=fake (E2E tests).
+_fake_refunds: dict[str, dict] = {}
+
+
+def refund_payment(payment_id: str, *, notes: dict | None = None) -> dict:
+    """Issue a FULL refund for a captured payment.
+
+    Used when a captured payment turns out to be unfulfillable (order
+    validation fails at verify/webhook time) — the customer must never pay
+    for nothing. Raises on Razorpay API failure so callers can surface a
+    retryable error (Razorpay will re-deliver webhooks).
+    """
+    if _payments_fake():
+        refund = {
+            "id": f"rfnd_fake_{payment_id}",
+            "payment_id": payment_id,
+            "status": "processed",
+            "notes": notes or {},
+        }
+        _fake_refunds[payment_id] = refund
+        return refund
+    return get_client().payment.refund(payment_id, {"notes": notes or {}})
 
 
 def verify_payment_signature(order_id: str, payment_id: str, signature: str) -> bool:

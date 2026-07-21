@@ -1,0 +1,953 @@
+{
+  "info": {
+    "name": "FixMyText Backend API",
+    "_postman_id": "f1xmytext-0000-4000-8000-collection0001",
+    "description": "Public HTTP endpoints for all four FixMyText microservices (account-svc, ai-svc, payments-svc, text-svc), reached through the Kong gateway at {{base_url}}.\n\n## Getting started\n1. Set the `username` / `password` collection variables (a Keycloak user in the {{kc_realm}} realm).\n2. Run **Auth - Keycloak / Get Token (password grant)**. Its test script stores `access_token` automatically.\n3. Every protected request inherits collection-level Bearer auth using `{{access_token}}` - no manual paste needed.\n\n## Topology\nThe individual services only expose port 8000 internally. Kong is the sole host-published entry point (127.0.0.1:8000:8000) and uses strip_path=false, so the external path equals the path the service sees. Direct per-service ports are NOT reachable from the host - always go through {{base_url}}.\n\nAuth model: Keycloak-issued RS256 JWT in `Authorization: Bearer`. account-svc also accepts an HttpOnly session cookie; text-svc auth is optional (anonymous = visitor quota).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{access_token}}", "type": "string" }
+    ]
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Collection-level harvester: runs AFTER every request in the collection.",
+          "// It scans the JSON response for well-known fields and seeds them into",
+          "// collection variables so values captured by one request auto-populate",
+          "// every other request. Per-request scripts (below) handle resource-specific",
+          "// ids; this handles the cross-cutting ones (tokens, identity, orders).",
+          "try {",
+          "  if (!pm.response || pm.response.code >= 400) { return; }",
+          "  var data;",
+          "  try { data = pm.response.json(); } catch (e) { return; }",
+          "  if (!data || typeof data !== 'object') { return; }",
+          "",
+          "  function save(key, val) {",
+          "    if (val === undefined || val === null || val === '') { return; }",
+          "    pm.collectionVariables.set(key, String(val));",
+          "    console.log('[harvest] ' + key + ' = ' + String(val).slice(0, 24) + '...');",
+          "  }",
+          "",
+          "  // OAuth tokens (from any Keycloak token/refresh response)",
+          "  save('access_token', data.access_token);",
+          "  save('refresh_token', data.refresh_token);",
+          "",
+          "  // Current-user identity (GET /auth/me returns id + email)",
+          "  if (data.id && data.email) { save('user_id', data.id); }",
+          "",
+          "  // Razorpay order id (passes/order, credit-order, subscription/checkout)",
+          "  save('razorpay_order_id', data.order_id);",
+          "",
+          "  // Referral code (passes/referral-code)",
+          "  save('referral_code', data.referral_code);",
+          "",
+          "  // Async AI job id (ai/{tool}/enqueue)",
+          "  save('job_id', data.job_id);",
+          "} catch (e) { console.log('[harvest] error: ' + e); }"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000", "type": "string" },
+    { "key": "kc_url", "value": "http://localhost:8080", "type": "string" },
+    { "key": "kc_realm", "value": "Velobits-Dev", "type": "string" },
+    { "key": "kc_client_id", "value": "fixmytext-backend", "type": "string" },
+    { "key": "username", "value": "", "type": "string" },
+    { "key": "password", "value": "", "type": "string" },
+    { "key": "access_token", "value": "", "type": "string" },
+    { "key": "refresh_token", "value": "", "type": "string" },
+    { "key": "user_id", "value": "", "type": "string" },
+    { "key": "tool_id", "value": "uppercase", "type": "string" },
+    { "key": "ai_tool_id", "value": "summarize", "type": "string" },
+    { "key": "job_id", "value": "", "type": "string" },
+    { "key": "share_id", "value": "", "type": "string" },
+    { "key": "entry_id", "value": "", "type": "string" },
+    { "key": "template_id", "value": "", "type": "string" },
+    { "key": "pipeline_id", "value": "", "type": "string" },
+    { "key": "razorpay_order_id", "value": "", "type": "string" },
+    { "key": "referral_code", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "0. Auth - Keycloak",
+      "description": "Obtain a JWT from Keycloak. These requests use No Auth (the token does not exist yet). The password-grant test script populates {{access_token}} and {{refresh_token}}.",
+      "item": [
+        {
+          "name": "Get Token (password grant)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.access_token) {",
+                  "    pm.collectionVariables.set('access_token', data.access_token);",
+                  "    console.log('access_token saved');",
+                  "  }",
+                  "  if (data.refresh_token) {",
+                  "    pm.collectionVariables.set('refresh_token', data.refresh_token);",
+                  "  }",
+                  "  pm.test('access_token present', function () {",
+                  "    pm.expect(data.access_token).to.be.a('string').and.not.empty;",
+                  "  });",
+                  "} else {",
+                  "  console.log('Token request failed: ' + pm.response.code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "password", "type": "text" },
+                { "key": "client_id", "value": "{{kc_client_id}}", "type": "text" },
+                { "key": "username", "value": "{{username}}", "type": "text" },
+                { "key": "password", "value": "{{password}}", "type": "text" },
+                { "key": "scope", "value": "openid", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{kc_url}}/realms/{{kc_realm}}/protocol/openid-connect/token",
+              "host": ["{{kc_url}}"],
+              "path": ["realms", "{{kc_realm}}", "protocol", "openid-connect", "token"]
+            },
+            "description": "Resource Owner Password Credentials grant. Requires the Keycloak client to permit direct access grants. On success, saves access_token and refresh_token to collection variables."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.access_token) pm.collectionVariables.set('access_token', data.access_token);",
+                  "  if (data.refresh_token) pm.collectionVariables.set('refresh_token', data.refresh_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "refresh_token", "type": "text" },
+                { "key": "client_id", "value": "{{kc_client_id}}", "type": "text" },
+                { "key": "refresh_token", "value": "{{refresh_token}}", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{kc_url}}/realms/{{kc_realm}}/protocol/openid-connect/token",
+              "host": ["{{kc_url}}"],
+              "path": ["realms", "{{kc_realm}}", "protocol", "openid-connect", "token"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. account-svc",
+      "description": "User accounts, profile, preferences, templates, history, sharing. Base prefix /api/v1. Accepts Bearer JWT or the fixmytext_session cookie. (Gamification removed 2026-07-13; GET/PUT /user/gamification remain as authenticated no-op stubs pending final removal.)",
+      "item": [
+        {
+          "name": "auth",
+          "item": [
+            {
+              "name": "Get current user (me)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/me",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "me"]
+                },
+                "description": "Returns the current user profile and issues the fixmytext_session cookie. Auth required."
+              }
+            },
+            {
+              "name": "Register",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "// Registration does NOT return a token - it creates a Keycloak user",
+                      "// and sends a verification email. So we capture the email/password",
+                      "// you just submitted into the username/password variables, ready for",
+                      "// the next step: run 'Get Token (password grant)' to obtain the JWT.",
+                      "try {",
+                      "  var sent = JSON.parse(pm.request.body.raw);",
+                      "  if (sent.email) pm.collectionVariables.set('username', sent.email);",
+                      "  if (sent.password) pm.collectionVariables.set('password', sent.password);",
+                      "  console.log('[register] seeded username/password for Get Token. Verify email first if the realm requires it.');",
+                      "} catch (e) { console.log('[register] could not parse body: ' + e); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"ChangeMe!2026\",\n  \"display_name\": \"New User\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/register",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "register"]
+                },
+                "description": "Self-registration into Keycloak. No auth. Per-IP throttled (default 10/hour). 201 on success.\n\nNOTE: this returns { message } only - NOT an access token. The test script copies the email/password you sent into the username/password variables; then run '0. Auth - Keycloak / Get Token' to get the JWT (which the harvester saves to {{access_token}} for all other requests). If the realm enforces email verification, verify before the password grant will succeed."
+              }
+            },
+            {
+              "name": "Clear session (logout)",
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/session/clear",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "session", "clear"]
+                },
+                "description": "Clears the session cookie and revokes the session in Redis. 204 No Content."
+              }
+            },
+            {
+              "name": "Backchannel logout (OIDC SLO)",
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+                ],
+                "body": {
+                  "mode": "urlencoded",
+                  "urlencoded": [
+                    { "key": "logout_token", "value": "<signed-keycloak-logout-token>", "type": "text" }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/backchannel-logout",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "backchannel-logout"]
+                },
+                "description": "Server-to-server OIDC backchannel single-logout hook. Normally called by Keycloak, not a client. Hidden from OpenAPI."
+              }
+            }
+          ]
+        },
+        {
+          "name": "user",
+          "item": [
+            {
+              "name": "Get preferences",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/user/preferences", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "preferences"] }
+              }
+            },
+            {
+              "name": "Update preferences",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"theme\": \"dark\",\n  \"persona\": \"developer\",\n  \"theme_skin\": \"midnight\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/user/preferences", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "preferences"] },
+                "description": "Partial update; all fields optional."
+              }
+            },
+            {
+              "name": "List templates",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/user/templates?page=1&page_size=25",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "user", "templates"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "25" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Create template",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": { "type": "text/javascript", "exec": [
+                    "if (pm.response.code === 201) { const d = pm.response.json(); if (d.id) pm.collectionVariables.set('template_id', d.id); }"
+                  ] }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"My greeting\",\n  \"text\": \"Hello {{name}}, welcome!\",\n  \"tool_id\": \"uppercase\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/user/templates", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "templates"] },
+                "description": "name 1-200 chars, text non-empty, tool_id optional. Saves new id to {{template_id}}."
+              }
+            },
+            {
+              "name": "Update template",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated name\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/user/templates/{{template_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "templates", "{{template_id}}"] }
+              }
+            },
+            {
+              "name": "Delete template",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/user/templates/{{template_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "templates", "{{template_id}}"] }
+              }
+            },
+            {
+              "name": "Get UI settings",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/user/ui-settings", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "ui-settings"] }
+              }
+            },
+            {
+              "name": "Update UI settings",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"tool_view\": \"grid\",\n  \"keybindings\": { \"run\": \"ctrl+enter\" },\n  \"panel_sizes\": { \"left\": 320 }\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/user/ui-settings", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "ui-settings"] }
+              }
+            },
+            {
+              "name": "Get favorites",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/user/favorites", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "favorites"] }
+              }
+            },
+            {
+              "name": "Add favorite",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/user/favorites/{{tool_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "favorites", "{{tool_id}}"] },
+                "description": "Idempotent. 201 created (or 200 if already present)."
+              }
+            },
+            {
+              "name": "Remove favorite",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/user/favorites/{{tool_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "favorites", "{{tool_id}}"] }
+              }
+            },
+            {
+              "name": "Get tool stats",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/user/tool-stats", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "tool-stats"] }
+              }
+            },
+            {
+              "name": "List pipelines",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/user/pipelines?page=1&page_size=25",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "user", "pipelines"],
+                  "query": [ { "key": "page", "value": "1" }, { "key": "page_size", "value": "25" } ]
+                }
+              }
+            },
+            {
+              "name": "Create pipeline",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": { "type": "text/javascript", "exec": [
+                    "if (pm.response.code === 201) { const d = pm.response.json(); if (d.id) pm.collectionVariables.set('pipeline_id', d.id); }"
+                  ] }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Clean then upper\",\n  \"description\": \"Normalize whitespace then uppercase\",\n  \"steps\": [\n    { \"step_order\": 1, \"tool_id\": \"normalize-whitespace\", \"tool_label\": \"Normalize Whitespace\", \"config\": {} },\n    { \"step_order\": 2, \"tool_id\": \"uppercase\", \"tool_label\": \"Uppercase\", \"config\": {} }\n  ]\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/user/pipelines", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "pipelines"] },
+                "description": "Saves new id to {{pipeline_id}}."
+              }
+            },
+            {
+              "name": "Update pipeline",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Renamed pipeline\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/user/pipelines/{{pipeline_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "pipelines", "{{pipeline_id}}"] }
+              }
+            },
+            {
+              "name": "Delete pipeline",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/user/pipelines/{{pipeline_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "pipelines", "{{pipeline_id}}"] },
+                "description": "Soft delete (is_active=false)."
+              }
+            },
+            {
+              "name": "Get discovered tools",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/user/discovered-tools?limit=200&offset=0",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "user", "discovered-tools"],
+                  "query": [ { "key": "limit", "value": "200" }, { "key": "offset", "value": "0" } ]
+                }
+              }
+            },
+            {
+              "name": "Get spin history",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/user/spin-history", "host": ["{{base_url}}"], "path": ["api", "v1", "user", "spin-history"] },
+                "description": "Most recent 20 spin-wheel entries."
+              }
+            }
+          ]
+        },
+        {
+          "name": "history",
+          "item": [
+            {
+              "name": "List history",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/history?page=1&page_size=25&tool_id=",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "history"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "25" },
+                    { "key": "tool_id", "value": "", "description": "Optional filter" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Create history entry",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": { "type": "text/javascript", "exec": [
+                    "if (pm.response.code === 201) { const d = pm.response.json(); if (d.id) pm.collectionVariables.set('entry_id', d.id); }"
+                  ] }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"tool_id\": \"uppercase\",\n  \"tool_label\": \"Uppercase\",\n  \"tool_type\": \"local\",\n  \"input_preview\": \"hello world\",\n  \"output_preview\": \"HELLO WORLD\",\n  \"input_length\": 11,\n  \"output_length\": 11,\n  \"status\": \"success\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/history", "host": ["{{base_url}}"], "path": ["api", "v1", "history"] },
+                "description": "Records a transformation. Previews truncated to 500 chars server-side. Saves new id to {{entry_id}}."
+              }
+            },
+            {
+              "name": "History stats summary",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/history/stats/summary", "host": ["{{base_url}}"], "path": ["api", "v1", "history", "stats", "summary"] }
+              }
+            },
+            {
+              "name": "Get history entry",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/history/{{entry_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "history", "{{entry_id}}"] }
+              }
+            },
+            {
+              "name": "Delete history entry",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/history/{{entry_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "history", "{{entry_id}}"] },
+                "description": "Soft delete a single entry."
+              }
+            },
+            {
+              "name": "Clear all history",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/history", "host": ["{{base_url}}"], "path": ["api", "v1", "history"] },
+                "description": "Soft-delete all entries for the user."
+              }
+            }
+          ]
+        },
+        {
+          "name": "share",
+          "item": [
+            {
+              "name": "Create share link",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": { "type": "text/javascript", "exec": [
+                    "if (pm.response.code === 201) { const d = pm.response.json(); if (d.id) pm.collectionVariables.set('share_id', d.id); }"
+                  ] }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"tool_id\": \"uppercase\",\n  \"tool_label\": \"Uppercase\",\n  \"output_text\": \"HELLO WORLD\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/share", "host": ["{{base_url}}"], "path": ["api", "v1", "share"] },
+                "description": "Anonymous OR authenticated. output_text 1-50000 chars. Saves new id to {{share_id}}."
+              }
+            },
+            {
+              "name": "View shared result",
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/share/{{share_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "share", "{{share_id}}"] },
+                "description": "Public view. 404 if not found, 410 if expired (default 30 days)."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. ai-svc",
+      "description": "AI text transformations via Groq. Base prefix /api/v1/ai. Requires verified Keycloak JWT (email must be verified for execution endpoints). Per-user rate limited (default 25/60s) and entitlement-gated via payments-svc.\n\nSet {{ai_tool_id}} to the desired tool (e.g. summarize, translate, change-tone, change-format, paraphrase, grammar-fix).",
+      "item": [
+        {
+          "name": "Run AI tool (sync) - text only",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"The quick brown fox jumps over the lazy dog.\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/ai/{{ai_tool_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "ai", "{{ai_tool_id}}"] },
+            "description": "Default body shape (TextRequest). Returns { original, result, operation }."
+          },
+          "response": [
+            {
+              "name": "translate (TranslateRequest)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"text\": \"Hello, how are you?\",\n  \"target_language\": \"Spanish\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/ai/translate", "host": ["{{base_url}}"], "path": ["api", "v1", "ai", "translate"] }
+              },
+              "status": "OK", "code": 200, "_postman_previewlanguage": "json", "header": [], "body": "{\n  \"original\": \"Hello, how are you?\",\n  \"result\": \"Hola, ¿cómo estás?\",\n  \"operation\": \"translate\"\n}"
+            },
+            {
+              "name": "change-tone (ToneRequest)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"text\": \"Send me the report.\",\n  \"tone\": \"formal\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/ai/change-tone", "host": ["{{base_url}}"], "path": ["api", "v1", "ai", "change-tone"] }
+              },
+              "status": "OK", "code": 200, "_postman_previewlanguage": "json", "header": [], "body": "{\n  \"original\": \"Send me the report.\",\n  \"result\": \"Could you kindly send me the report?\",\n  \"operation\": \"change-tone\"\n}"
+            },
+            {
+              "name": "change-format (FormatRequest)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"text\": \"apples oranges bananas\",\n  \"format\": \"bullet-list\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/ai/change-format", "host": ["{{base_url}}"], "path": ["api", "v1", "ai", "change-format"] }
+              },
+              "status": "OK", "code": 200, "_postman_previewlanguage": "json", "header": [], "body": "{\n  \"original\": \"apples oranges bananas\",\n  \"result\": \"- apples\\n- oranges\\n- bananas\",\n  \"operation\": \"change-format\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Run AI tool (stream / SSE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "text/event-stream" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"Summarize the history of computing in two sentences.\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/ai/{{ai_tool_id}}/stream", "host": ["{{base_url}}"], "path": ["api", "v1", "ai", "{{ai_tool_id}}", "stream"] },
+            "description": "Server-Sent Events, one token per line, terminated by [DONE]. Postman shows the raw stream body."
+          }
+        },
+        {
+          "name": "Enqueue AI tool (async)",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "if (pm.response.code === 201 || pm.response.code === 200) { const d = pm.response.json(); if (d.job_id) pm.collectionVariables.set('job_id', d.job_id); }"
+              ] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"The quick brown fox jumps over the lazy dog.\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/ai/{{ai_tool_id}}/enqueue", "host": ["{{base_url}}"], "path": ["api", "v1", "ai", "{{ai_tool_id}}", "enqueue"] },
+            "description": "Queues a job via the arq worker. Returns { job_id, status:'queued' } and saves {{job_id}}. Poll with the next request."
+          }
+        },
+        {
+          "name": "Poll AI job",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v1/ai/jobs/{{job_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "ai", "jobs", "{{job_id}}"] },
+            "description": "Status one of queued|in_progress|complete|failed|not_found. 403 if the job belongs to another user."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. payments-svc",
+      "description": "Billing: passes, credits, subscriptions, referrals, Razorpay. Base prefix /api/v1. Most endpoints require Bearer JWT; catalog and webhook are unauthenticated. The internal /internal/v1/check-access endpoint is service-to-service only and intentionally NOT included.",
+      "item": [
+        {
+          "name": "passes",
+          "item": [
+            {
+              "name": "Get catalog",
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/passes/catalog?region=",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "passes", "catalog"],
+                  "query": [ { "key": "region", "value": "", "description": "Optional; auto-detected from IP if omitted" } ]
+                },
+                "description": "Available passes and credit packs with regional pricing. No auth."
+              }
+            },
+            {
+              "name": "Get active passes/credits",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/passes/active", "host": ["{{base_url}}"], "path": ["api", "v1", "passes", "active"] }
+              }
+            },
+            {
+              "name": "Create pass order",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"pass_id\": \"day-pass\",\n  \"tool_ids\": [\"summarize\", \"translate\"],\n  \"region\": \"IN\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/passes/order", "host": ["{{base_url}}"], "path": ["api", "v1", "passes", "order"] },
+                "description": "Creates a Razorpay order for a pass. Rate limited (10/min). Returns Razorpay order details."
+              }
+            },
+            {
+              "name": "Create credit order",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"pack_id\": \"credits-100\",\n  \"region\": \"IN\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/passes/credit-order", "host": ["{{base_url}}"], "path": ["api", "v1", "passes", "credit-order"] }
+              }
+            },
+            {
+              "name": "Verify payment (grant pass/credits)",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"razorpay_order_id\": \"{{razorpay_order_id}}\",\n  \"razorpay_payment_id\": \"pay_XXXXXXXXXXXX\",\n  \"razorpay_signature\": \"<hmac-signature>\",\n  \"item_id\": \"day-pass\",\n  \"item_type\": \"pass\",\n  \"tool_ids\": [\"summarize\"]\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/passes/verify", "host": ["{{base_url}}"], "path": ["api", "v1", "passes", "verify"] },
+                "description": "item_type is 'pass' or 'credit'. Idempotent; verifies signature and grants entitlement."
+              }
+            },
+            {
+              "name": "Spin reward wheel",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/passes/spin", "host": ["{{base_url}}"], "path": ["api", "v1", "passes", "spin"] },
+                "description": "Weekly reward wheel. Returns reward_type and amount/pass."
+              }
+            },
+            {
+              "name": "Get referral code",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/passes/referral-code", "host": ["{{base_url}}"], "path": ["api", "v1", "passes", "referral-code"] }
+              }
+            },
+            {
+              "name": "Claim referral",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"code\": \"{{referral_code}}\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/passes/claim-referral", "host": ["{{base_url}}"], "path": ["api", "v1", "passes", "claim-referral"] },
+                "description": "Uses {{referral_code}} - auto-populated by 'Get referral code'. Note: claiming your own code is rejected server-side; paste another user's code into the referral_code variable to test."
+              }
+            }
+          ]
+        },
+        {
+          "name": "subscription",
+          "item": [
+            {
+              "name": "Get subscription status",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/subscription/status", "host": ["{{base_url}}"], "path": ["api", "v1", "subscription", "status"] },
+                "description": "Tier, daily usage, credit balance, region. Records daily login bonus."
+              }
+            },
+            {
+              "name": "Checkout (upgrade to Pro)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/subscription/checkout", "host": ["{{base_url}}"], "path": ["api", "v1", "subscription", "checkout"] },
+                "description": "Creates a Razorpay order for Pro. Rate limited (10/min). Fails if already Pro."
+              }
+            },
+            {
+              "name": "Verify (activate Pro)",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"razorpay_order_id\": \"{{razorpay_order_id}}\",\n  \"razorpay_payment_id\": \"pay_XXXXXXXXXXXX\",\n  \"razorpay_signature\": \"<hmac-signature>\"\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/subscription/verify", "host": ["{{base_url}}"], "path": ["api", "v1", "subscription", "verify"] }
+              }
+            },
+            {
+              "name": "Cancel subscription",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/v1/subscription/cancel", "host": ["{{base_url}}"], "path": ["api", "v1", "subscription", "cancel"] },
+                "description": "Immediate downgrade."
+              }
+            },
+            {
+              "name": "Razorpay webhook",
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "x-razorpay-signature", "value": "<hmac-sha256-of-raw-body>" }
+                ],
+                "body": { "mode": "raw", "raw": "{\n  \"event\": \"payment.captured\",\n  \"payload\": {\n    \"payment\": {\n      \"entity\": {\n        \"id\": \"pay_XXXXXXXXXXXX\",\n        \"order_id\": \"order_XXXXXXXXXXXX\",\n        \"amount\": 9900,\n        \"currency\": \"INR\"\n      }\n    }\n  }\n}" },
+                "url": { "raw": "{{base_url}}/api/v1/subscription/webhook", "host": ["{{base_url}}"], "path": ["api", "v1", "subscription", "webhook"] },
+                "description": "Called by Razorpay. No bearer auth; guarded by x-razorpay-signature. Idempotent (deduped by event id), max 64KB payload. Handles payment.captured/authorized/failed, subscription.cancelled/halted."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. text-svc",
+      "description": "Local (non-AI) text transformations. Base prefix /api/v1/text. Every tool uses POST /api/v1/text/{tool_id} and returns { original, result, operation }.\n\nAuth is OPTIONAL: Bearer works, and anonymous calls also succeed (visitor quota, keyed by IP). Rate limited via Redis; 5s wall-clock timeout per request.\n\nValid tool_id values (70+), by category:\n- Case: uppercase, lowercase, inversecase, sentencecase, titlecase, upper-camel-case, lower-camel-case, snake-case, kebab-case, capitalize-words, alternating-case, inverse-word-case, wide-text, small-caps, upside-down, strikethrough, ap-title-case, swap-word-case, dot-case, constant-case, train-case, path-case, flat-case, cobol-case\n- Whitespace/cleanup: remove-extra-spaces, remove-all-spaces, remove-line-breaks, strip-html, remove-accents, toggle-smart-quotes, strip-invisible, strip-emoji, normalize-whitespace, strip-non-ascii, fix-line-endings, strip-markdown, trim-lines, strip-empty-lines, strip-urls, strip-emails, normalize-punctuation, strip-numbers\n- Encoding: base64-encode/decode, url-encode/decode, hex-encode/decode, morse-encode/decode, binary-encode/decode, octal-encode/decode, decimal-encode/decode, unicode-escape/unescape, base32-encode/decode, ascii85-encode/decode, brainfuck-encode/decode\n- Ciphers: atbash, caesar-cipher, caesar-brute-force, vigenere-encrypt/decrypt, rail-fence-encrypt/decrypt, playfair-encrypt, substitution-cipher, columnar-transposition, nato-phonetic, bacon-cipher, rot13\n- Line ops: reverse, sort-lines-asc/desc, remove-duplicate-lines, reverse-lines, number-lines, shuffle-lines, sort-by-length, sort-numeric, line-frequency, split-to-lines, join-lines, pad-lines, wrap-lines, filter-lines, remove-lines, truncate-lines, extract-nth-lines\n- Dev tools: format-json, json-to-yaml, json-escape/unescape, html-escape/unescape, csv-to-json, json-to-csv, xml-to-json, csv-to-table, sql-insert-gen\n\nMost tools take TextRequest {text}. The examples below cover every distinct request shape.",
+      "item": [
+        {
+          "name": "Run text tool (templated :tool_id)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"Hello World\"\n}" },
+            "url": {
+              "raw": "{{base_url}}/api/v1/text/:tool_id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "text", ":tool_id"],
+              "variable": [
+                { "key": "tool_id", "value": "{{tool_id}}", "description": "Any valid local tool id (see folder description)" }
+              ]
+            },
+            "description": "Generic entry point. Set the :tool_id path variable to any tool from the catalog. Default body is TextRequest {text}; some tools need extra fields - see the example requests."
+          }
+        },
+        {
+          "name": "uppercase (TextRequest)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"hello world\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/uppercase", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "uppercase"] }
+          }
+        },
+        {
+          "name": "reverse (TextRequest)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"hello world\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/reverse", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "reverse"] }
+          }
+        },
+        {
+          "name": "caesar-cipher (CaesarRequest)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"hello world\",\n  \"shift\": 3\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/caesar-cipher", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "caesar-cipher"] },
+            "description": "shift: integer 1-25."
+          }
+        },
+        {
+          "name": "vigenere-encrypt (KeyedCipherRequest)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"hello world\",\n  \"key\": \"secret\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/vigenere-encrypt", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "vigenere-encrypt"] },
+            "description": "Same body shape (text, key) for vigenere-decrypt, playfair-encrypt, columnar-transposition."
+          }
+        },
+        {
+          "name": "rail-fence-encrypt (RailFenceRequest)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"hello world\",\n  \"rails\": 3\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/rail-fence-encrypt", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "rail-fence-encrypt"] },
+            "description": "rails: integer 2-10. Same shape for rail-fence-decrypt."
+          }
+        },
+        {
+          "name": "substitution-cipher (SubstitutionRequest)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"hello world\",\n  \"mapping\": \"zyxwvutsrqponmlkjihgfedcba\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/substitution-cipher", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "substitution-cipher"] },
+            "description": "mapping: exactly 26 characters (a-z substitution alphabet)."
+          }
+        },
+        {
+          "name": "split-to-lines (SplitJoinRequest)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"a,b,c,d\",\n  \"delimiter\": \",\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/split-to-lines", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "split-to-lines"] },
+            "description": "Same shape (text, delimiter) for join-lines."
+          }
+        },
+        {
+          "name": "pad-lines (PadRequest)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"a\\nbb\\nccc\",\n  \"align\": \"left\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/pad-lines", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "pad-lines"] },
+            "description": "align: left | right | center."
+          }
+        },
+        {
+          "name": "truncate-lines (TruncateRequest)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"a very long line that should be cut\",\n  \"max_length\": 10\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/truncate-lines", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "truncate-lines"] },
+            "description": "max_length: integer 5-1000."
+          }
+        },
+        {
+          "name": "format-json (TextRequest / dev tool)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"{\\\"b\\\":2,\\\"a\\\":1}\"\n}" },
+            "url": { "raw": "{{base_url}}/api/v1/text/format-json", "host": ["{{base_url}}"], "path": ["api", "v1", "text", "format-json"] },
+            "description": "Dev tools (format-json, json-to-yaml, csv-to-json, etc.) all take TextRequest {text} where text is the source document as a string."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Health",
+      "description": "Liveness/readiness probes. The gateway routes /health to account-svc.",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
+          }
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/health/ready", "host": ["{{base_url}}"], "path": ["health", "ready"] }
+          }
+        }
+      ]
+    }
+  ]
+}

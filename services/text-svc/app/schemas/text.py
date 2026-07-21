@@ -7,10 +7,27 @@ Contains only the schemas used by LOCAL tools.  AI-tool schemas
 from typing import Any, Literal
 
 import regex as _regex
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-class TextRequest(BaseModel):
+class NonBlankTextMixin(BaseModel):
+    """Reject ``text`` that is empty after stripping whitespace.
+
+    Whitespace-only input satisfies ``min_length=1`` but produces a useless
+    transform — and validation must fail here, at request-parse time, so the
+    entitlement gate never consumes a free use for it. The text itself is NOT
+    trimmed: leading/trailing whitespace is meaningful input for several tools.
+    """
+
+    @field_validator("text", check_fields=False)
+    @classmethod
+    def _reject_blank_text(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Text must contain at least one non-whitespace character.")
+        return v
+
+
+class TextRequest(NonBlankTextMixin):
     """Payload sent by the client for any text transformation."""
 
     text: str = Field(
@@ -22,7 +39,7 @@ class TextRequest(BaseModel):
     )
 
 
-class SplitJoinRequest(BaseModel):
+class SplitJoinRequest(NonBlankTextMixin):
     """Payload for split-to-lines and join-lines requests."""
 
     text: str = Field(
@@ -38,7 +55,7 @@ class SplitJoinRequest(BaseModel):
     )
 
 
-class PadRequest(BaseModel):
+class PadRequest(NonBlankTextMixin):
     """Payload for pad-lines requests."""
 
     text: str = Field(
@@ -53,7 +70,7 @@ class PadRequest(BaseModel):
     )
 
 
-class WrapRequest(BaseModel):
+class WrapRequest(NonBlankTextMixin):
     """Payload for wrap-lines requests."""
 
     text: str = Field(
@@ -74,7 +91,7 @@ class WrapRequest(BaseModel):
     )
 
 
-class FilterRequest(BaseModel):
+class FilterRequest(NonBlankTextMixin):
     """Payload for filter-lines and remove-lines requests."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -122,7 +139,7 @@ class FilterRequest(BaseModel):
         return self
 
 
-class TruncateRequest(BaseModel):
+class TruncateRequest(NonBlankTextMixin):
     """Payload for truncate-lines requests."""
 
     text: str = Field(
@@ -139,7 +156,7 @@ class TruncateRequest(BaseModel):
     )
 
 
-class NthLineRequest(BaseModel):
+class NthLineRequest(NonBlankTextMixin):
     """Payload for extract-nth-lines requests."""
 
     text: str = Field(
@@ -161,7 +178,7 @@ class NthLineRequest(BaseModel):
     )
 
 
-class CaesarRequest(BaseModel):
+class CaesarRequest(NonBlankTextMixin):
     """Payload for Caesar cipher requests."""
 
     text: str = Field(
@@ -178,7 +195,7 @@ class CaesarRequest(BaseModel):
     )
 
 
-class RailFenceRequest(BaseModel):
+class RailFenceRequest(NonBlankTextMixin):
     """Payload for Rail Fence cipher requests."""
 
     text: str = Field(
@@ -195,7 +212,7 @@ class RailFenceRequest(BaseModel):
     )
 
 
-class KeyedCipherRequest(BaseModel):
+class KeyedCipherRequest(NonBlankTextMixin):
     """Payload for cipher requests that require a key (Vigenere, Playfair, etc.)."""
 
     text: str = Field(
@@ -212,7 +229,7 @@ class KeyedCipherRequest(BaseModel):
     )
 
 
-class SubstitutionRequest(BaseModel):
+class SubstitutionRequest(NonBlankTextMixin):
     """Payload for substitution cipher requests."""
 
     text: str = Field(

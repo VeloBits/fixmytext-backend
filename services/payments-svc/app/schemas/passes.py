@@ -81,7 +81,11 @@ class PassOrderRequest(BaseModel):
     """Request to create a Razorpay order for a pass purchase."""
 
     pass_id: str = Field(..., description="Catalog pass ID e.g. 'day_triple'")
-    tool_ids: list[str] = Field(default=[], description="Selected tool IDs")
+    tool_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Selected tool IDs (exactly pass.tools entries for scoped passes)",
+    )
     region: str = Field(
         default="", description="Browser-detected region (IN, US, GB, EU)"
     )

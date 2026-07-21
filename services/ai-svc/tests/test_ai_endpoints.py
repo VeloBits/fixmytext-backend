@@ -88,9 +88,16 @@ async def test_generate_hashtags_returns_200(client):
 
     app.dependency_overrides[get_verified_user] = lambda: verified_user
 
-    with patch(
-        "app.services.ai_service.run_ai_tool",
-        new=AsyncMock(return_value="#Python #FastAPI #Testing"),
+    with (
+        patch(
+            "app.api.v1.endpoints.ai.check_entitlement",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "app.services.ai_service.run_ai_tool",
+            new=AsyncMock(return_value="#Python #FastAPI #Testing"),
+        ),
     ):
         try:
             response = await client.post(
@@ -130,3 +137,36 @@ async def test_unverified_email_returns_403(client):
         assert detail["code"] == "email_not_verified"
     finally:
         app.dependency_overrides.clear()
+
+
+# ── Input validation ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_blank_text_rejected_before_entitlement(client):
+    """Empty or whitespace-only text must 422 and never consume a credit."""
+    from app.api.v1.endpoints.ai import AuthenticatedUser, get_verified_user
+    from main import app
+
+    verified_user = AuthenticatedUser(
+        id="test-user-id",
+        email="test@example.com",
+        is_email_verified=True,
+    )
+
+    app.dependency_overrides[get_verified_user] = lambda: verified_user
+
+    with patch(
+        "app.api.v1.endpoints.ai.check_entitlement",
+        new_callable=AsyncMock,
+    ) as gate:
+        try:
+            for payload in ({"text": ""}, {"text": "   \n\t  "}):
+                response = await client.post(
+                    "/api/v1/ai/generate-hashtags",
+                    json=payload,
+                )
+                assert response.status_code == 422
+            gate.assert_not_awaited()
+        finally:
+            app.dependency_overrides.clear()

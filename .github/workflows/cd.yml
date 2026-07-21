@@ -83,7 +83,7 @@ jobs:
             dockerfile: services/payments-svc/Dockerfile
             version_arg: true
           - image: migrate
-            dockerfile: migrations/Dockerfile.migrate
+            dockerfile: Dockerfile.migrate
             version_arg: false
     steps:
       - name: Checkout

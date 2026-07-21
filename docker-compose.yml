@@ -17,7 +17,7 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════
   # TRAEFIK — edge reverse proxy for all *.velobits.dev subdomains.
-  # Owns external port :80. Routes by Host header to the right container.
+  # Owns external port :80. Dev routes live in gateway/traefik/rules/.
   # ══════════════════════════════════════════════════════════════════════════
 
   traefik:
@@ -28,10 +28,7 @@ services:
     command:
       - --api.dashboard=true
       - --api.insecure=true
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=fixmytext-net
-      # file provider activates path-prefix routing for content-app vs web-app
+      # File provider avoids Docker API compatibility issues on newer daemons.
       - --providers.file.directory=/etc/traefik/rules
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
@@ -39,8 +36,9 @@ services:
     ports:
       - "80:80"
       - "127.0.0.1:8090:8080"   # dashboard, localhost-only
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./gateway/traefik/rules:/etc/traefik/rules:ro
     networks:
       - fixmytext-net
@@ -57,10 +55,11 @@ services:
     container_name: velobits-dev-db
     restart: unless-stopped
     ports:
-      - "${DB_HOST_PORT:-5433}:5432"
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     environment:
       POSTGRES_USER: fixmytext
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fixmytext_dev}
+      # Fail fast if unset rather than booting with a known weak default (M-13).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: fixmytext
     volumes:
       - fixmytext-pgdata:/var/lib/postgresql/data
@@ -84,30 +83,72 @@ services:
     image: redis:8-alpine
     container_name: fixmytext-redis
     restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    mem_limit: 128m
+    cpus: "0.25"
     ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     networks:
       - fixmytext-net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # MIGRATE  —  runs alembic upgrade head once, then exits.
+  # PGBOUNCER  —  connection pooler in transaction mode (dev profile).
+  # Services route through :6432 when PGBOUNCER_URL is set in .env.
+  # Caps total server-side connections at PGBOUNCER_DEFAULT_POOL_SIZE=20 while
+  # allowing up to 200 client-side connections, preventing Postgres
+  # max_connections exhaustion under multi-replica deployments.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.23.1-p0
+    profiles: ["dev"]
+    container_name: fixmytext-pgbouncer
+    environment:
+      - DB_HOST=db-service
+      - DB_PORT=5432
+      - DB_NAME=fixmytext
+      - DB_USER=fixmytext
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=200
+      - DEFAULT_POOL_SIZE=20
+    ports:
+      - "127.0.0.1:6432:6432"
+    depends_on:
+      db-service:
+        condition: service_healthy
+    networks:
+      - fixmytext-net
+
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # MIGRATE  —  runs each service's own alembic chain once, then exits.
+  # Order matters: account-svc owns auth.users; payments-svc billing/usage tables
+  # keep cross-schema FKs into it, so account-svc must migrate FIRST.
   # ══════════════════════════════════════════════════════════════════════════
 
   migrate-dev:
     profiles: ["dev"]
     build:
       context: .
-      dockerfile: migrations/Dockerfile.migrate
+      dockerfile: Dockerfile.migrate
     container_name: fixmytext-migrate-dev
     restart: "no"
     working_dir: /app
-    command: ["alembic", "-c", "migrations/alembic.ini", "upgrade", "head"]
+    command:
+      - sh
+      - -c
+      - >-
+        alembic -c services/account-svc/migrations/alembic.ini upgrade head &&
+        alembic -c services/payments-svc/migrations/alembic.ini upgrade head
     env_file:
       - .env
     environment:
@@ -130,6 +171,8 @@ services:
       context: .
       dockerfile: services/ai-svc/Dockerfile
     container_name: fixmytext-ai-svc
+    mem_limit: 512m
+    cpus: "0.5"
     expose:
       - "8000"
     env_file:
@@ -137,8 +180,8 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8000
-      - DEBUG=true
       - OTEL_SERVICE_NAME=fixmytext-ai-svc
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
     depends_on:
       redis-service:
         condition: service_started
@@ -152,6 +195,37 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════
+  # AI-WORKER  —  arq worker that executes async Groq jobs enqueued by ai-svc.
+  # Runs the same Docker image as ai-svc but with the arq entrypoint.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  ai-worker:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: services/ai-svc/Dockerfile
+    container_name: fixmytext-ai-worker
+    mem_limit: 256m
+    cpus: "0.25"
+    command: ["python", "-m", "arq", "app.worker.main.WorkerSettings"]
+    env_file:
+      - .env
+    environment:
+      - OTEL_SERVICE_NAME=fixmytext-ai-worker
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
+    depends_on:
+      redis-service:
+        condition: service_started
+    networks:
+      - fixmytext-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import redis, os; redis.from_url(os.environ[\"REDIS_URL\"]).ping()'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ══════════════════════════════════════════════════════════════════════════
   # TEXT-SVC  —  local text transformation service (dev profile)
   # Kong routes /api/v1/text/* here.
   # ══════════════════════════════════════════════════════════════════════════
@@ -162,6 +236,8 @@ services:
       context: .
       dockerfile: services/text-svc/Dockerfile
     container_name: fixmytext-text-svc
+    mem_limit: 256m
+    cpus: "0.25"
     expose:
       - "8000"
     env_file:
@@ -170,6 +246,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-text-svc
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
     networks:
       - fixmytext-net
     healthcheck:
@@ -190,6 +267,8 @@ services:
       context: .
       dockerfile: services/payments-svc/Dockerfile
     container_name: fixmytext-payments-svc
+    mem_limit: 256m
+    cpus: "0.25"
     expose:
       - "8000"
     env_file:
@@ -198,6 +277,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-payments-svc
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
       - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
     depends_on:
       db-service:
@@ -225,6 +305,8 @@ services:
       context: .
       dockerfile: services/account-svc/Dockerfile
     container_name: fixmytext-account-svc
+    mem_limit: 512m
+    cpus: "0.5"
     expose:
       - "8000"
     env_file:
@@ -233,15 +315,18 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-account-svc
+      - OTEL_EXPORTER_OTLP_ENDPOINT=
       - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
       - SESSION_COOKIE_SECRET=${SESSION_COOKIE_SECRET}
       - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-fixmytext_session}
-      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
       - SESSION_COOKIE_MAX_AGE=${SESSION_COOKIE_MAX_AGE:-604800}
       - SESSION_COOKIE_DOMAIN=${SESSION_COOKIE_DOMAIN:-}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://auth-dev.velobits.dev}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits-Dev}
-      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/Velobits-Dev/protocol/openid-connect/certs}
+      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/${KEYCLOAK_REALM:-Velobits-Dev}/protocol/openid-connect/certs}
+      - KEYCLOAK_SERVICE_ACCOUNT_ID=${KEYCLOAK_SERVICE_ACCOUNT_ID:-account-svc}
+      - KEYCLOAK_SERVICE_ACCOUNT_SECRET=${KEYCLOAK_SERVICE_ACCOUNT_SECRET:-}
     depends_on:
       db-service:
         condition: service_healthy
@@ -267,6 +352,8 @@ services:
     image: kong:3.8-ubuntu
     container_name: fixmytext-kong
     restart: unless-stopped
+    mem_limit: 768m
+    cpus: "0.50"
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
@@ -278,10 +365,12 @@ services:
       KONG_ADMIN_LISTEN: "127.0.0.1:8001"
     volumes:
       - ./gateway/kong/kong.yml:/etc/kong/kong.yml:ro
-    # No external port mapping — Traefik owns :80 and routes
-    # Host=api-dev.velobits.dev to this container.
-    expose:
-      - "8000"
+    # Port 8000 is published to localhost only so the browser can reach Kong at
+    # http://localhost:8000 (VITE_API_URL in local dev). Binding to 127.0.0.1
+    # prevents Kong's proxy from being reachable on LAN/shared networks.
+    # Traefik also routes Host=api-dev.velobits.dev → this container on port 80.
+    ports:
+      - "127.0.0.1:8000:8000"
     depends_on:
       ai-svc:
         condition: service_started
@@ -299,12 +388,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.kong-dev.rule=Host(`api-dev.velobits.dev`)"
-      - "traefik.http.routers.kong-dev.entrypoints=web"
-      - "traefik.http.services.kong-dev.loadbalancer.server.port=8000"
-
   # ══════════════════════════════════════════════════════════════════════════
   # KEYCLOAK DEV  —  identity provider for the Velobits-Dev realm.
   # Dev realm export is at infrastructure/keycloak/realm-export-dev.json.
@@ -318,51 +401,119 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:-kcdev}}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:?set KEYCLOAK_DEV_DB_PASSWORD in .env}
       POSTGRES_DB: keycloak_dev_db
     volumes:
       - keycloak-dev-pgdata:/var/lib/postgresql/data
     networks:
       - fixmytext-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak_dev_db"]
       interval: 5s
       timeout: 3s
       retries: 5
 
   keycloak-dev:
     profiles: ["dev"]
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.0.8
     container_name: keycloak-dev
     restart: unless-stopped
+    mem_limit: 1g
     command: ["start-dev", "--import-realm"]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-dev-db:5432/keycloak_dev_db
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:-${KEYCLOAK_DB_PASSWORD:-kcdev}}
-      KC_HOSTNAME: auth-dev.velobits.dev
+      KC_DB_PASSWORD: ${KEYCLOAK_DEV_DB_PASSWORD:?set KEYCLOAK_DEV_DB_PASSWORD in .env}
+      # localhost makes OIDC discovery return http://localhost:8080 URLs, which
+      # the browser can reach via the published port 8080 without /etc/hosts.
+      # Switch to auth-dev.velobits.dev once you add the /etc/hosts entry (see README).
+      KC_HOSTNAME: localhost
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_DEV_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_DEV_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_DEV_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_DEV_ADMIN_PASSWORD in .env}}
     volumes:
       - ./infrastructure/keycloak/realm-export-dev.json:/opt/keycloak/data/import/realm.json:ro
       - ./infrastructure/keycloak/themes/fixmytext:/opt/keycloak/themes/fixmytext:ro
-    expose:
-      - "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
     depends_on:
       keycloak-dev-db:
         condition: service_healthy
     networks:
       - fixmytext-net
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.keycloak-dev.rule=Host(`auth-dev.velobits.dev`)"
-      - "traefik.http.routers.keycloak-dev.entrypoints=web"
-      - "traefik.http.services.keycloak-dev.loadbalancer.server.port=8080"
+    # KC_HEALTH_ENABLED=true exposes /health/ready on management port 9000.
+    # The KC 26 UBI-micro image omits curl, so we use bash /dev/tcp to hit
+    # the management health endpoint instead.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && cat <&3 | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+  # ══════════════════════════════════════════════════════════════════════════
+  # KEYCLOAK BOOTSTRAP  —  one-shot init that provisions identity providers
+  # (Google / GitHub) and SMTP on the Velobits-Dev realm via the Admin API.
+  # The realm itself is imported by keycloak-dev (--import-realm); this service
+  # only adds the env-driven config that can't live in the realm JSON. It is
+  # idempotent: bootstrap.sh exits 0 if the realm already exists, and skips each
+  # IdP whose OAuth credentials are blank.
+  #
+  # NOTE: bootstrap.sh requires bash + curl + python3, none of which ship in the
+  # keycloak:26.0 runtime image. We use alpine and `apk add` them (~7s) rather
+  # than maintaining a custom Dockerfile. The script's own 60-attempt wait loop
+  # is kept as a backstop even though depends_on waits for service_healthy.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  keycloak-bootstrap:
+    profiles: ["dev"]
+    image: alpine:3
+    container_name: keycloak-bootstrap
+    restart: "no"
+    mem_limit: 128m
+    cpus: "0.25"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - apk add --no-cache bash curl python3 >/dev/null && exec bash /scripts/bootstrap.sh
+    environment:
+      # Internal service address — bootstrap.sh waits on $KEYCLOAK_URL/health/ready.
+      KEYCLOAK_URL: http://keycloak-dev:8080
+      KEYCLOAK_REALM: Velobits-Dev
+      KEYCLOAK_ADMIN: ${KEYCLOAK_DEV_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_DEV_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_DEV_ADMIN_PASSWORD in .env}}
+      REALM_EXPORT_PATH: /scripts/realm-export-dev.json
+      # Social login (optional — blank values leave the buttons disabled).
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GH_OAUTH_CLIENT_ID: ${GH_OAUTH_CLIENT_ID:-}
+      GH_OAUTH_CLIENT_SECRET: ${GH_OAUTH_CLIENT_SECRET:-}
+      # SMTP (optional — gated on SMTP_HOST + SMTP_USERNAME inside the script).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      # Dedicated service account for account-svc Admin API calls (optional).
+      # Bootstrap creates/updates the client; account-svc reads the same values.
+      KEYCLOAK_SERVICE_ACCOUNT_ID: ${KEYCLOAK_SERVICE_ACCOUNT_ID:-account-svc}
+      KEYCLOAK_SERVICE_ACCOUNT_SECRET: ${KEYCLOAK_SERVICE_ACCOUNT_SECRET:-}
+      # Backchannel logout: URL Keycloak calls on SLO, and the frontend OIDC
+      # client that issued the user sessions (MUST match the public client used
+      # for Authorization Code + PKCE — NOT the service-account client).
+      BACKCHANNEL_LOGOUT_URL: ${BACKCHANNEL_LOGOUT_URL:-http://kong:8000/api/v1/auth/backchannel-logout}
+      KEYCLOAK_FRONTEND_CLIENT_ID: ${KEYCLOAK_FRONTEND_CLIENT_ID:-develop-fixmytext}
+    volumes:
+      - ./infrastructure/keycloak/bootstrap.sh:/scripts/bootstrap.sh:ro
+      - ./infrastructure/keycloak/realm-export-dev.json:/scripts/realm-export-dev.json:ro
+    depends_on:
+      keycloak-dev:
+        condition: service_healthy
+    networks:
+      - fixmytext-net
 
 
 # ── Shared network ────────────────────────────────────────────────────────────

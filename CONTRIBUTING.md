@@ -250,25 +250,46 @@ Write tests for every new tool or endpoint you add. Place test files in the `tes
 
 ## 9. Database Migrations
 
-Apply all pending migrations:
+Each service owns its **own** Alembic chain under `services/<svc>/migrations/`
+(no more centralized `backend/migrations/` tree). Ownership follows write-path:
+
+- **account-svc** owns `auth.users`, `auth.user_preferences`, `auth.user_ui_settings`
+  and the `activity.*` tables it writes.
+- **payments-svc** owns all `billing.*` plus the `auth.*` usage/visitor tables and
+  `activity.user_discovered_tools` that it writes.
+
+Tables a service only reads (e.g. account-svc reading `auth.user_spin_log` /
+`activity.user_discovered_tools`, and payments-svc referencing `auth.users`) are
+present in its models but excluded from autogenerate via `include_object` in that
+service's `migrations/env.py`. Each chain has its own version table
+(`public.alembic_version_account`, `public.alembic_version_payments`).
+
+> **Order matters on a fresh DB:** account-svc must migrate **before** payments-svc
+> because billing/usage tables keep cross-schema FKs into `auth.users`.
+
+Apply all pending migrations (run from the `backend/` dir, account first):
 
 ```bash
-alembic upgrade head
+alembic -c services/account-svc/migrations/alembic.ini upgrade head
+alembic -c services/payments-svc/migrations/alembic.ini upgrade head
 ```
 
-Generate a new migration after changing models:
+Generate a new migration after changing a service's models (run against that
+service's chain only):
 
 ```bash
-alembic revision --autogenerate -m "add usage_count column to tools"
+alembic -c services/<svc>/migrations/alembic.ini revision --autogenerate -m "add usage_count column"
 ```
 
-Roll back the most recent migration:
+Roll back the most recent migration for a service:
 
 ```bash
-alembic downgrade -1
+alembic -c services/<svc>/migrations/alembic.ini downgrade -1
 ```
 
-Always review auto-generated migration files before committing -- Alembic does not catch every edge case.
+Always review auto-generated migration files before committing -- Alembic does not
+catch every edge case (schema/extension creation, seed data, and cross-schema FK
+ordering in particular are hand-maintained).
 
 ---
 

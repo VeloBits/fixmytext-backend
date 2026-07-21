@@ -21,6 +21,7 @@ class UserTemplate(Base):
             sa_text("created_at DESC"),
             postgresql_where=sa_text("is_deleted = false"),
         ),
+        Index("ix_activity_user_templates_keycloak_sub", "keycloak_sub"),
         {"schema": settings.DB_SCHEMA_ACTIVITY},
     )
 
@@ -35,6 +36,8 @@ class UserTemplate(Base):
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="CASCADE"),
         index=True,
     )
+    # Keycloak subject denormalized from auth.users.keycloak_id (migrations 0027/0028).
+    keycloak_sub: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     tool_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)

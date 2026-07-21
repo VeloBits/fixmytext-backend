@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -21,11 +21,8 @@ from app.schemas.share import ShareCreate, SharedResultView, ShareResponse
 
 router = APIRouter(prefix="/share", tags=["Share"])
 
-# Pull tunables from centralised settings so operators can adjust via env vars
-# without a code change.  Falls back to sensible defaults if the attribute is
-# not yet defined on the Settings class.
-SHARE_EXPIRE_DAYS: int = getattr(settings, "SHARE_EXPIRE_DAYS", 30)
-MAX_SHARE_TEXT_LENGTH: int = getattr(settings, "MAX_SHARE_TEXT_LENGTH", 50_000)
+SHARE_EXPIRE_DAYS: int = settings.SHARE_EXPIRE_DAYS
+MAX_SHARE_TEXT_LENGTH: int = settings.MAX_SHARE_TEXT_LENGTH
 
 
 @router.post("", response_model=ShareResponse)
@@ -75,6 +72,15 @@ async def get_share(
 
     if row.created_at < datetime.now(UTC) - timedelta(days=SHARE_EXPIRE_DAYS):
         raise HTTPException(status_code=410, detail="This share has expired")
+
+    # Increment view counter atomically — avoids a read-modify-write race under
+    # concurrent requests for the same share link.
+    await db.execute(
+        update(SharedResult)
+        .where(SharedResult.id == sid)
+        .values(view_count=SharedResult.view_count + 1)
+    )
+    await db.commit()
 
     return SharedResultView(
         id=str(row.id),

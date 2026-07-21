@@ -2,8 +2,13 @@
 # Runs on all PRs and pushes to main/develop.
 # Enforces lint, per-service tests with calibrated coverage gates, dependency
 # audits, Docker build validation for every Dockerfile in the repo, image
-# vulnerability scanning, and gateway/infra config validation (Kong, Traefik,
-# Keycloak realm exports, docker-compose).
+# vulnerability scanning (informational SARIF + hard Trivy gates, M-12), and
+# gateway/infra config validation (Kong, Traefik, Keycloak realm exports,
+# docker-compose).
+#
+# A successful run of this workflow is what gates the Railway deploy
+# (.github/workflows/deploy-railway.yml, workflow_run on "Backend Test &
+# Build") — a red job here blocks the deploy (H-7).
 #
 # Branch protection note: the *-check summary jobs exist to keep the legacy
 # required-status-check names ("Lint & Format Check", "Tests & Coverage",
@@ -46,7 +51,9 @@ jobs:
   lint:
     name: Lint & Format (${{ matrix.service }})
     runs-on: ubuntu-latest
-    # One matrix entry per service. Add a new entry when a new service is extracted.
+    # One matrix entry per service. Add a new entry when a new service is
+    # extracted. Each service owns its alembic chain under
+    # services/<svc>/migrations/, linted with the service.
     strategy:
       fail-fast: false
       matrix:
@@ -56,15 +63,13 @@ jobs:
           - service: text-svc
             ruff_target: "services/text-svc/app/ services/text-svc/tests/"
           - service: payments-svc
-            ruff_target: "services/payments-svc/app/ services/payments-svc/tests/"
+            ruff_target: "services/payments-svc/app/ services/payments-svc/tests/ services/payments-svc/migrations/"
           - service: account-svc
-            ruff_target: "services/account-svc/app/ services/account-svc/tests/"
-          - service: migrations
-            ruff_target: "migrations/"
+            ruff_target: "services/account-svc/app/ services/account-svc/tests/ services/account-svc/migrations/"
           - service: shared
             ruff_target: "shared/"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.branch || github.ref }}
 
@@ -105,9 +110,9 @@ jobs:
     name: Test (${{ matrix.service }})
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'test'
     runs-on: ubuntu-latest
-    # Coverage thresholds are calibrated to measured coverage (2026-07), rounded
-    # down to the nearest 5 to leave headroom: account-svc 70.7%, ai-svc 52.2%,
-    # payments-svc 49.6%, text-svc 40.2%. Raise a threshold when you add tests.
+    # Coverage thresholds are floors calibrated to measured coverage, rounded
+    # down to the nearest 5 to leave headroom. Raise a threshold when you add
+    # tests; never lower one to get a PR green.
     strategy:
       fail-fast: false
       matrix:
@@ -120,8 +125,13 @@ jobs:
             cov_threshold: 45
           - service: text-svc
             cov_threshold: 35
+    env:
+      DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/testdb
+      SECRET_KEY: test-secret-key-at-least-32-characters-long-for-ci
+      DEBUG: "true"
+      ALLOWED_ORIGINS: '["http://localhost:3000"]'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.branch || github.ref }}
 
@@ -140,16 +150,16 @@ jobs:
           pip install -r services/${{ matrix.service }}/requirements.txt
 
       - name: Run tests with coverage
-        # No env vars needed: every suite is fully mocked/in-process and the
-        # conftest.py files setdefault the required settings (verified for all
-        # four services against python:3.12).
         working-directory: services/${{ matrix.service }}
+        env:
+          KEYCLOAK_JWKS_URL: "http://test-keycloak:8080/realms/test/protocol/openid-connect/certs"
         run: |
           pytest \
             --cov=app \
             --cov-report=xml \
             --cov-report=term-missing \
-            --cov-fail-under=${{ matrix.cov_threshold }}
+            --cov-fail-under=${{ matrix.cov_threshold }} \
+            -v
 
       - name: Upload coverage report
         if: always()
@@ -163,7 +173,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'test'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.branch || github.ref }}
 
@@ -181,14 +191,14 @@ jobs:
           pip install -e './shared[test]' pytest-cov
 
       - name: Run shared package tests with coverage
-        # Threshold calibrated to measured 59.7% coverage (2026-07).
         working-directory: shared
         run: |
           pytest \
             --cov=fixmytext_shared \
             --cov-report=xml \
             --cov-report=term-missing \
-            --cov-fail-under=55
+            --cov-fail-under=55 \
+            -v
 
       - name: Upload coverage report
         if: always()
@@ -228,7 +238,7 @@ jobs:
       matrix:
         service: [account-svc, ai-svc, payments-svc, text-svc]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.branch || github.ref }}
 
@@ -290,16 +300,18 @@ jobs:
           - image: payments-svc
             dockerfile: services/payments-svc/Dockerfile
           - image: migrate
-            dockerfile: migrations/Dockerfile.migrate
+            dockerfile: Dockerfile.migrate
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.branch || github.ref }}
 
       - name: Build ${{ matrix.image }} Docker image
         run: docker build -t ${{ matrix.image }}:${{ github.sha }} -f ${{ matrix.dockerfile }} .
 
-      - name: Run Trivy vulnerability scanner
+      # Informational scan -> GitHub Security tab (SARIF view). The hard gate
+      # below is what actually fails the build (M-12).
+      - name: Trivy SARIF (${{ matrix.image }}, Security tab)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: '${{ matrix.image }}:${{ github.sha }}'
@@ -314,6 +326,18 @@ jobs:
         with:
           sarif_file: 'trivy-${{ matrix.image }}.sarif'
           category: ci-image-scan-${{ matrix.image }}
+
+      # ── Gate: fail the build on any CRITICAL/HIGH (fixable) vuln (M-12).
+      # A red CI here blocks the CI-gated Railway deploy
+      # (.github/workflows/deploy-railway.yml) from ever shipping the image.
+      - name: Trivy gate (${{ matrix.image }})
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: '${{ matrix.image }}:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
 
   # Branch protection may require "Docker Build & Scan" (the old single-job name).
   docker-check:
@@ -340,7 +364,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'gateway'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.branch || github.ref }}
 
@@ -427,7 +451,7 @@ jobs:
     outputs:
       keycloak: ${{ steps.filter.outputs.keycloak }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Filter paths
         id: filter
@@ -450,7 +474,7 @@ jobs:
         (github.event_name == 'workflow_dispatch' && (inputs.jobs == 'all' || inputs.jobs == 'gateway'))
       )
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.branch || github.ref }}
 

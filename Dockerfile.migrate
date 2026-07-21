@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+WORKDIR /app
+# Apply available OS security patches (e.g. openssl) so the base image's fixable
+# CVEs don't trip the CI Trivy gate.
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel --quiet
+RUN pip install --no-cache-dir \
+    alembic \
+    asyncpg \
+    "sqlalchemy[asyncio]" \
+    pgvector \
+    pydantic-settings \
+    "pydantic[email]" \
+    httpx \
+    razorpay
+# Each service owns its own alembic chain under services/<svc>/migrations/.
+# Both service trees are copied so each chain can import its own app models.
+# Run order (account-svc before payments-svc) is enforced by the caller
+# (docker-compose migrate-dev / the prod migrate step), not here.
+COPY services/payments-svc/ ./services/payments-svc/
+COPY services/account-svc/ ./services/account-svc/
+COPY shared/ ./shared/
+RUN pip install --no-cache-dir --no-build-isolation -e ./shared
+
+# Run migrations as a non-root user (DO-06). Alembic only needs DB access +
+# read access to /app (root-owned files are world-readable), not root.
+RUN useradd --create-home --uid 10001 migrate
+USER migrate

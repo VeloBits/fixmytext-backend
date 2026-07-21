@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Integer, String, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,6 +21,12 @@ class Subscription(Base):
             unique=True,
             postgresql_where=text("status = 'active'"),
         ),
+        CheckConstraint("tier IN ('free', 'pro')", name="ck_subscription_tier"),
+        CheckConstraint(
+            "status IN ('active', 'cancelled', 'expired', 'pending', 'halted')",
+            name="ck_subscription_status",
+        ),
+        Index("ix_billing_subscriptions_keycloak_sub", "keycloak_sub"),
         {"schema": settings.DB_SCHEMA_BILLING},
     )
 
@@ -35,6 +41,8 @@ class Subscription(Base):
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Keycloak subject denormalized from auth.users.keycloak_id (migrations 0027/0028).
+    keycloak_sub: Mapped[str] = mapped_column(String(255), nullable=False)
     tier: Mapped[str] = mapped_column(
         String(20), nullable=False, default="free", server_default=text("'free'")
     )
@@ -77,6 +85,11 @@ class PaymentEvent(Base):
             unique=True,
             postgresql_where=text("razorpay_event_id IS NOT NULL"),
         ),
+        CheckConstraint(
+            "status IN ('received', 'processed', 'failed', 'duplicate')",
+            name="ck_payment_event_status",
+        ),
+        Index("ix_billing_payment_events_keycloak_sub", "keycloak_sub"),
         {"schema": settings.DB_SCHEMA_BILLING},
     )
 
@@ -95,6 +108,10 @@ class PaymentEvent(Base):
         ForeignKey(f"{settings.DB_SCHEMA_AUTH}.users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Keycloak subject denormalized from auth.users.keycloak_id. Nullable,
+    # unlike the entitlement tables: webhook events can reference an unknown
+    # user or none at all (matching the nullable user_id above).
+    keycloak_sub: Mapped[str | None] = mapped_column(String(255), nullable=True)
     item_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     item_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     amount_subunits: Mapped[int | None] = mapped_column(Integer, nullable=True)

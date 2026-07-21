@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Integer, String, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,6 +15,7 @@ class UserToolStats(Base):
     __tablename__ = "user_tool_stats"
     __table_args__ = (
         Index("ix_user_tool_stats_user_uses", "user_id", text("total_uses DESC")),
+        CheckConstraint("total_uses > 0", name="ck_user_tool_stats_uses_positive"),
         {"schema": settings.DB_SCHEMA_ACTIVITY},
     )
 
