@@ -110,21 +110,27 @@ jobs:
     name: Test (${{ matrix.service }})
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == 'all' || inputs.jobs == 'test'
     runs-on: ubuntu-latest
-    # Coverage thresholds are floors calibrated to measured coverage, rounded
-    # down to the nearest 5 to leave headroom. Raise a threshold when you add
-    # tests; never lower one to get a PR green.
+    # Coverage thresholds are floors calibrated to measured coverage (2026-07
+    # post-merge: account 82%, ai 99%, payments 95%, text 99%), rounded down
+    # to leave headroom. Raise a threshold when you add tests; never lower one
+    # to get a PR green.
     strategy:
       fail-fast: false
       matrix:
         include:
           - service: account-svc
-            cov_threshold: 70
+            cov_threshold: 80
           - service: ai-svc
-            cov_threshold: 50
+            cov_threshold: 95
+            # arq is intentionally absent from requirements.txt (its redis<6
+            # pin conflicts with the pinned redis); the Dockerfile installs it
+            # with --no-deps — mirror that here or test collection fails on
+            # `import arq` in app/worker/tasks.py.
+            extra_install: pip install --no-deps arq==0.28.0
           - service: payments-svc
-            cov_threshold: 45
+            cov_threshold: 90
           - service: text-svc
-            cov_threshold: 35
+            cov_threshold: 95
     env:
       DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/testdb
       SECRET_KEY: test-secret-key-at-least-32-characters-long-for-ci
@@ -148,6 +154,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r services/${{ matrix.service }}/requirements.txt
+
+      - name: Install extra dependencies
+        if: matrix.extra_install != ''
+        run: ${{ matrix.extra_install }}
 
       - name: Run tests with coverage
         working-directory: services/${{ matrix.service }}
@@ -191,13 +201,15 @@ jobs:
           pip install -e './shared[test]' pytest-cov
 
       - name: Run shared package tests with coverage
+        # Floor calibrated to measured 100% coverage (2026-07 post-merge),
+        # backed off to 95 so a single uncovered branch doesn't block merges.
         working-directory: shared
         run: |
           pytest \
             --cov=fixmytext_shared \
             --cov-report=xml \
             --cov-report=term-missing \
-            --cov-fail-under=55 \
+            --cov-fail-under=95 \
             -v
 
       - name: Upload coverage report
@@ -236,7 +248,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [account-svc, ai-svc, payments-svc, text-svc]
+        include:
+          - service: account-svc
+          - service: ai-svc
+            # arq ships in the production image via --no-deps (see
+            # services/ai-svc/Dockerfile) — install it here too so the audit
+            # covers everything the image actually runs.
+            extra_install: pip install --no-deps arq==0.28.0
+          - service: payments-svc
+          - service: text-svc
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -254,6 +274,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r services/${{ matrix.service }}/requirements.txt
           pip install pip-audit
+
+      - name: Install extra dependencies
+        if: matrix.extra_install != ''
+        run: ${{ matrix.extra_install }}
 
       - name: Audit dependencies for known vulnerabilities
         # PYSEC-2025-183 (PyJWT) is ignored — no fix version exists upstream yet.
@@ -435,7 +459,12 @@ jobs:
         # env_file: .env is required:true in compose, so synthesize a stub.
         # The interpolation-only vars get dummies to silence warnings.
         run: |
-          printf 'POSTGRES_PASSWORD=ci-stub\nSESSION_COOKIE_SECRET=ci-stub\n' > .env
+          printf '%s\n' \
+            'POSTGRES_PASSWORD=ci-stub' \
+            'SESSION_COOKIE_SECRET=ci-stub' \
+            'REDIS_PASSWORD=ci-stub' \
+            'KEYCLOAK_DEV_DB_PASSWORD=ci-stub' \
+            'KEYCLOAK_ADMIN_PASSWORD=ci-stub' > .env
           docker compose --profile dev config -q
           rm -f .env
 

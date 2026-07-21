@@ -42,11 +42,17 @@ jobs:
     steps:
       - name: Validate tag and derive version
         id: ver
+        # Tags come in via env, not direct ${{ }} interpolation in the script
+        # body — git refnames allow $, (, ) and backticks, which would execute
+        # in the runner before the regex below ever rejects them.
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="${{ inputs.tag }}"
+            TAG="$DISPATCH_TAG"
           else
-            TAG="${{ github.event.release.tag_name }}"
+            TAG="$RELEASE_TAG"
           fi
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
             echo "::error::Tag '$TAG' does not match v<major>.<minor>.<patch>[-prerelease]"
@@ -140,6 +146,17 @@ jobs:
         with:
           sarif_file: trivy-${{ matrix.image }}.sarif
           category: cd-image-scan-${{ matrix.image }}
+
+      # ── Gate: a release is not shippable with fixable CRITICAL/HIGH vulns
+      # (mirrors the M-12 hard gate in ci.yml).
+      - name: Trivy gate (${{ matrix.image }})
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: fixmytext-${{ matrix.image }}:${{ needs.validate.outputs.version }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
 
   summary:
     name: Release gate summary
