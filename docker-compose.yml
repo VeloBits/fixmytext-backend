@@ -1,8 +1,11 @@
-# fixmytext-backend — unified compose file with profiles.
+# fixmytext-backend — development compose file.
 #
 # Profiles:
 #   dev   development stack  (hot reload, source volumes)
-#   prod  production stack   (multi-stage builds, TLS)
+#
+# There is no prod profile — production is deployed separately (identity side:
+# velobits-infra docs/keycloak-production-setup.md, prod services fetch JWKS
+# from the public https://auth.velobits.dev URL, no shared network needed).
 #
 # Shared infrastructure (Traefik edge proxy + Keycloak identity provider)
 # lives in the VeloBits/velobits-infra repo. That stack creates the external
@@ -157,6 +160,8 @@ services:
         condition: service_started
     networks:
       - fixmytext-net
+      # Reaches keycloak-dev:8080 (JWKS) on the shared network.
+      - velobits-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -219,6 +224,8 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=
     networks:
       - fixmytext-net
+      # Reaches keycloak-dev:8080 (JWKS) on the shared network.
+      - velobits-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -256,6 +263,8 @@ services:
         condition: service_started
     networks:
       - fixmytext-net
+      # Reaches keycloak-dev:8080 (JWKS) on the shared network.
+      - velobits-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
