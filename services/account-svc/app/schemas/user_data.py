@@ -149,6 +149,29 @@ class ToolGroupUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
 
 
+class ToolGroupItemsUpdate(BaseModel):
+    """Schema for replacing a group's tools with an explicit ordered list.
+
+    The array position IS the sort order — one call covers reorder, bulk add,
+    and bulk remove (drag-and-drop sends the full list after every move).
+    """
+
+    tool_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(
+        ..., max_length=50
+    )
+
+
+class ToolGroupOrderUpdate(BaseModel):
+    """Schema for reordering the user's tool groups by id.
+
+    Groups listed get sort_order = array position; any of the user's groups
+    not listed keep their relative order after the listed ones. Unknown or
+    foreign ids are ignored (optimistic clients may hold stale ids).
+    """
+
+    group_ids: list[str] = Field(..., min_length=1, max_length=20)
+
+
 # ── Tool Stats ────────────────────────────────────────────────────────────────
 
 
