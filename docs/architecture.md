@@ -8,6 +8,11 @@ The monolith has been extracted into four standalone FastAPI services behind a
 Kong API gateway (itself fronted by a Traefik edge proxy). Keycloak is the
 identity provider; auth/session handling lives in `account-svc`.
 
+Traefik and Keycloak are deployed from the
+[VeloBits/velobits-infra](https://github.com/VeloBits/velobits-infra) repo,
+which owns the shared `velobits-net` Docker network; Kong and `account-svc`
+join that network to reach them.
+
 ```mermaid
 graph TD
     Client["HTTP Client"]

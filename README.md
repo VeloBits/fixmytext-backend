@@ -19,14 +19,17 @@ backend/
 │   └── payments-svc/           ← Razorpay subscriptions, passes, credits, webhooks
 ├── shared/                     ← fixmytext-shared (cross-cutting utilities,
 │                                  installed editable; see docs/adr/0003-shared-python-package.md)
-├── gateway/
-│   ├── kong/                   ← Kong dbless config (docs/adr/0004-kong-api-gateway.md)
-│   └── traefik/                ← Traefik edge proxy (Host-header routing)
-├── infrastructure/keycloak/    ← Keycloak realm + bootstrap (docs/adr/0001-keycloak-as-identity-provider.md)
+├── gateway/kong/               ← Kong dbless config (docs/adr/0004-kong-api-gateway.md)
+├── infrastructure/db-init/     ← first-init SQL for the product Postgres instance
 └── docs/adr/                   ← Architecture Decision Records
 ```
 
 Read the ADRs in numeric order for the full picture.
+
+The **Traefik edge proxy** and **Keycloak identity provider** (Velobits realms)
+live in the [VeloBits/velobits-infra](https://github.com/VeloBits/velobits-infra)
+repo (extracted from here with history preserved). That stack creates the
+shared `velobits-net` Docker network this compose file joins.
 
 ## Prerequisites
 
@@ -35,52 +38,31 @@ Read the ADRs in numeric order for the full picture.
 - Groq API key (free at [console.groq.com](https://console.groq.com) — for AI tools)
 - Razorpay keys (for billing features — optional for development)
 
-## Local development with VeloBits subdomains
+## Local development
 
-The backend runs behind **Traefik** (edge reverse proxy) which routes
-by `Host` header to the right container. Local dev mirrors production
-exactly — only DNS source changes (`/etc/hosts` here, real DNS in production).
-
-### One-time `/etc/hosts` setup
-
-Add these entries (requires sudo):
+Auth (Keycloak) and the edge proxy (Traefik) run from the
+[velobits-infra](https://github.com/VeloBits/velobits-infra) stack, which also
+creates the shared `velobits-net` Docker network. **Start it first**:
 
 ```bash
-sudo tee -a /etc/hosts <<EOF
-127.0.0.1 auth-dev.velobits.dev
-127.0.0.1 api-dev.velobits.dev
-127.0.0.1 develop-fixmytext.velobits.dev
-EOF
-```
+# 1. Infra stack (Traefik :80, Keycloak localhost:8080, creates velobits-net)
+cd velobits-infra
+cp .env.example .env       # fill in KEYCLOAK_DEV_* passwords
+docker compose up -d
 
-### Subdomain map (dev)
-
-| URL | Container | Purpose |
-|---|---|---|
-| `http://auth-dev.velobits.dev` | `keycloak-dev` | Keycloak (Velobits-Dev realm) |
-| `http://api-dev.velobits.dev` | `kong` | API gateway → backend microservices |
-| `http://develop-fixmytext.velobits.dev` | (frontend dev container, run separately) | FixMyText dev frontend |
-| `http://127.0.0.1:8090` | `traefik` | Traefik dashboard (localhost-only) |
-
-## Setup
-
-**Docker (recommended):**
-```bash
-cd backend
-cp .env.example .env       # Fill in SESSION_COOKIE_SECRET + KEYCLOAK_DEV_* + GROQ_API_KEY
+# 2. This repo (product DBs, Redis, migrations, microservices, Kong)
+cd fixmytext-backend
+cp .env.example .env       # Fill in SESSION_COOKIE_SECRET + GROQ_API_KEY
 docker compose --profile dev up --build
 ```
 
-Starts PostgreSQL (product DBs), Redis, runs Alembic migrations, launches the
-backend microservices, brings up Kong (API gateway behind Traefik) +
-Keycloak-Dev (Velobits-Dev realm) + Traefik (edge proxy on `:80`).
+Everything is reachable on direct localhost ports — Kong (API) at
+`http://localhost:8000`, Keycloak at `http://localhost:8080`. Optional
+`*.velobits.dev` subdomain routing via Traefik (`/etc/hosts` setup, subdomain
+map) is documented in the velobits-infra README.
 
-To skip Kong/Keycloak and hit the monolith directly (legacy dev loop):
-
-```bash
-docker compose --profile dev up backend-dev db-service redis-service migrate-dev
-# Then add a temporary `ports: ["8000:8000"]` to backend-dev locally.
-```
+To run this stack without the infra repo (auth flows won't work), create the
+shared network manually first: `docker network create velobits-net`.
 
 ### API docs (Swagger) in dev
 
@@ -186,11 +168,10 @@ backend/
 │   └── payments-svc/                   # Razorpay subscriptions, passes, credits, webhooks
 │
 ├── shared/fixmytext_shared/            # cross-cutting: config, middleware, security, observability
-├── gateway/{kong,traefik}/            # Kong dbless config + Traefik edge proxy
-├── infrastructure/keycloak/           # realm exports, bootstrap.sh, themes
+├── gateway/kong/                      # Kong dbless config (Traefik + Keycloak → velobits-infra repo)
 ├── services/<svc>/migrations/         # per-service Alembic chains (account → payments)
 ├── Dockerfile.migrate                 # image that runs both migration chains in order
-└── docker-compose.yml                 # full stack: Postgres, Redis, services, Kong, Keycloak, Traefik
+└── docker-compose.yml                 # app stack: Postgres, Redis, services, Kong (joins velobits-net)
 ```
 
 ## Architecture
