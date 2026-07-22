@@ -156,7 +156,7 @@ jobs:
           pip install -r services/${{ matrix.service }}/requirements.txt
 
       - name: Install extra dependencies
-        if: matrix.extra_install != ''
+        if: matrix.extra_install
         run: ${{ matrix.extra_install }}
 
       - name: Run tests with coverage
