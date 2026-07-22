@@ -276,7 +276,7 @@ jobs:
           pip install pip-audit
 
       - name: Install extra dependencies
-        if: matrix.extra_install != ''
+        if: matrix.extra_install
         run: ${{ matrix.extra_install }}
 
       - name: Audit dependencies for known vulnerabilities
