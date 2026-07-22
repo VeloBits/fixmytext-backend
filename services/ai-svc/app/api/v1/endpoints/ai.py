@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from arq.connections import ArqRedis, RedisSettings, create_pool
+from arq.jobs import ResultNotFound
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -22,7 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.config import REQUIRE_AUDIENCE, settings
 from app.core.rate_limit import ai_limiter
 from app.services import ai_service
-from app.services.entitlement_client import check_access as check_entitlement
+from app.services.entitlement_client import check_entitlement
 from app.tool_registry import get_tool
 
 logger = logging.getLogger(__name__)
@@ -393,12 +394,16 @@ async def get_job_status(
     try:
         job_result = await job.result(timeout=0.1, poll_delay=0.05)
         return JobStatusResponse(job_id=job_id, status="complete", result=job_result)
-    except Exception:
-        # FIXME: bare except swallows real errors. Only the 0.1s poll TimeoutError
-        # ("not done yet") should fall through to status derivation below; a failed
-        # job or arq backend error is masked here. Catch asyncio.TimeoutError (and
-        # arq's ResultNotFound) specifically and surface other exceptions.
+    except (TimeoutError, ResultNotFound):
+        # Not done yet — fall through to metadata-derived status below.
         pass
+    except Exception:
+        # job.result() re-raises a failed job's own exception; metadata confirms
+        # those as "failed". Anything else is an arq/backend error — surface it.
+        fresh = await job.info()
+        if fresh is not None and fresh.finish_ms is not None and fresh.success is False:
+            return JobStatusResponse(job_id=job_id, status="failed")
+        raise
 
     status = "queued"
     if info.start_ms is not None and info.finish_ms is None:
