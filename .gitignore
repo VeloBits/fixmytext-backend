@@ -48,7 +48,7 @@ logs/
 
 # ── AI Files ─────────────────────────────────────────────────────────
 *.ai
-.claude
+.claude*
 
 # ── Secrets directory (keep structure, ignore contents) ──────────────
 secrets/*
