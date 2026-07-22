@@ -276,6 +276,7 @@ async def get_ui_settings(
         keybindings=row.keybindings or {},
         panel_sizes=row.panel_sizes or {},
         onboarding_seen=row.onboarding_seen,
+        sidebar_chips=row.sidebar_chips or [],
     )
 
 
@@ -302,6 +303,7 @@ async def update_ui_settings(
         keybindings=row.keybindings or {},
         panel_sizes=row.panel_sizes or {},
         onboarding_seen=row.onboarding_seen,
+        sidebar_chips=row.sidebar_chips or [],
     )
 
 
