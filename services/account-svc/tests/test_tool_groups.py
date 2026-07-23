@@ -612,6 +612,7 @@ async def test_ui_settings_onboarding_seen_round_trip(async_client, app):
     row.keybindings = {}
     row.panel_sizes = {}
     row.onboarding_seen = False
+    row.sidebar_chips = []
     mock_db = AsyncMock()
     mock_db.get = AsyncMock(return_value=row)
     _override_deps(app, mock_db)
