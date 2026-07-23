@@ -33,11 +33,16 @@ def _override_deps(app, mock_db):
     return fake_user
 
 
-def _fake_group(name="Writing essentials", tool_ids=("fix_grammar", "paraphrase")):
+def _fake_group(
+    name="Writing essentials",
+    tool_ids=("fix_grammar", "paraphrase"),
+    group_id=GROUP_ID,
+    sort_order=0,
+):
     group = MagicMock()
-    group.id = GROUP_ID
+    group.id = group_id
     group.name = name
-    group.sort_order = 0
+    group.sort_order = sort_order
     group.created_at = datetime.now(UTC)
     group.updated_at = datetime.now(UTC)
     group.items = []
@@ -72,6 +77,8 @@ def _result(scalar_one_or_none=None, scalar=None, all_rows=None, scalar_one=None
         ("DELETE", f"/api/v1/user/tool-groups/{GROUP_ID}"),
         ("POST", f"/api/v1/user/tool-groups/{GROUP_ID}/tools/fix_grammar"),
         ("DELETE", f"/api/v1/user/tool-groups/{GROUP_ID}/tools/fix_grammar"),
+        ("PUT", "/api/v1/user/tool-groups/order"),
+        ("PUT", f"/api/v1/user/tool-groups/{GROUP_ID}/tools"),
     ],
 )
 async def test_tool_groups_require_auth(async_client, method, url):
@@ -400,6 +407,172 @@ async def test_remove_tool_from_group_absent_is_silent(async_client, app):
         )
         assert response.status_code == 204
         mock_db.delete.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ── Reorder groups (drag-and-drop, 2026-07-22) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reorder_tool_groups(async_client, app):
+    """PUT /tool-groups/order reassigns sort_order by array position."""
+    id_a, id_b = uuid.uuid4(), uuid.uuid4()
+    group_a = _fake_group(name="A", group_id=id_a, sort_order=0)
+    group_b = _fake_group(name="B", group_id=id_b, sort_order=1)
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=_result(all_rows=[group_a, group_b]))
+    _override_deps(app, mock_db)
+    try:
+        response = await async_client.put(
+            "/api/v1/user/tool-groups/order",
+            json={"group_ids": [str(id_b), str(id_a)]},
+        )
+        assert response.status_code == 200
+        assert [g["id"] for g in response.json()["groups"]] == [str(id_b), str(id_a)]
+        assert group_b.sort_order == 0
+        assert group_a.sort_order == 1
+        mock_db.commit.assert_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_reorder_tool_groups_partial_and_unknown_ids(async_client, app):
+    """Unknown ids are ignored; unlisted groups keep relative order at the end."""
+    id_a, id_b, id_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    group_a = _fake_group(name="A", group_id=id_a, sort_order=0)
+    group_b = _fake_group(name="B", group_id=id_b, sort_order=1)
+    group_c = _fake_group(name="C", group_id=id_c, sort_order=2)
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(
+        return_value=_result(all_rows=[group_a, group_b, group_c])
+    )
+    _override_deps(app, mock_db)
+    try:
+        response = await async_client.put(
+            "/api/v1/user/tool-groups/order",
+            json={"group_ids": [str(id_c), str(uuid.uuid4())]},
+        )
+        assert response.status_code == 200
+        # C first (listed), then A and B in their previous relative order
+        assert [g["id"] for g in response.json()["groups"]] == [
+            str(id_c),
+            str(id_a),
+            str(id_b),
+        ]
+        assert (group_c.sort_order, group_a.sort_order, group_b.sort_order) == (0, 1, 2)
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ── Replace group items (drag-and-drop, 2026-07-22) ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_set_tool_group_tools_replaces_membership_and_order(async_client, app):
+    """PUT /tool-groups/{id}/tools diffs: kept tools re-sort, gone ones delete,
+    new ones insert at their array position."""
+    group = _fake_group(tool_ids=("fix_grammar", "paraphrase"))
+    updated = _fake_group(tool_ids=("paraphrase", "word_count"))
+    mock_db = AsyncMock()
+    mock_db.add = MagicMock()
+    mock_db.execute = AsyncMock(
+        side_effect=[
+            _result(scalar_one_or_none=group),  # ownership load
+            _result(scalar_one=updated),  # re-select after commit
+        ]
+    )
+    _override_deps(app, mock_db)
+    try:
+        response = await async_client.put(
+            f"/api/v1/user/tool-groups/{GROUP_ID}/tools",
+            json={"tool_ids": ["paraphrase", "word_count"]},
+        )
+        assert response.status_code == 200
+        assert [t["tool_id"] for t in response.json()["tools"]] == [
+            "paraphrase",
+            "word_count",
+        ]
+        # fix_grammar dropped, paraphrase re-sorted to 0, word_count inserted at 1
+        mock_db.delete.assert_awaited_once_with(group.items[0])
+        assert group.items[1].sort_order == 0
+        mock_db.add.assert_called_once()
+        added = mock_db.add.call_args.args[0]
+        assert (added.tool_id, added.sort_order) == ("word_count", 1)
+        mock_db.commit.assert_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_set_tool_group_tools_same_list_is_noop(async_client, app):
+    """PUT with the group's current list writes nothing (idempotent)."""
+    group = _fake_group(tool_ids=("fix_grammar", "paraphrase"))
+    mock_db = AsyncMock()
+    mock_db.add = MagicMock()
+    mock_db.execute = AsyncMock(
+        side_effect=[
+            _result(scalar_one_or_none=group),  # ownership load
+            _result(scalar_one=group),  # re-select after commit
+        ]
+    )
+    _override_deps(app, mock_db)
+    try:
+        response = await async_client.put(
+            f"/api/v1/user/tool-groups/{GROUP_ID}/tools",
+            json={"tool_ids": ["fix_grammar", "paraphrase"]},
+        )
+        assert response.status_code == 200
+        mock_db.delete.assert_not_awaited()
+        mock_db.add.assert_not_called()
+        assert [i.sort_order for i in group.items] == [0, 1]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_set_tool_group_tools_dedupes(async_client, app):
+    """Duplicate tool_ids keep their first position only."""
+    group = _fake_group(tool_ids=())
+    updated = _fake_group(tool_ids=("summarize", "eli5"))
+    mock_db = AsyncMock()
+    mock_db.add = MagicMock()
+    mock_db.execute = AsyncMock(
+        side_effect=[
+            _result(scalar_one_or_none=group),
+            _result(scalar_one=updated),
+        ]
+    )
+    _override_deps(app, mock_db)
+    try:
+        response = await async_client.put(
+            f"/api/v1/user/tool-groups/{GROUP_ID}/tools",
+            json={"tool_ids": ["summarize", "eli5", "summarize"]},
+        )
+        assert response.status_code == 200
+        assert mock_db.add.call_count == 2
+        added = [c.args[0] for c in mock_db.add.call_args_list]
+        assert [(a.tool_id, a.sort_order) for a in added] == [
+            ("summarize", 0),
+            ("eli5", 1),
+        ]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_set_tool_group_tools_not_found(async_client, app):
+    """PUT items on a missing / foreign group returns 404."""
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=_result(scalar_one_or_none=None))
+    _override_deps(app, mock_db)
+    try:
+        response = await async_client.put(
+            f"/api/v1/user/tool-groups/{uuid.uuid4()}/tools",
+            json={"tool_ids": ["summarize"]},
+        )
+        assert response.status_code == 404
     finally:
         app.dependency_overrides.clear()
 

@@ -49,6 +49,8 @@ from app.schemas.user_data import (
     TemplateUpdate,
     ToolGroupCreate,
     ToolGroupItemOut,
+    ToolGroupItemsUpdate,
+    ToolGroupOrderUpdate,
     ToolGroupResponse,
     ToolGroupsResponse,
     ToolGroupUpdate,
@@ -483,6 +485,46 @@ async def create_tool_group(
     return _group_to_response(result.scalar_one())
 
 
+# NOTE: registered before the /{group_id} routes — "order" must not be parsed
+# as a group_id UUID (FastAPI matches routes in declaration order).
+@router.put("/tool-groups/order", response_model=ToolGroupsResponse)
+async def reorder_tool_groups(
+    body: ToolGroupOrderUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reorder the authenticated user's tool groups.
+
+    Groups listed in `group_ids` get sort_order = array position; the user's
+    remaining groups keep their relative order after the listed ones. Unknown
+    and foreign ids are ignored. Idempotent — resending the same list is a
+    no-op. Returns all groups in the new display order.
+    """
+    result = await db.execute(
+        select(UserToolGroup)
+        .where(UserToolGroup.user_id == user.id)
+        .options(selectinload(UserToolGroup.items))
+        .order_by(UserToolGroup.sort_order, UserToolGroup.created_at)
+    )
+    groups = list(result.scalars().all())
+    by_id = {str(g.id): g for g in groups}
+
+    ordered: list[UserToolGroup] = []
+    for gid in body.group_ids:
+        g = by_id.pop(gid, None)
+        if g is not None:
+            ordered.append(g)
+    # Unlisted groups follow, preserving their current relative order.
+    ordered.extend(g for g in groups if str(g.id) in by_id)
+
+    for i, g in enumerate(ordered):
+        if g.sort_order != i:
+            g.sort_order = i
+
+    await db.commit()
+    return ToolGroupsResponse(groups=[_group_to_response(g) for g in ordered])
+
+
 @router.put("/tool-groups/{group_id}", response_model=ToolGroupResponse)
 async def rename_tool_group(
     group_id: uuid.UUID,
@@ -566,6 +608,53 @@ async def add_tool_to_group(
     db.add(UserToolGroupItem(group_id=group_id, tool_id=tool_id, sort_order=next_order))
     await db.commit()
     return {"tool_id": tool_id, "sort_order": next_order}
+
+
+@router.put("/tool-groups/{group_id}/tools", response_model=ToolGroupResponse)
+async def set_tool_group_tools(
+    group_id: uuid.UUID,
+    body: ToolGroupItemsUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace a group's tools with an explicit ordered list.
+
+    Array position becomes sort_order, so a single call covers drag-reorder,
+    bulk add, and bulk remove. Duplicates keep their first position.
+    Idempotent — resending the current list is a no-op.
+    """
+    group = await _get_owned_group(db, group_id, user.id)
+
+    deduped: list[str] = []
+    for tool_id in body.tool_ids:
+        if tool_id not in deduped:
+            deduped.append(tool_id)
+    deduped = deduped[:MAX_TOOLS_PER_GROUP]
+
+    # Diff against existing rows rather than delete-all + reinsert: kept tools
+    # just get a new sort_order, so the composite PK never collides in-flush.
+    existing = {i.tool_id: i for i in group.items}
+    wanted = set(deduped)
+    for tool_id, item in existing.items():
+        if tool_id not in wanted:
+            await db.delete(item)
+    for i, tool_id in enumerate(deduped):
+        item = existing.get(tool_id)
+        if item is not None:
+            if item.sort_order != i:
+                item.sort_order = i
+        else:
+            db.add(
+                UserToolGroupItem(group_id=group_id, tool_id=tool_id, sort_order=i)
+            )
+
+    await db.commit()
+    result = await db.execute(
+        select(UserToolGroup)
+        .where(UserToolGroup.id == group_id)
+        .options(selectinload(UserToolGroup.items))
+    )
+    return _group_to_response(result.scalar_one())
 
 
 @router.delete("/tool-groups/{group_id}/tools/{tool_id}", status_code=204)
