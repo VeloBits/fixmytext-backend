@@ -646,9 +646,7 @@ async def set_tool_group_tools(
             if item.sort_order != i:
                 item.sort_order = i
         else:
-            db.add(
-                UserToolGroupItem(group_id=group_id, tool_id=tool_id, sort_order=i)
-            )
+            db.add(UserToolGroupItem(group_id=group_id, tool_id=tool_id, sort_order=i))
 
     await db.commit()
     result = await db.execute(
