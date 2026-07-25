@@ -347,6 +347,11 @@ services:
       KONG_ADMIN_LISTEN: "127.0.0.1:8001"
     volumes:
       - ./gateway/kong/kong.yml:/etc/kong/kong.yml:ro
+    # Sockets are ephemeral runtime state; tmpfs guarantees a clean dir on
+    # every start so a stale worker-events socket from an unclean shutdown
+    # can never crash-loop the gateway (nginx: bind() Address already in use).
+    tmpfs:
+      - /usr/local/kong/sockets:size=1m
     # Port 8000 is published to localhost only so the browser can reach Kong at
     # http://localhost:8000 (VITE_API_URL in local dev). Binding to 127.0.0.1
     # prevents Kong's proxy from being reachable on LAN/shared networks.
