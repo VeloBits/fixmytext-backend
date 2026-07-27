@@ -36,6 +36,11 @@ class UserUiSettings(Base):
     onboarding_seen: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    # Ordered tool-panel chip row: [{type: view|group|custom_group, id}].
+    # [] = never customized — the client applies its default row.
+    sidebar_chips: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()"), onupdate=datetime.now
     )
