@@ -1,8 +1,8 @@
 """Pydantic schemas for user data: preferences, templates, ui-settings, favorites, tool groups."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ── Preferences ──────────────────────────────────────────────────────────────
 
@@ -69,6 +69,31 @@ class TemplateResponse(BaseModel):
 # ── UI Settings ───────────────────────────────────────────────────────────────
 
 
+class SidebarChipItem(BaseModel):
+    """One tool-panel sidebar chip: a smart view or a group filter.
+
+    `view` ids are client-defined (all/pinned/recent/suggested), `group` ids
+    are catalog TOOL_GROUPS ids, `custom_group` ids are user_tool_groups UUIDs.
+    The server stays structural — semantics (e.g. 'all' never removable) are
+    enforced by the client that owns the vocabulary.
+    """
+
+    type: Literal["view", "group", "custom_group"]
+    id: str = Field(..., min_length=1, max_length=100)
+
+
+def _dedupe_chips(chips: list[SidebarChipItem]) -> list[SidebarChipItem]:
+    """Order-preserving dedupe by (type, id) — makes PUT retries idempotent."""
+    seen: set[tuple[str, str]] = set()
+    out: list[SidebarChipItem] = []
+    for chip in chips:
+        key = (chip.type, chip.id)
+        if key not in seen:
+            seen.add(key)
+            out.append(chip)
+    return out
+
+
 class UiSettingsBase(BaseModel):
     """Base fields shared across UI settings schemas."""
 
@@ -76,6 +101,7 @@ class UiSettingsBase(BaseModel):
     keybindings: dict = {}
     panel_sizes: dict = {}
     onboarding_seen: bool = False
+    sidebar_chips: list[SidebarChipItem] = []
 
 
 class UiSettingsResponse(UiSettingsBase):
@@ -89,6 +115,14 @@ class UiSettingsUpdate(BaseModel):
     keybindings: dict | None = None
     panel_sizes: dict | None = None
     onboarding_seen: bool | None = None
+    sidebar_chips: list[SidebarChipItem] | None = Field(None, max_length=40)
+
+    @field_validator("sidebar_chips")
+    @classmethod
+    def dedupe_sidebar_chips(
+        cls, v: list[SidebarChipItem] | None
+    ) -> list[SidebarChipItem] | None:
+        return _dedupe_chips(v) if v is not None else v
 
 
 # ── Favorites ─────────────────────────────────────────────────────────────────
@@ -147,6 +181,29 @@ class ToolGroupUpdate(BaseModel):
     """Schema for renaming a tool group."""
 
     name: str | None = Field(None, min_length=1, max_length=100)
+
+
+class ToolGroupItemsUpdate(BaseModel):
+    """Schema for replacing a group's tools with an explicit ordered list.
+
+    The array position IS the sort order — one call covers reorder, bulk add,
+    and bulk remove (drag-and-drop sends the full list after every move).
+    """
+
+    tool_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(
+        ..., max_length=50
+    )
+
+
+class ToolGroupOrderUpdate(BaseModel):
+    """Schema for reordering the user's tool groups by id.
+
+    Groups listed get sort_order = array position; any of the user's groups
+    not listed keep their relative order after the listed ones. Unknown or
+    foreign ids are ignored (optimistic clients may hold stale ids).
+    """
+
+    group_ids: list[str] = Field(..., min_length=1, max_length=20)
 
 
 # ── Tool Stats ────────────────────────────────────────────────────────────────
