@@ -135,7 +135,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/testdb
       SECRET_KEY: test-secret-key-at-least-32-characters-long-for-ci
       DEBUG: "true"
-      ALLOWED_ORIGINS: '["http://localhost:3000"]'
+      ALLOWED_ORIGINS: '["http://localhost:3100"]'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

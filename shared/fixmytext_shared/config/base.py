@@ -37,7 +37,7 @@ class BaseSharedSettings(BaseSettings):
     INTERNAL_SHARED_SECRET: str = ""
 
     # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    ALLOWED_ORIGINS: str = "http://localhost:3100,http://127.0.0.1:3100"
 
     # Rate limiting
     RATE_LIMIT_MAX_REQUESTS: int = 25

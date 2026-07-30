@@ -65,7 +65,7 @@ class Settings(BaseSharedSettings):
     # ── Share ─────────────────────────────────────────────────────────────────
     SHARE_EXPIRE_DAYS: int = 30
     MAX_SHARE_TEXT_LENGTH: int = 50_000
-    FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URL: str = "http://localhost:3100"
 
     # ── History ───────────────────────────────────────────────────────────────
     HISTORY_PREVIEW_MAX_LENGTH: int = 500

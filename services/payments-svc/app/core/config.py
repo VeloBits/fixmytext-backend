@@ -43,7 +43,7 @@ class Settings(BaseSharedSettings):
     RAZORPAY_WEBHOOK_SECRET: str = ""
     FREE_USES_PER_TOOL_PER_DAY: int = 3
     DAILY_LOGIN_BONUS: int = 1
-    FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URL: str = "http://localhost:3100"
     PAYMENTS_BACKEND: str = "razorpay"
 
     # Anti-abuse: max referral payouts a single referrer can earn (M-10).

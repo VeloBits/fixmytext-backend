@@ -110,10 +110,10 @@ service runs in `development`, Swagger UI is at `/docs` and ReDoc at
 | `RAZORPAY_KEY_ID` | For billing | — | Razorpay key ID |
 | `RAZORPAY_KEY_SECRET` | For billing | — | Razorpay key secret |
 | `RAZORPAY_WEBHOOK_SECRET` | For billing | — | Razorpay webhook verification secret |
-| `ALLOWED_ORIGINS` | No | `["http://localhost:3000"]` | CORS allowed origins (JSON array string) |
+| `ALLOWED_ORIGINS` | No | `["http://localhost:3100"]` | CORS allowed origins (JSON array string) |
 | `FREE_USES_PER_TOOL_PER_DAY` | No | `3` | Daily free tool uses per visitor |
 | `DAILY_LOGIN_BONUS` | No | `1` | XP bonus for daily login |
-| `FRONTEND_URL` | No | `http://localhost:3000` | Frontend URL for CORS and redirects |
+| `FRONTEND_URL` | No | `http://localhost:3100` | Frontend URL for CORS and redirects |
 | `HOST` | No | `0.0.0.0` | Server bind host |
 | `PORT` | No | `8000` | Server port |
 | `DEBUG` | No | `false` | Enable debug mode |

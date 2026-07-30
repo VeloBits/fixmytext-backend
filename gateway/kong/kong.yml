@@ -127,8 +127,8 @@ plugins:
   - name: cors
     config:
       origins:
-        - http://localhost:3000
-        - http://127.0.0.1:3000
+        - http://localhost:3100
+        - http://127.0.0.1:3100
         - http://develop-fixmytext.velobits.dev
         - https://fixmytext.velobits.dev
       methods:
