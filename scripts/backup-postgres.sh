@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# backup-postgres.sh — Production pg_dump to S3 for fix-my-text-repos backend
+# backup-postgres.sh — Production pg_dump to S3 for Velobits-Projects backend
 #
 # Usage:
 #   ./scripts/backup-postgres.sh
