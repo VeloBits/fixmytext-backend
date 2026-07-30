@@ -47,7 +47,7 @@ def test_cache_get_returns_none_for_unknown_ip():
 @pytest.mark.asyncio
 async def test_detect_region_only_calls_http_once_per_ip():
     """The second call for the same IP must return the cached region without
-    making another outbound HTTP request (H-1 — rate-limit protection)."""
+    making another outbound HTTP request (H-1 - rate-limit protection)."""
     from app.services import region_service
 
     region_service._REGION_CACHE.clear()

@@ -15,7 +15,7 @@ LABEL org.opencontainers.image.description="FastAPI Groq-backed AI text transfor
 WORKDIR /app
 
 # Build context is backend root so both shared/ and services/ai-svc/ are accessible.
-# shared/ must be COPY'd BEFORE pip install — requirements.txt has `-e ./shared`.
+# shared/ must be COPY'd BEFORE pip install - requirements.txt has `-e ./shared`.
 COPY services/ai-svc/requirements.txt .
 COPY shared/ ./shared/
 RUN python -m venv .venv && \

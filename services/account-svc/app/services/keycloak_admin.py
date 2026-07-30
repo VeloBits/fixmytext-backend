@@ -28,7 +28,7 @@ async def _get_admin_token() -> str:
     """Return a cached admin token, refreshing if expired.
 
     Uses double-checked locking so the lock is NOT held during the HTTP
-    round-trip — prevents up to timeout=10 s of head-of-line blocking when
+    round-trip - prevents up to timeout=10 s of head-of-line blocking when
     the cache misses under concurrent registration load.
     """
     now = time.time()
@@ -39,7 +39,7 @@ async def _get_admin_token() -> str:
         if _TOKEN_CACHE.get("token") and _TOKEN_CACHE.get("expires_at", 0) > now + 30:
             return _TOKEN_CACHE["token"]
 
-    # Fetch outside the lock — concurrent coroutines may all fetch here, but
+    # Fetch outside the lock - concurrent coroutines may all fetch here, but
     # only one will write (second lock below).
     if (
         settings.KEYCLOAK_SERVICE_ACCOUNT_ID
@@ -66,7 +66,7 @@ async def _get_admin_token() -> str:
             resp = await client.post(url, data=token_data)
     except httpx.HTTPError as exc:
         raise RuntimeError(
-            f"Keycloak admin auth failed: network error — {exc}"
+            f"Keycloak admin auth failed: network error - {exc}"
         ) from exc
     if resp.status_code != 200:
         # Avoid leaking Keycloak response body (may contain sensitive info).

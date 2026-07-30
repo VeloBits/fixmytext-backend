@@ -61,14 +61,14 @@ async def run_ai_tool(
     input_text:
         The user's input text.
     user_sub:
-        Keycloak subject UUID — stored for audit/logging; not used to
+        Keycloak subject UUID - stored for audit/logging; not used to
         perform any auth here (auth happened in the HTTP layer before the
         job was enqueued).
     options:
         Optional per-tool parameters:
-          - ``target_language`` — for ``translate`` / ``transliterate``
-          - ``tone``            — for ``change-tone``
-          - ``format``          — for ``change-format``
+          - ``target_language`` - for ``translate`` / ``transliterate``
+          - ``tone``            - for ``change-tone``
+          - ``format``          - for ``change-format``
 
     Returns
     -------
@@ -122,7 +122,7 @@ async def run_ai_tool(
 
 
 class WorkerSettings:
-    """arq WorkerSettings — passed to ``arq.run_worker`` or ``python -m arq``."""
+    """arq WorkerSettings - passed to ``arq.run_worker`` or ``python -m arq``."""
 
     functions = [run_ai_tool]
     on_startup = startup

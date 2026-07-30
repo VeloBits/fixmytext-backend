@@ -1,4 +1,4 @@
-"""UserPreferences ORM model — lives in the 'auth' schema."""
+"""UserPreferences ORM model - lives in the 'auth' schema."""
 
 import uuid
 from datetime import datetime
@@ -24,7 +24,7 @@ class UserPreferences(Base):
         String(10), default="dark", server_default=text("'dark'")
     )
     # Transitional: personas were replaced by custom tool groups (2026-07-14).
-    # The column is read-only legacy state — migration 0004 consumed it to seed
+    # The column is read-only legacy state - migration 0004 consumed it to seed
     # starter groups + onboarding_seen; PreferencesUpdate no longer accepts it.
     # Drop the column (and the PreferencesResponse field) in a later migration
     # once no deployed bundle reads it.

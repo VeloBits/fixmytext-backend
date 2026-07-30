@@ -1,5 +1,5 @@
 """
-API v1 router — aggregates auth, user_data, history, and share sub-routers.
+API v1 router - aggregates auth, user_data, history, and share sub-routers.
 """
 
 from fastapi import APIRouter

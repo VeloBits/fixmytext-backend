@@ -1,4 +1,4 @@
-"""UserPipeline and UserPipelineStep ORM models — replaces saved_pipelines JSONB."""
+"""UserPipeline and UserPipelineStep ORM models - replaces saved_pipelines JSONB."""
 
 import uuid
 from datetime import datetime

@@ -25,7 +25,7 @@ async def init_redis() -> None:
     """Open the Redis connection pool (called from FastAPI lifespan)."""
     global _pool  # noqa: PLW0603
     if not settings.REDIS_URL:
-        logger.info("REDIS_URL not set — Redis features disabled")
+        logger.info("REDIS_URL not set - Redis features disabled")
         return
     try:
         _pool = Redis.from_url(
@@ -34,7 +34,7 @@ async def init_redis() -> None:
             socket_connect_timeout=5,
         )
         await _pool.ping()
-        # Log only host:port — URL may contain credentials in redis://:pass@host form.
+        # Log only host:port - URL may contain credentials in redis://:pass@host form.
         safe_url = (
             settings.REDIS_URL.split("@")[-1]
             if "@" in settings.REDIS_URL
@@ -43,7 +43,7 @@ async def init_redis() -> None:
         logger.info("Redis connected: %s", safe_url)
     except Exception:
         logger.warning(
-            "Redis connection failed — falling back to in-memory", exc_info=True
+            "Redis connection failed - falling back to in-memory", exc_info=True
         )
         _pool = None
 
@@ -72,7 +72,7 @@ async def revoke_session(sub: str, ttl_seconds: int) -> None:
     redis = get_redis()
     if redis is None:
         logger.warning(
-            "revoke_session: Redis unavailable — revocation not persisted for sub=%s",
+            "revoke_session: Redis unavailable - revocation not persisted for sub=%s",
             sanitize_log_value(sub),
         )
         return

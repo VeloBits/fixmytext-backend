@@ -76,7 +76,7 @@ class TestRedisRateLimiter:
     async def test_fails_closed_via_in_memory_when_redis_unavailable(
         self, request_factory
     ):
-        """M-4: Redis down must NOT mean 'no limit' — the in-process fallback
+        """M-4: Redis down must NOT mean 'no limit' - the in-process fallback
         still enforces the cap (here max_requests=1)."""
         limiter = RedisRateLimiter(
             redis_factory=lambda: None,

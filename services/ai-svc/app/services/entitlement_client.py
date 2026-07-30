@@ -2,7 +2,7 @@
 
 Calls ``POST /internal/v1/check-access`` after the rate-limit check and before
 invoking the model. ai-svc requests are always authenticated and every AI tool
-is billable, so a gate outage fails CLOSED (503) — there is no free fallback
+is billable, so a gate outage fails CLOSED (503) - there is no free fallback
 (the M-4 lesson: a silent fail-open re-opens the H-1 monetization bypass).
 """
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = httpx.Timeout(1.5, connect=0.5)
 _UNAVAILABLE = "Service temporarily unavailable. Please try again shortly."
 
-# Shared persistent client — reuses TCP connections across requests.
+# Shared persistent client - reuses TCP connections across requests.
 # Initialized by init_http_client() in the FastAPI lifespan.
 _HTTP_CLIENT: httpx.AsyncClient | None = None
 
@@ -76,7 +76,7 @@ async def check_entitlement(
         resp = await _get_http_client().post(url, json=payload, headers=headers)
     except (httpx.HTTPError, OSError) as exc:
         logger.error(
-            "entitlement gate unreachable (%s) — blocking AI tool %s",
+            "entitlement gate unreachable (%s) - blocking AI tool %s",
             sanitize_log_value(exc),
             sanitize_log_value(tool_id),
         )
@@ -84,7 +84,7 @@ async def check_entitlement(
 
     if resp.status_code != 200:
         logger.error(
-            "entitlement gate status %s — blocking AI tool %s",
+            "entitlement gate status %s - blocking AI tool %s",
             resp.status_code,
             sanitize_log_value(tool_id),
         )

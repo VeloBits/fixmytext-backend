@@ -4,7 +4,7 @@ Covers the Groq client lifecycle, the ``_ai_transform`` dispatch paths
 (fake backend / Groq success / Groq failure / no key), the local fallback
 functions, and the ``run_ai_tool`` / ``stream_ai_tool`` public entrypoints.
 
-No real network calls are made — the Groq client and chat helpers are
+No real network calls are made - the Groq client and chat helpers are
 mocked with ``unittest.mock`` throughout.
 """
 

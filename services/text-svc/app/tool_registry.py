@@ -1,5 +1,5 @@
 """
-Tool registry for text-svc — LOCAL tools only.
+Tool registry for text-svc - LOCAL tools only.
 
 A subset of the monolith's tool_registry, restricted to tools whose
 ``tool_type`` is ``ToolType.LOCAL``.  AI tool registrations live in ai-svc.

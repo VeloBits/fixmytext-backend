@@ -1,9 +1,9 @@
 """Authentication endpoints.
 
-- ``GET  /auth/me``                  — return current user profile + issue session cookie
-- ``POST /auth/resend-verification`` — re-send the Keycloak email-verification email
-- ``POST /auth/session/clear``       — clear the per-app session cookie on logout
-- ``POST /auth/backchannel-logout``  — Keycloak SLO hook: revoke sessions server-side
+- ``GET  /auth/me``                  - return current user profile + issue session cookie
+- ``POST /auth/resend-verification`` - re-send the Keycloak email-verification email
+- ``POST /auth/session/clear``       - clear the per-app session cookie on logout
+- ``POST /auth/backchannel-logout``  - Keycloak SLO hook: revoke sessions server-side
 """
 
 import hmac
@@ -49,7 +49,7 @@ async def _get_subscription_tier(user_id: uuid.UUID, db: AsyncSession) -> str:
         return result if result is not None else "free"
     except Exception:
         logger.warning(
-            "Failed to fetch subscription tier for user %s — defaulting to free",
+            "Failed to fetch subscription tier for user %s - defaulting to free",
             user_id,
         )
         return "free"
@@ -61,7 +61,7 @@ def _set_session_cookie(
     """Sign and set the per-app session cookie on the response.
 
     No-op if SESSION_COOKIE_SECRET is unset (treated as a misconfiguration in
-    non-dev environments — handled by config validation).
+    non-dev environments - handled by config validation).
     """
     if not settings.SESSION_COOKIE_SECRET:
         return
@@ -103,13 +103,13 @@ async def me(
     Side effect: issues the ``fixmytext_session`` cookie. The browser stores it
     HttpOnly + host-only, and from this request onward the cookie is sufficient
     for authentication on subsequent requests (Bearer JWT is still accepted in
-    parallel for the transition window — see ``get_current_user``).
+    parallel for the transition window - see ``get_current_user``).
     """
     response.headers["Cache-Control"] = "no-store"
     # The cookie path never re-reads Keycloak claims, so a user who verified
     # their email mid-session would keep is_email_verified=False until the
     # cookie expired (~7 days). The Authorization header carries a fresh token
-    # from silent renew — treat its email_verified claim as authoritative.
+    # from silent renew - treat its email_verified claim as authoritative.
     claims = await peek_bearer_claims(credentials)
     if claims is not None and str(claims.get("sub", "")) == str(user.keycloak_id):
         claim_verified = bool(claims.get("email_verified", False))
@@ -140,7 +140,7 @@ async def resend_verification(
 
     Backs the in-app "Verify your email" banner. With the realm's blocking
     verify-email requirement disabled, Keycloak no longer emails at signup or
-    on login — this endpoint (and the first-login send in ``deps.py``) is how
+    on login - this endpoint (and the first-login send in ``deps.py``) is how
     verification links reach the user. No-op for already-verified users.
     """
     await resend_verification_limiter.check(
@@ -149,7 +149,7 @@ async def resend_verification(
     if not user.is_email_verified and user.keycloak_id:
         try:
             await send_verification_email(str(user.keycloak_id))
-        except Exception as exc:  # noqa: BLE001 — never surface KC admin errors
+        except Exception as exc:  # noqa: BLE001 - never surface KC admin errors
             logger.warning(
                 "resend-verification failed for keycloak_id=%s: %s",
                 user.keycloak_id,
@@ -166,7 +166,7 @@ async def clear_session(request: Request, response: Response) -> Response:
     """Clear the per-app session cookie. Called by the frontend on logout
     BEFORE redirecting to Keycloak's end-session endpoint.
 
-    No auth required — clearing is idempotent. As a side effect the current
+    No auth required - clearing is idempotent. As a side effect the current
     session is added to the Redis revocation set so it cannot be replayed
     even if the browser ignores the Max-Age=0 instruction.
     """
@@ -209,7 +209,7 @@ async def backchannel_logout(
     Optionally guarded by a shared secret (BACKCHANNEL_SECRET env var). When
     set, Keycloak must include the secret in the X-Backchannel-Secret header.
     """
-    # Optional shared-secret guard — prevents arbitrary callers from replaying
+    # Optional shared-secret guard - prevents arbitrary callers from replaying
     # a legitimate Keycloak-signed logout token to revoke another user's session.
     if settings.BACKCHANNEL_SECRET:
         provided = request.headers.get("X-Backchannel-Secret", "")
@@ -221,7 +221,7 @@ async def backchannel_logout(
 
     if not settings.KEYCLOAK_JWKS_URL:
         logger.warning(
-            "backchannel-logout: KEYCLOAK_JWKS_URL not configured — rejecting"
+            "backchannel-logout: KEYCLOAK_JWKS_URL not configured - rejecting"
         )
         raise HTTPException(status_code=400, detail="IdP not configured")
 

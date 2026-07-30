@@ -1,4 +1,4 @@
-"""VisitorUsage ORM model — server-side trial tracking for unauthenticated users."""
+"""VisitorUsage ORM model - server-side trial tracking for unauthenticated users."""
 
 import uuid
 from datetime import datetime

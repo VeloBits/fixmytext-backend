@@ -617,7 +617,7 @@ async def test_claim_referral_success_returns_result(async_client, app):
     assert response.json()["success"] is True
 
 
-# ── POST /passes/order — order-time tool-scope validation (strict flag) ──────
+# ── POST /passes/order - order-time tool-scope validation (strict flag) ──────
 
 
 def _order_patches(stack):
@@ -640,7 +640,7 @@ def _order_patches(stack):
 @pytest.mark.asyncio
 async def test_pass_order_strict_rejects_wrong_tool_count(async_client, app):
     """Strict mode: a scoped pass ordered with the wrong tool count fails at
-    ORDER time — before any money can move (the Critical paid-but-nothing
+    ORDER time - before any money can move (the Critical paid-but-nothing
     bug)."""
     user = _make_user(region="IN")
     _override(app, user, _mock_db())
@@ -733,7 +733,7 @@ async def test_pass_order_lenient_mode_still_accepts_empty_scope(async_client, a
 @pytest.mark.asyncio
 async def test_pass_order_idempotency_key_varies_with_tool_scope(async_client, app):
     """Two orders for the SAME pass with DIFFERENT tools must use different
-    idempotency keys — otherwise Razorpay's unpaid-order reuse would silently
+    idempotency keys - otherwise Razorpay's unpaid-order reuse would silently
     grant the first selection. Same tools → same key. Keys fit the 40-char
     receipt cap untruncated."""
     user = _make_user(region="IN")

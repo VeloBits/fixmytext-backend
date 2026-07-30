@@ -267,7 +267,7 @@ async def test_stream_error_yields_error_event(client):
     def _broken_stream(tool_id, text, *extra_args):
         async def _gen():
             raise RuntimeError("groq exploded")
-            yield  # unreachable — present only to make this an async generator
+            yield  # unreachable - present only to make this an async generator
 
         return _gen()
 

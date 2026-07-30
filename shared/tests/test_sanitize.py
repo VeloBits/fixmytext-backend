@@ -32,7 +32,7 @@ class TestSanitizeLogValue:
         assert sanitize_log_value("hello\x00world") == "hello world"
 
     def test_preserves_tabs(self):
-        # Tab (\x09) is NOT in the regex range — it's allowed.
+        # Tab (\x09) is NOT in the regex range - it's allowed.
         assert sanitize_log_value("hello\tworld") == "hello\tworld"
 
     def test_coerces_non_str(self):

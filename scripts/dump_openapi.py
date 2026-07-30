@@ -10,13 +10,13 @@ Usage (from the backend repo root):
     python scripts/dump_openapi.py                 # merged spec → stdout
     python scripts/dump_openapi.py openapi.json    # merged spec → file
 
-Merge rules (deterministic — same input always yields the same file):
+Merge rules (deterministic - same input always yields the same file):
 - Services merge in the fixed order below; path/schema insertion order is
   preserved so regenerated output diffs stay minimal.
 - /health and /health/ready differ per service; one canonical copy (from
   the last service) is kept, positioned after all API paths.
 - Duplicate schema names are tolerated only when structurally identical
-  (descriptions/examples ignored — ai-svc re-declares text-svc's models
+  (descriptions/examples ignored - ai-svc re-declares text-svc's models
   without docstrings). A real shape conflict aborts with instructions.
 """
 
@@ -92,7 +92,7 @@ def merge(specs: dict[str, dict]) -> dict:
             if path in merged["paths"] and merged["paths"][path] != item:
                 sys.stderr.write(
                     f"error: path {path} defined differently by {name} and an "
-                    "earlier service — routes must be unique across services.\n"
+                    "earlier service - routes must be unique across services.\n"
                 )
                 sys.exit(1)
             merged["paths"].setdefault(path, item)

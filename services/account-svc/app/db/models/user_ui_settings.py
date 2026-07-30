@@ -1,4 +1,4 @@
-"""UserUiSettings ORM model — replaces fmx_keybindings, fmx_tool_view, useResize localStorage."""
+"""UserUiSettings ORM model - replaces fmx_keybindings, fmx_tool_view, useResize localStorage."""
 
 import uuid
 from datetime import datetime
@@ -37,7 +37,7 @@ class UserUiSettings(Base):
         Boolean, nullable=False, default=False, server_default=text("false")
     )
     # Ordered tool-panel chip row: [{type: view|group|custom_group, id}].
-    # [] = never customized — the client applies its default row.
+    # [] = never customized - the client applies its default row.
     sidebar_chips: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )

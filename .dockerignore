@@ -1,13 +1,13 @@
 # backend/.dockerignore
 #
 # All build contexts are the repo root (every Dockerfile COPYs shared/ plus a
-# service tree), so patterns need `**/` prefixes to match nested paths —
+# service tree), so patterns need `**/` prefixes to match nested paths -
 # unanchored patterns like `tests/` only match at the context root.
 .git
 .github
 .claude/
 
-# Env files and secrets — never ship into an image layer.
+# Env files and secrets - never ship into an image layer.
 **/.env
 **/.env.*
 !.env.example

@@ -1,4 +1,4 @@
-"""HS256 JWT adapter. Legacy fallback — not used in normal operation (RS256/JWKS is active)."""
+"""HS256 JWT adapter. Legacy fallback - not used in normal operation (RS256/JWKS is active)."""
 
 from typing import Any
 

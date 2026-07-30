@@ -95,7 +95,7 @@ def _build_cookie(
 
 @pytest.mark.asyncio
 async def test_cookie_auth_succeeds_without_bearer(async_client):
-    """A valid signed session cookie is sufficient for authentication — no JWT
+    """A valid signed session cookie is sufficient for authentication - no JWT
     JWKS call needed."""
     from app.db.session import get_db
     from main import app
@@ -127,7 +127,7 @@ async def test_cookie_takes_priority_over_bearer(async_client):
     """When both a valid cookie AND a Bearer token are present, identity comes
     from the cookie: even a Bearer that FAILS verification cannot break the
     request. (/auth/me additionally peeks at a verifiable Bearer to re-sync
-    claim-derived fields — see test_me_resyncs_email_verified_from_bearer.)"""
+    claim-derived fields - see test_me_resyncs_email_verified_from_bearer.)"""
     from app.db.session import get_db
     from main import app
 
@@ -289,7 +289,7 @@ async def test_cookie_with_invalid_sub_uuid_falls_through(async_client):
     async def override_get_db():
         yield mock_db
 
-    # Cookie with a non-UUID sub — passes HMAC verification but UUID() will fail
+    # Cookie with a non-UUID sub - passes HMAC verification but UUID() will fail
     bad_sub_claims = build_claims(
         sub="not-a-uuid",
         email="user@example.com",

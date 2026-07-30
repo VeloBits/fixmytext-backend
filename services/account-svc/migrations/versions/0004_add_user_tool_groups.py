@@ -10,14 +10,14 @@ migration:
 1. Creates activity.user_tool_groups + activity.user_tool_group_items (named,
    ordered per-user groups of tool ids).
 2. Adds auth.user_ui_settings.onboarding_seen and backfills it to true for
-   every user with a non-null persona — they already answered the (old)
+   every user with a non-null persona - they already answered the (old)
    onboarding picker and must not be re-prompted by the new starter-kit modal.
 3. Seeds one starter group per user from their persona, snapshotting the
    persona → suggested-tools mapping that lived in the frontend registry
-   (tools-registry PERSONAS, now STARTER_KITS — names must stay in sync).
+   (tools-registry PERSONAS, now STARTER_KITS - names must stay in sync).
    'explorer' deliberately seeds nothing (it never had suggested tools).
 
-auth.user_preferences.persona is intentionally NOT dropped here — stale
+auth.user_preferences.persona is intentionally NOT dropped here - stale
 deployed bundles still read it. Drop it in a later migration once none do.
 
 downgrade() removes the tables and the column: seeded AND user-created groups

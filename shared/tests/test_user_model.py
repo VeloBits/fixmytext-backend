@@ -44,7 +44,7 @@ class TestMakeUserClass:
 
     def test_removed_legacy_columns_absent(self):
         # hashed_password + last_login_at were dropped once auth went
-        # Keycloak-only (2026-07-09) — guard against reintroduction.
+        # Keycloak-only (2026-07-09) - guard against reintroduction.
         cols = set(_fresh_user_class().__table__.columns.keys())
         assert "hashed_password" not in cols
         assert "last_login_at" not in cols

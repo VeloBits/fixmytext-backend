@@ -4,7 +4,7 @@ text-svc accepts requests with or without a Keycloak JWT. When a valid token is
 present we extract the user identity so the entitlement gate treats the caller as
 an authenticated user; otherwise (no token, invalid token, or no JWKS configured)
 the caller is handled as an anonymous visitor. An invalid token is never an error
-here — it simply downgrades to the visitor quota.
+here - it simply downgrades to the visitor quota.
 """
 
 import logging
@@ -52,11 +52,11 @@ async def get_optional_user(
         )
     except PyJWKClientConnectionError as exc:
         logger.warning(
-            "text-svc: JWKS fetch failed — treating request as anonymous: %s", exc
+            "text-svc: JWKS fetch failed - treating request as anonymous: %s", exc
         )
         return None
     except (JWTError, ValueError):
-        logger.debug("text-svc: invalid token — treating request as anonymous")
+        logger.debug("text-svc: invalid token - treating request as anonymous")
         return None
 
     sub = payload.get("sub")

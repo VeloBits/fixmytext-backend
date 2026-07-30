@@ -101,7 +101,7 @@ async def subscription_status(
     )
 
 
-# ── Pro Checkout (create Razorpay order — one-time payment) ─────────────────
+# ── Pro Checkout (create Razorpay order - one-time payment) ─────────────────
 
 
 @router.post("/checkout", response_model=RazorpayProOrderResponse)
@@ -119,7 +119,7 @@ async def create_pro_checkout(
     # Renewal window: an ACTIVE Pro can re-purchase only within the last
     # PRO_RENEWAL_WINDOW_DAYS of the period (fulfillment extends from the
     # current expiry, so early renewal never loses paid days). A cancelled
-    # in-period Pro can re-subscribe any time — that reactivates the plan.
+    # in-period Pro can re-subscribe any time - that reactivates the plan.
     pro_sub = await get_pro_subscription(user.id, db)
     if pro_sub and pro_sub.status == "active":
         window = timedelta(days=settings.PRO_RENEWAL_WINDOW_DAYS)
@@ -150,7 +150,7 @@ async def create_pro_checkout(
             "Failed to create Razorpay order for Pro checkout, user %s", user.id
         )
         raise HTTPException(
-            502, "Failed to start checkout — please try again later"
+            502, "Failed to start checkout - please try again later"
         ) from e
 
     return RazorpayProOrderResponse(
@@ -185,10 +185,10 @@ async def verify_pro_payment(
     if not verify_payment_signature(
         req.razorpay_order_id, req.razorpay_payment_id, req.razorpay_signature
     ):
-        raise HTTPException(400, "Payment verification failed — invalid signature")
+        raise HTTPException(400, "Payment verification failed - invalid signature")
 
     # Re-fetch the order server-to-server so we read notes set by *our* backend
-    # at creation time — not user-supplied data.
+    # at creation time - not user-supplied data.
     try:
         order = fetch_order(req.razorpay_order_id)
     except Exception as e:
@@ -202,9 +202,9 @@ async def verify_pro_payment(
         raise HTTPException(400, "Order is not for Pro subscription")
 
     # Block amount tampering, then fulfill exactly once through the shared
-    # authority — a double verify or a verify/webhook race activates Pro once.
+    # authority - a double verify or a verify/webhook race activates Pro once.
     # The signature above is VALID, so an amount-validation failure means a
-    # real customer paid for an order we cannot fulfil — auto-refund it.
+    # real customer paid for an order we cannot fulfil - auto-refund it.
     try:
         validate_pro_amount(order.get("amount"), order.get("currency"))
     except HTTPException as validation_error:
@@ -233,7 +233,7 @@ async def verify_pro_payment(
                 _s(req.razorpay_payment_id),
             )
             raise HTTPException(
-                502, "Could not refund the payment — please contact support"
+                502, "Could not refund the payment - please contact support"
             ) from validation_error
         return {
             "status": "refunded",
@@ -265,7 +265,7 @@ async def verify_pro_payment(
             logger.info("Welcome gift granted (pro): user=%s", user.id)
         await db.commit()
     except (AlreadyFulfilled, IntegrityError):
-        # Already fulfilled (replay) or an active subscription already exists —
+        # Already fulfilled (replay) or an active subscription already exists -
         # idempotent success instead of a 500 on the one-active-sub constraint.
         await db.rollback()
         logger.info(
@@ -330,10 +330,10 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     Supports: payment.captured, payment.authorized, payment.failed,
     subscription.cancelled, subscription.halted.
 
-    Idempotent — duplicate events (same razorpay_event_id) are acknowledged
+    Idempotent - duplicate events (same razorpay_event_id) are acknowledged
     but not reprocessed.
     """
-    # Reject oversized payloads before reading — protects against memory exhaustion.
+    # Reject oversized payloads before reading - protects against memory exhaustion.
     _cl = request.headers.get("content-length")
     if _cl:
         try:
@@ -373,7 +373,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     item_type = notes.get("item_type")
     item_id = notes.get("item_id")
 
-    # Log-safe versions — inline .replace() so static analysis (CodeQL) can
+    # Log-safe versions - inline .replace() so static analysis (CodeQL) can
     # verify the taint is removed before values reach logging sinks.
     safe_event_type = str(event_type).replace("\n", "").replace("\r", "")
     safe_event_id = str(razorpay_event_id).replace("\n", "").replace("\r", "")
@@ -382,7 +382,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     safe_item_type = str(item_type).replace("\n", "").replace("\r", "")
     safe_item_id = str(item_id).replace("\n", "").replace("\r", "")
 
-    # ── Idempotency check — skip already-processed events ────────────
+    # ── Idempotency check - skip already-processed events ────────────
     existing = await db.execute(
         select(PaymentEvent).where(
             PaymentEvent.razorpay_event_id == razorpay_event_id,
@@ -393,7 +393,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         logger.info("Duplicate webhook ignored: event_id=%s", safe_event_id)
         return {"status": "ok", "detail": "duplicate"}
 
-    # ── Parse user_id safely — malformed values must not cause a 500 ──
+    # ── Parse user_id safely - malformed values must not cause a 500 ──
     user_id = None
     if user_id_str:
         try:
@@ -449,7 +449,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         await db.flush()
     except IntegrityError:
         # A concurrent delivery of the same razorpay_event_id raced us to the
-        # unique index — treat as a duplicate rather than 500 (BE-DATA-06). The
+        # unique index - treat as a duplicate rather than 500 (BE-DATA-06). The
         # winning delivery fulfills it, and the payment_fulfillments ledger
         # guarantees the grant happens exactly once regardless.
         await db.rollback()
@@ -458,7 +458,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         )
         return {"status": "ok", "detail": "duplicate"}
 
-    # ── payment.authorized — informational only (capture pending) ────
+    # ── payment.authorized - informational only (capture pending) ────
     if event_type == "payment.authorized":
         logger.info(
             "payment.authorized: payment=%s order=%s",
@@ -470,7 +470,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         await db.commit()
         return {"status": "ok"}
 
-    # ── payment.failed — log failure ─────────────────────────────────
+    # ── payment.failed - log failure ─────────────────────────────────
     if event_type == "payment.failed":
         reason = (
             str(payment_entity.get("error_description", "unknown"))
@@ -488,7 +488,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         await db.commit()
         return {"status": "ok"}
 
-    # ── payment.captured — fulfill the purchase (idempotent) ─────────
+    # ── payment.captured - fulfill the purchase (idempotent) ─────────
     if event_type == "payment.captured":
         if not user_id:
             logger.error(
@@ -531,7 +531,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         except HTTPException as validation_error:
             # The webhook signature is VALID and the payment is CAPTURED, so a
             # validation failure here is real customer money we cannot fulfil
-            # (e.g. a legacy scoped-pass order with empty tool_ids) —
+            # (e.g. a legacy scoped-pass order with empty tool_ids) -
             # auto-refund exactly once and acknowledge with 200 so Razorpay
             # stops retrying. A refund-API failure rolls everything back and
             # re-raises → non-2xx → Razorpay redelivers → refund re-attempted.
@@ -560,7 +560,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 await db.commit()
                 return {"status": "ok", "detail": "refunded"}
             except AlreadyFulfilled:
-                # Already fulfilled or already refunded — acknowledge without
+                # Already fulfilled or already refunded - acknowledge without
                 # a second refund; commit the event row for the audit trail.
                 pe.status = "processed"
                 pe.processed_at = datetime.now(UTC)
@@ -572,7 +572,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
                     "Refund attempt failed (webhook): payment=%s", safe_payment_id
                 )
                 raise HTTPException(
-                    500, "Refund attempt failed — Razorpay will retry"
+                    500, "Refund attempt failed - Razorpay will retry"
                 ) from refund_error
 
         try:
@@ -615,7 +615,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
 
         except AlreadyFulfilled:
             # The verify callback (or another delivery) already fulfilled this
-            # payment — acknowledge without a second grant.
+            # payment - acknowledge without a second grant.
             await db.rollback()
             logger.info(
                 "Duplicate payment fulfillment ignored (webhook): payment=%s",
@@ -660,7 +660,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
 
         return {"status": "ok"}
 
-    # ── subscription.cancelled — downgrade user ──────────────────────
+    # ── subscription.cancelled - downgrade user ──────────────────────
     if event_type == "subscription.cancelled" and user_id:
         sub_result = await db.execute(
             select(Subscription).where(
@@ -681,7 +681,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         await db.commit()
         return {"status": "ok"}
 
-    # ── subscription.halted — pause access ───────────────────────────
+    # ── subscription.halted - pause access ───────────────────────────
     if event_type == "subscription.halted" and user_id:
         sub_result = await db.execute(
             select(Subscription).where(
@@ -701,7 +701,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         await db.commit()
         return {"status": "ok"}
 
-    # ── Unhandled event types — acknowledge but don't process ────────
+    # ── Unhandled event types - acknowledge but don't process ────────
     logger.info("Unhandled webhook event: %s", safe_event_type)
     pe.status = "processed"
     pe.processed_at = datetime.now(UTC)

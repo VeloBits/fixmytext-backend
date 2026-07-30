@@ -15,7 +15,7 @@ LABEL org.opencontainers.image.description="FastAPI local text transformation se
 WORKDIR /app
 
 # Build context is backend root so both shared/ and services/text-svc/ are accessible.
-# shared/ must be COPY'd BEFORE pip install — requirements.txt has `-e ./shared`.
+# shared/ must be COPY'd BEFORE pip install - requirements.txt has `-e ./shared`.
 COPY services/text-svc/requirements.txt .
 COPY shared/ ./shared/
 RUN python -m venv .venv && \

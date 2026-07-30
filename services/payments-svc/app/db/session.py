@@ -6,7 +6,7 @@ pool_recycle) to control resource usage and connection lifetime.
 
 payments-svc connects to the SAME Postgres as the monolith and uses the
 same schemas (auth, billing, activity). It does NOT run Alembic migrations
-— those stay in the monolith.
+- those stay in the monolith.
 """
 
 from sqlalchemy import MetaData
@@ -15,7 +15,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
-# Naming convention for constraints — keeps generated names consistent
+# Naming convention for constraints - keeps generated names consistent
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",

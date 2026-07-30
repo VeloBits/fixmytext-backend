@@ -131,7 +131,7 @@ async def test_get_admin_token_missing_access_token_key_raises():
 
 
 # ---------------------------------------------------------------------------
-# send_verification_email — verify client_id + redirect_uri params are sent
+# send_verification_email - verify client_id + redirect_uri params are sent
 # ---------------------------------------------------------------------------
 
 

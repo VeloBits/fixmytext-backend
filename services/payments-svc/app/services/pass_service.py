@@ -1,4 +1,4 @@
-"""Pass service — unified tool access checking, pass/credit granting and consuming."""
+"""Pass service - unified tool access checking, pass/credit granting and consuming."""
 
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -34,7 +34,7 @@ async def get_pro_subscription(user_id, db: AsyncSession):
 
     Pro is a one-time 30-day purchase: a row grants access while
     ``expires_at`` is in the future, whether ``active`` or ``cancelled``
-    (cancelling keeps access until the paid period ends). Expiry is lazy —
+    (cancelling keeps access until the paid period ends). Expiry is lazy -
     reads only filter; stale ``active`` rows are flipped to ``expired`` at the
     next fulfillment write (see fulfillment_service).
     """
@@ -170,7 +170,7 @@ async def has_logged_in_today(user_id, db: AsyncSession) -> bool:
     return result.scalars().first() is not None
 
 
-# TODO(partial-impl): this helper has NO callers — text-svc/ai-svc no longer record
+# TODO(partial-impl): this helper has NO callers - text-svc/ai-svc no longer record
 # tool discovery after the service split, so `user_discovered_tools` is never populated
 # for new usage and GET /user/discovered-tools only returns pre-split rows. Wire a
 # fire-and-forget call (Redis pub/sub or direct payments-svc call) after a transform
@@ -178,7 +178,7 @@ async def has_logged_in_today(user_id, db: AsyncSession) -> bool:
 async def record_tool_discovery(user_id: str, tool_id: str, db: AsyncSession) -> None:
     """Record that a user discovered a tool. Fire-and-forget, ignores duplicates.
 
-    OWNS ITS COMMIT — do not call from within an active transaction, because
+    OWNS ITS COMMIT - do not call from within an active transaction, because
     this function commits the session, which will also commit any pending work
     the caller has not yet committed.
     """
@@ -287,7 +287,7 @@ async def check_tool_access(
         if result and not result["allowed"]:
             result["message"] = f"Daily limit reached for this tool ({max_free} uses)."
 
-    if result is None:  # defensive fallback — should not be reached
+    if result is None:  # defensive fallback - should not be reached
         result = {"allowed": False, "reason": "blocked", "message": "Access denied."}
 
     if auto_commit:
@@ -300,7 +300,7 @@ async def _check_passes(user: User, tool_id: str, db: AsyncSession) -> dict | No
 
     Candidate passes (active, unexpired, covering the tool) are selected without
     a lock, then each is consumed via a single guarded ``UPDATE`` that resets the
-    daily counter and increments it only while under the cap — so two concurrent
+    daily counter and increments it only while under the cap - so two concurrent
     requests can never push ``uses_today`` past ``uses_per_day`` (BE-DATA-01,
     BE-PAY-06). No commit here; the caller owns the transaction.
     """
@@ -584,7 +584,7 @@ async def maybe_grant_welcome_gift(
     The amount comes from ``settings.WELCOME_GIFT_CREDITS`` unless overridden
     (0 or negative disables the gift entirely). Idempotent: grants only if the
     user has no prior ``welcome`` credit row. Called from the verify endpoints
-    and the webhook (whichever fulfills the first purchase — pass, credit, or
+    and the webhook (whichever fulfills the first purchase - pass, credit, or
     Pro), so the gift lands exactly once regardless of which path wins the
     race. The caller holds the user row lock and owns the commit.
     Returns True if the gift was granted.
@@ -668,7 +668,7 @@ async def get_active_credits(user: User, db: AsyncSession) -> list[BillingUserCr
 async def record_daily_login(user: User, db: AsyncSession) -> bool:
     """Record daily login. Returns True if this is the first login today.
 
-    OWNS ITS COMMIT — do not call from within an active transaction, because
+    OWNS ITS COMMIT - do not call from within an active transaction, because
     this function commits the session, which will also commit any pending work
     the caller has not yet committed.
     """
@@ -715,7 +715,7 @@ async def spin_wheel(user: User, db: AsyncSession) -> dict:
     if existing_spin:
         return {"error": "Already spun this week. Come back next week!"}
 
-    # Weighted random selection — use a cryptographic RNG so the outcome can't
+    # Weighted random selection - use a cryptographic RNG so the outcome can't
     # be predicted/seeded by a caller chasing the rare high-value prizes (BE-PAY-07).
     total_weight = sum(r["weight"] for r in SPIN_REWARDS)
     roll = secrets.randbelow(total_weight) + 1
@@ -744,7 +744,7 @@ async def spin_wheel(user: User, db: AsyncSession) -> dict:
     )
     db.add(spin_log)
 
-    # Flush the spin log insert first — if it violates the weekly uniqueness
+    # Flush the spin log insert first - if it violates the weekly uniqueness
     # constraint, surface the friendly "already spun" message without masking
     # unrelated integrity errors from grant_pass/grant_credits.
     try:
@@ -813,7 +813,7 @@ async def claim_referral(user: User, code: str, db: AsyncSession) -> dict:
         return {"error": "Invalid referral code."}
 
     # M-10: cap how many referral payouts a single referrer can earn. Past the
-    # cap the new user still gets their reward, but the referrer earns nothing —
+    # cap the new user still gets their reward, but the referrer earns nothing -
     # so farming via burner accounts stops paying out.
     referred_count = await db.scalar(
         select(func.count()).select_from(User).where(User.referred_by == referrer.id)

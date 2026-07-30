@@ -1,4 +1,4 @@
-"""UserDailyLogin ORM model — append-only daily login record per user."""
+"""UserDailyLogin ORM model - append-only daily login record per user."""
 
 import uuid
 from datetime import date

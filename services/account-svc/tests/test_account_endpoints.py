@@ -102,7 +102,7 @@ async def test_history_post_with_mocked_auth_and_db(async_client):
     mock_db.commit = AsyncMock()
     mock_db.refresh = AsyncMock()
 
-    # After refresh, the mock_db.refresh call populates the row — simulate by
+    # After refresh, the mock_db.refresh call populates the row - simulate by
     # making refresh a no-op (the fake_row already has all fields set)
     async def fake_refresh(obj):
         pass

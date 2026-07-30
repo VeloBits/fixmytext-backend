@@ -4,7 +4,7 @@ Webhook events can reference an unknown user or none at all (user_id is
 already nullable with ON DELETE SET NULL), so the denormalized Keycloak
 subject cannot be required on this table. The four entitlement tables
 (payment_fulfillments, user_passes, user_credits, subscriptions) keep it
-NOT NULL — those rows always belong to a resolved user.
+NOT NULL - those rows always belong to a resolved user.
 
 Revision ID: 0002
 Revises: 0001

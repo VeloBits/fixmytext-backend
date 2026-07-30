@@ -11,7 +11,7 @@ def mock_entitlement_client():
     """Auto-mock the entitlement client so tests don't need a live payments-svc.
 
     Individual tests that want to control entitlement behaviour (e.g. raise 402)
-    can patch 'app.api.v1.endpoints.text.check_entitlement' themselves — their
+    can patch 'app.api.v1.endpoints.text.check_entitlement' themselves - their
     inner patch takes precedence over this fixture's outer one.
     """
     with patch(

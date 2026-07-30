@@ -71,7 +71,7 @@ class Settings(BaseSharedSettings):
     HISTORY_PREVIEW_MAX_LENGTH: int = 500
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
-    # /auth/resend-verification is throttled per user — each call makes Keycloak
+    # /auth/resend-verification is throttled per user - each call makes Keycloak
     # send a real verification email, so it can be sprayed for email amplification.
     RESEND_VERIFICATION_RATE_LIMIT_MAX_REQUESTS: int = 10
     RESEND_VERIFICATION_RATE_LIMIT_WINDOW_SECONDS: int = 3600
@@ -86,7 +86,7 @@ class Settings(BaseSharedSettings):
 
     # ── Reverse proxy trust ───────────────────────────────────────────────────
     # Hosts/CIDRs whose X-Forwarded-For header is trusted by ProxyHeadersMiddleware.
-    # "*" trusts every upstream — safe only in local compose where Kong is the
+    # "*" trusts every upstream - safe only in local compose where Kong is the
     # sole network entry point. Production MUST set this to the Kong container's
     # internal subnet (e.g. "10.0.0.0/8") so IP spoofing via injected XFF headers
     # cannot bypass the rate limiter. Enforced by the startup assert in main.py.

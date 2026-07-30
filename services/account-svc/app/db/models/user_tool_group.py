@@ -1,4 +1,4 @@
-"""UserToolGroup and UserToolGroupItem ORM models — user-created named tool groups."""
+"""UserToolGroup and UserToolGroupItem ORM models - user-created named tool groups."""
 
 import uuid
 from datetime import datetime

@@ -192,7 +192,7 @@ async def test_checkout_already_pro_returns_400(async_client, app):
             patch(
                 "app.api.v1.endpoints.subscription.get_pro_subscription",
                 new_callable=AsyncMock,
-                # Active sub with ~20 days left — outside the renewal window.
+                # Active sub with ~20 days left - outside the renewal window.
                 return_value=SimpleNamespace(
                     status="active",
                     expires_at=datetime.now(UTC) + timedelta(days=20),

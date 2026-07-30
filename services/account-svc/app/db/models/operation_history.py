@@ -1,4 +1,4 @@
-"""OperationHistory ORM model — lives in the 'activity' schema."""
+"""OperationHistory ORM model - lives in the 'activity' schema."""
 
 import uuid
 from datetime import datetime

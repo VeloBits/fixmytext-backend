@@ -73,7 +73,7 @@ async def get_share(
     if row.created_at < datetime.now(UTC) - timedelta(days=SHARE_EXPIRE_DAYS):
         raise HTTPException(status_code=410, detail="This share has expired")
 
-    # Increment view counter atomically — avoids a read-modify-write race under
+    # Increment view counter atomically - avoids a read-modify-write race under
     # concurrent requests for the same share link.
     await db.execute(
         update(SharedResult)

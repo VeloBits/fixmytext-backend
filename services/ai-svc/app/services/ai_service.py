@@ -63,7 +63,7 @@ async def _groq_chat(
     client = _groq_client
     if client is None:
         raise RuntimeError("Groq client not initialized")
-    # TODO(audit:M-5): output validation still pending — assistant output is
+    # TODO(audit:M-5): output validation still pending - assistant output is
     # returned verbatim and remains attacker-influenceable. Input-side fencing
     # is in place: user text is wrapped in INPUT_TAG_OPEN/CLOSE and every
     # system prompt (UNIVERSAL RULES in ai_prompts) instructs the model to

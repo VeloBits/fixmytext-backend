@@ -2,7 +2,7 @@ _format_version: "3.0"
 _transform: true
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Kong API gateway — declarative configuration.
+# Kong API gateway - declarative configuration.
 # All /api/v1/* traffic is routed to the appropriate microservice.
 # The monolith catch-all has been removed; every path is now explicit.
 # ──────────────────────────────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ services:
       - name: request-size-limiting
         config:
           allowed_payload_size: 1
-      # Coarse anti-abuse limit — in-app per-user AI quota is the enforcement layer.
+      # Coarse anti-abuse limit - in-app per-user AI quota is the enforcement layer.
       - name: rate-limiting
         config:
           minute: 30
@@ -103,7 +103,7 @@ services:
           allowed_payload_size: 1
       # Coarse anti-abuse guard. Keyed per client IP and shared across all
       # account-svc routes: one SPA page load fires ~10 bootstrap reads
-      # (auth/me + user data), so the budget must absorb rapid refreshes —
+      # (auth/me + user data), so the budget must absorb rapid refreshes -
       # at 60/min a handful of reloads exhausted it and every bootstrap
       # call 429'd. Per-user quotas remain the in-app enforcement layer.
       - name: rate-limiting

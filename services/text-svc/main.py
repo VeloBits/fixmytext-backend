@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 
 from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
 
-# Observability — must init before framework imports so SDK can patch httpx
+# Observability - must init before framework imports so SDK can patch httpx
 from app.core.sentry import init_sentry
 
 init_sentry()
@@ -108,7 +108,7 @@ async def lifespan(app: FastAPI):
     init_logs_otel()
 
     # Without the internal secret the entitlement gate fails closed and every
-    # billable tool returns 503 — refuse to start prod misconfigured.
+    # billable tool returns 503 - refuse to start prod misconfigured.
     from fixmytext_shared.config.validation import assert_required_in_prod
 
     assert_required_in_prod(
@@ -173,7 +173,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Visitor-Id", "X-Request-ID"],
 )
 
-# ── Proxy headers — must be outermost so real client IP is visible to all ─────
+# ── Proxy headers - must be outermost so real client IP is visible to all ─────
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
@@ -191,8 +191,8 @@ async def health_check():
 
 @app.get("/health/ready", tags=["health"])
 async def readiness_check():
-    """Readiness probe — always ready (no external AI dependency)."""
-    # TODO: stub — unconditionally returns ready. text-svc now initializes Redis
+    """Readiness probe - always ready (no external AI dependency)."""
+    # TODO: stub - unconditionally returns ready. text-svc now initializes Redis
     # (rate limiter) and calls payments-svc for entitlements in its lifespan, so a
     # true readiness check should probe Redis connectivity. Acceptable while those
     # deps fail-closed at request time; tighten when adding k8s readiness gating.

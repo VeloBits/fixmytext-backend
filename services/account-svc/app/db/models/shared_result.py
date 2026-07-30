@@ -1,4 +1,4 @@
-"""SharedResult ORM model — lives in the 'activity' schema."""
+"""SharedResult ORM model - lives in the 'activity' schema."""
 
 import uuid
 from datetime import datetime

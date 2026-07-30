@@ -7,8 +7,8 @@ payments-svc, but runs against the same shared Postgres.
 
 Only ONE declarative Base is loaded here (no cross-service sys.modules swap, no
 configure_mappers needed). Tables present in the metadata that this service does
-NOT own — the auth.users FK target is owned here, but the read-only models
-auth.user_spin_log and activity.user_discovered_tools are WRITTEN by payments-svc —
+NOT own - the auth.users FK target is owned here, but the read-only models
+auth.user_spin_log and activity.user_discovered_tools are WRITTEN by payments-svc -
 are excluded from autogenerate via include_object (see OWNED_TABLES).
 
 Create-order note: because billing/payments tables keep cross-schema FKs to

@@ -1,7 +1,7 @@
 """
 AI-only tool registry for ai-svc.
 
-A slim standalone version of the monolith's tool_registry — contains only
+A slim standalone version of the monolith's tool_registry - contains only
 AI tools.  The monolith's LOCAL tools are intentionally excluded; this
 service only handles Groq-backed AI transformations.
 
@@ -45,7 +45,7 @@ class ToolDefinition:
 
 
 # ---------------------------------------------------------------------------
-# Internal registry dict — populated at import time
+# Internal registry dict - populated at import time
 # ---------------------------------------------------------------------------
 
 _AI_TOOL_REGISTRY: dict[str, ToolDefinition] = {}

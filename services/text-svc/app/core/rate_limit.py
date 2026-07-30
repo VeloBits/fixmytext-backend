@@ -1,4 +1,4 @@
-"""Rate limiter for text-svc — thin shim over fixmytext_shared.
+"""Rate limiter for text-svc - thin shim over fixmytext_shared.
 
 Mirrors ai-svc: the same shared ``create_limiter`` factory backed by the same
 Redis instance (``REDIS_URL``), with key prefix ``rl:text`` so the limit holds

@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 
 from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
 
-# Observability — must init before framework imports so SDK can patch httpx
+# Observability - must init before framework imports so SDK can patch httpx
 from app.core.sentry import init_sentry
 
 init_sentry()
@@ -122,14 +122,14 @@ async def lifespan(app: FastAPI):
         REDIS_URL=settings.REDIS_URL,
     )
 
-    # Fake backends are E2E-test seams — refuse to start in production.
+    # Fake backends are E2E-test seams - refuse to start in production.
     if settings.AI_BACKEND.lower() == "fake":
         if settings.ENVIRONMENT == "production":
             raise RuntimeError(
                 "Refusing to start: AI_BACKEND=fake is for E2E tests only "
                 "and must not be set in production."
             )
-        logger.warning("AI_BACKEND=fake active — E2E test mode, never deploy to prod")
+        logger.warning("AI_BACKEND=fake active - E2E test mode, never deploy to prod")
 
     init_groq_client()
     logger.info("Groq client initialized")
@@ -183,7 +183,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Visitor-Id", "X-Request-ID"],
 )
 
-# ── Proxy headers — must be outermost so real client IP is visible to all ─────
+# ── Proxy headers - must be outermost so real client IP is visible to all ─────
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ async def health_check():
 
 @app.get("/health/ready", tags=["health"])
 async def readiness_check():
-    """Readiness probe — verifies Groq client is initialised."""
+    """Readiness probe - verifies Groq client is initialised."""
     from app.services.ai_service import _groq_client
 
     groq_status = (

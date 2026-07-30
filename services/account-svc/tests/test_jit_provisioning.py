@@ -72,7 +72,7 @@ async def test_first_time_user_gets_provisioned(async_client):
 
     mock_db = AsyncMock()
     # First scalar() call → None (user not found); the JIT path then adds the
-    # new user.  A second scalar() call isn't made — the freshly built User
+    # new user.  A second scalar() call isn't made - the freshly built User
     # object is returned directly from get_current_user.
     mock_db.scalar = AsyncMock(return_value=None)
     mock_db.add = MagicMock()
@@ -107,7 +107,7 @@ async def test_first_time_user_gets_provisioned(async_client):
 
 @pytest.mark.asyncio
 async def test_existing_user_is_not_duplicated(async_client):
-    """Bearer request for an existing Keycloak ID skips JIT — no add/flush."""
+    """Bearer request for an existing Keycloak ID skips JIT - no add/flush."""
     from app.db.session import get_db
     from main import app
 
@@ -219,7 +219,7 @@ async def test_cookie_auth_does_not_trigger_jit(async_client):
     from main import app
 
     mock_db = AsyncMock()
-    # User is not in DB — simulates a stale/orphaned cookie
+    # User is not in DB - simulates a stale/orphaned cookie
     mock_db.scalar = AsyncMock(return_value=None)
     mock_db.execute = AsyncMock(
         return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
@@ -228,7 +228,7 @@ async def test_cookie_auth_does_not_trigger_jit(async_client):
     async def override_get_db():
         yield mock_db
 
-    # No Bearer token in headers — cookie-only path
+    # No Bearer token in headers - cookie-only path
     app.dependency_overrides[get_db] = override_get_db
     try:
         response = await async_client.get(

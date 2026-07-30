@@ -5,7 +5,7 @@ The limiter does **not** import a Redis client directly. Callers pass a
 ``None`` when Redis is unavailable). This keeps the shared package
 agnostic of how each service manages its Redis connection lifecycle.
 
-The check-and-increment is done in a single Lua script so it is atomic — two
+The check-and-increment is done in a single Lua script so it is atomic - two
 concurrent requests can't both read an under-limit count and then both add
 (the classic sorted-set race). When Redis is unavailable the limiter falls
 back to an in-process limiter rather than degrading to *no* limit (M-4): a
@@ -47,7 +47,7 @@ class RedisRateLimiter:
     """Atomic sliding-window rate limiter backed by Redis sorted sets.
 
     Each key is a sorted set keyed by Unix-timestamp scores. The Lua script
-    expires old members, counts, and conditionally adds — all atomically.
+    expires old members, counts, and conditionally adds - all atomically.
     When ``redis_factory()`` returns ``None`` (or a Redis call errors) the
     limiter delegates to an in-process :class:`InMemoryRateLimiter` so the
     quota still holds per-replica instead of failing open.
@@ -64,14 +64,14 @@ class RedisRateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._prefix = prefix
-        # Fail-closed fallback — never degrade to "no limit" when Redis is down.
+        # Fail-closed fallback - never degrade to "no limit" when Redis is down.
         self._fallback = InMemoryRateLimiter(max_requests, window_seconds)
 
     async def check(self, request: Request, user_id: str | None = None) -> None:
         """Check rate limit. Raises HTTPException(429) if exceeded."""
         redis = self._redis_factory()
         if redis is None:
-            # Redis unavailable — enforce per-process instead of failing open.
+            # Redis unavailable - enforce per-process instead of failing open.
             await self._fallback.check(request, user_id=user_id)
             return
 
@@ -95,7 +95,7 @@ class RedisRateLimiter:
                 member,
             )
         except Exception:
-            # Transient Redis error — degrade to the in-process limiter, not open.
+            # Transient Redis error - degrade to the in-process limiter, not open.
             logger.warning(
                 "Redis rate-limit eval failed; using in-memory fallback", exc_info=True
             )

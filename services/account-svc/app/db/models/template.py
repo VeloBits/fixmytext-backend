@@ -1,4 +1,4 @@
-"""UserTemplate ORM model — lives in the 'activity' schema."""
+"""UserTemplate ORM model - lives in the 'activity' schema."""
 
 import uuid
 from datetime import datetime

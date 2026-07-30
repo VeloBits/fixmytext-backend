@@ -1,6 +1,6 @@
 """Unit tests for app.core.redis and the app.core.rate_limit shim.
 
-The redis client is fully mocked — no real Redis connection is made.
+The redis client is fully mocked - no real Redis connection is made.
 """
 
 from unittest.mock import AsyncMock, MagicMock

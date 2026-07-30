@@ -1,4 +1,4 @@
-"""UserFavoriteTool ORM model — user's favorited tools with sort order."""
+"""UserFavoriteTool ORM model - user's favorited tools with sort order."""
 
 import uuid
 from datetime import datetime

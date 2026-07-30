@@ -73,13 +73,13 @@ def init_sentry(settings: BaseSharedSettings) -> None:
     if not dsn:
         return
 
-    # Lazy imports — only required when actually initialising Sentry.
+    # Lazy imports - only required when actually initialising Sentry.
     from sentry_sdk.integrations.fastapi import FastApiIntegration
     from sentry_sdk.integrations.httpx import HttpxIntegration
 
     integrations = [FastApiIntegration(), HttpxIntegration()]
 
-    # asyncpg is not a shared dependency — only Postgres-backed services
+    # asyncpg is not a shared dependency - only Postgres-backed services
     # (account-svc, payments-svc) install it. Sentry raises DidNotEnable at
     # import time when the driver is absent, so probe before enabling.
     try:

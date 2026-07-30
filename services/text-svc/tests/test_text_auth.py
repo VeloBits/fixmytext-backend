@@ -49,7 +49,7 @@ def _make_rate_limit_ok():
 
 @pytest.mark.asyncio
 async def test_no_auth_falls_through_to_visitor_path(client):
-    """POST with no Authorization header uses visitor quota — no 401."""
+    """POST with no Authorization header uses visitor quota - no 401."""
     with _make_entitlement_ok(), _make_rate_limit_ok():
         response = await client.post(
             "/api/v1/text/uppercase",
@@ -61,7 +61,7 @@ async def test_no_auth_falls_through_to_visitor_path(client):
 
 @pytest.mark.asyncio
 async def test_invalid_jwt_falls_through_to_visitor_path(client):
-    """An invalid Bearer token is silently downgraded to visitor quota — no 401."""
+    """An invalid Bearer token is silently downgraded to visitor quota - no 401."""
     with (
         patch(
             "fixmytext_shared.security.jwt.verify_jwt_raw",
@@ -86,7 +86,7 @@ async def test_valid_jwt_identifies_user_for_entitlement(client):
     """A valid Bearer JWT identifies the caller so entitlement check receives user_id.
 
     Verifies that the OptionalUser returned from get_optional_user contains the
-    correct Keycloak sub — used by the entitlement gate to apply per-user quota.
+    correct Keycloak sub - used by the entitlement gate to apply per-user quota.
     """
     captured: list[dict] = []
 

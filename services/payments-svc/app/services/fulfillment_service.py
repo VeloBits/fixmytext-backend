@@ -1,4 +1,4 @@
-"""Single payment-fulfillment authority — exactly-once grants via a ledger.
+"""Single payment-fulfillment authority - exactly-once grants via a ledger.
 
 Both the synchronous client callbacks (``/passes/verify``, ``/subscription/verify``)
 and the asynchronous ``payment.captured`` webhook call :func:`fulfill_payment`.
@@ -65,7 +65,7 @@ async def fulfill_payment(
 
     Raises:
         AlreadyFulfilled: this payment id was already fulfilled (replay/race).
-        HTTPException: unknown/invalid item — should not occur post-validation.
+        HTTPException: unknown/invalid item - should not occur post-validation.
     """
     fulfillment = PaymentFulfillment(
         razorpay_payment_id=razorpay_payment_id,
@@ -124,7 +124,7 @@ async def fulfill_payment(
         duration = timedelta(days=settings.PRO_DURATION_DAYS)
 
         # Renewal path: an in-period pro row (active OR cancelled-with-grace)
-        # is extended in place from max(now, current expiry) — early renewal
+        # is extended in place from max(now, current expiry) - early renewal
         # never loses paid days, and updating in place sidesteps the
         # one-active-subscription partial unique index entirely.
         existing = (
@@ -216,14 +216,14 @@ async def refund_unfulfillable_payment(
     """Refund a CAPTURED payment that failed order validation, exactly once.
 
     The ledger row is inserted first (status ``refund_pending``) inside a
-    SAVEPOINT — the UNIQUE payment-id index is the idempotency guard, so a
+    SAVEPOINT - the UNIQUE payment-id index is the idempotency guard, so a
     payment that was already fulfilled OR already refunded raises
     :class:`AlreadyFulfilled` and no second refund is issued. Only after the
     row exists is the Razorpay refund API called; if that call fails, the
     caller's rollback removes the row and a retry (webhook re-delivery) safely
     re-attempts. The caller owns the final ``commit()``.
 
-    Never call this for signature/ownership failures — those are attack
+    Never call this for signature/ownership failures - those are attack
     traffic, not customer money.
     """
     fulfillment = PaymentFulfillment(

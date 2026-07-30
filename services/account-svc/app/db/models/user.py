@@ -1,4 +1,4 @@
-"""User ORM model for account-svc — lives in the 'auth' schema.
+"""User ORM model for account-svc - lives in the 'auth' schema.
 
 The column set is defined once in fixmytext_shared.db.models.user via the
 make_user_class() factory.  Service-specific activity relationships are attached

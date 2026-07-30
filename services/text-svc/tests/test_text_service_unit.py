@@ -1,6 +1,6 @@
 """Unit tests for app.services.text_service.
 
-The transforms are pure, synchronous functions — they are tested directly
+The transforms are pure, synchronous functions - they are tested directly
 (no HTTP layer) for speed and precision. Endpoint dispatch is covered in
 test_text_endpoints.py / test_text_endpoints_extra.py.
 """
@@ -166,7 +166,7 @@ def test_toggle_smart_quotes_straight_to_smart():
 
 
 def test_toggle_smart_quotes_smart_to_straight():
-    assert ts.toggle_smart_quotes("“Hi” ‘there’ —") == "\"Hi\" 'there' --"
+    assert ts.toggle_smart_quotes("“Hi” ‘there’ -") == "\"Hi\" 'there' --"
 
 
 def test_toggle_smart_quotes_single_quote_pair():
@@ -553,7 +553,7 @@ def test_filter_lines_regex_with_timeout_capable_pattern():
 
 
 def test_filter_lines_regex_stdlib_pattern_fallback():
-    # stdlib re.Pattern.search() has no timeout kwarg — the TypeError fallback
+    # stdlib re.Pattern.search() has no timeout kwarg - the TypeError fallback
     # path must still match correctly.
     pat = re.compile("^a")
     assert (
@@ -567,7 +567,7 @@ def test_filter_lines_regex_without_compiled_matches_nothing():
 
 
 def test_filter_lines_regex_caps_line_length():
-    # Match target sits beyond the 2000-char search window — not found.
+    # Match target sits beyond the 2000-char search window - not found.
     pat = regex.compile("z$")
     long_line = "b" * 2500 + "z"
     assert ts.filter_lines_contain(long_line, "z$", use_regex=True, compiled=pat) == ""
