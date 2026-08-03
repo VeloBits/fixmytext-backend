@@ -73,12 +73,15 @@ async def get_preferences(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return the authenticated user's preferences (theme, persona, skin)."""
+    """Return the authenticated user's preferences (theme, persona, skin, auto-run)."""
     prefs = await db.get(UserPreferences, user.id)
     if not prefs:
         return PreferencesResponse()
     return PreferencesResponse(
-        theme=prefs.theme, persona=prefs.persona, theme_skin=prefs.theme_skin
+        theme=prefs.theme,
+        persona=prefs.persona,
+        theme_skin=prefs.theme_skin,
+        auto_run=prefs.auto_run,
     )
 
 
@@ -101,7 +104,10 @@ async def update_preferences(
     await db.commit()
     await db.refresh(prefs)
     return PreferencesResponse(
-        theme=prefs.theme, persona=prefs.persona, theme_skin=prefs.theme_skin
+        theme=prefs.theme,
+        persona=prefs.persona,
+        theme_skin=prefs.theme_skin,
+        auto_run=prefs.auto_run,
     )
 
 

@@ -14,11 +14,16 @@ class PreferencesResponse(BaseModel):
     custom tool groups 2026-07-14): stale deployed bundles still read it, and
     PreferencesUpdate no longer accepts it. Remove the field together with the
     column drop migration.
+
+    `auto_run` defaults to False: manual Run is the default execution mode, so
+    a stale bundle (or a user who never toggled it) gets the safe, quota-
+    preserving behavior.
     """
 
     theme: str = "dark"
     persona: str | None = None
     theme_skin: str | None = None
+    auto_run: bool = False
 
 
 class PreferencesUpdate(BaseModel):
@@ -30,6 +35,7 @@ class PreferencesUpdate(BaseModel):
 
     theme: str | None = Field(None, max_length=10)
     theme_skin: str | None = Field(None, max_length=50)
+    auto_run: bool | None = None
 
 
 # ── Templates ────────────────────────────────────────────────────────────────

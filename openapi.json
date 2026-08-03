@@ -5100,7 +5100,7 @@
           "Auth"
         ],
         "summary": "Me",
-        "description": "Return the current authenticated user's profile and subscription tier.\n\nSide effect: issues the ``fixmytext_session`` cookie. The browser stores it\nHttpOnly + host-only, and from this request onward the cookie is sufficient\nfor authentication on subsequent requests (Bearer JWT is still accepted in\nparallel for the transition window \u2014 see ``get_current_user``).",
+        "description": "Return the current authenticated user's profile and subscription tier.\n\nSide effect: issues the ``fixmytext_session`` cookie. The browser stores it\nHttpOnly + host-only, and from this request onward the cookie is sufficient\nfor authentication on subsequent requests (Bearer JWT is still accepted in\nparallel for the transition window - see ``get_current_user``).",
         "operationId": "me_api_v1_auth_me_get",
         "responses": {
           "200": {
@@ -5127,7 +5127,7 @@
           "Auth"
         ],
         "summary": "Resend Verification",
-        "description": "Re-send the Keycloak email-verification email to the current user.\n\nBacks the in-app \"Verify your email\" banner. With the realm's blocking\nverify-email requirement disabled, Keycloak no longer emails at signup or\non login \u2014 this endpoint (and the first-login send in ``deps.py``) is how\nverification links reach the user. No-op for already-verified users.",
+        "description": "Re-send the Keycloak email-verification email to the current user.\n\nBacks the in-app \"Verify your email\" banner. With the realm's blocking\nverify-email requirement disabled, Keycloak no longer emails at signup or\non login - this endpoint (and the first-login send in ``deps.py``) is how\nverification links reach the user. No-op for already-verified users.",
         "operationId": "resend_verification_api_v1_auth_resend_verification_post",
         "responses": {
           "204": {
@@ -5147,7 +5147,7 @@
           "Auth"
         ],
         "summary": "Clear Session",
-        "description": "Clear the per-app session cookie. Called by the frontend on logout\nBEFORE redirecting to Keycloak's end-session endpoint.\n\nNo auth required \u2014 clearing is idempotent. As a side effect the current\nsession is added to the Redis revocation set so it cannot be replayed\neven if the browser ignores the Max-Age=0 instruction.",
+        "description": "Clear the per-app session cookie. Called by the frontend on logout\nBEFORE redirecting to Keycloak's end-session endpoint.\n\nNo auth required - clearing is idempotent. As a side effect the current\nsession is added to the Redis revocation set so it cannot be replayed\neven if the browser ignores the Max-Age=0 instruction.",
         "operationId": "clear_session_api_v1_auth_session_clear_post",
         "responses": {
           "204": {
@@ -5162,7 +5162,7 @@
           "User Data"
         ],
         "summary": "Get Preferences",
-        "description": "Return the authenticated user's preferences (theme, persona, skin).",
+        "description": "Return the authenticated user's preferences (theme, persona, skin, auto-run).",
         "operationId": "get_preferences_api_v1_user_preferences_get",
         "responses": {
           "200": {
@@ -5234,7 +5234,7 @@
           "User Data"
         ],
         "summary": "Get Gamification",
-        "description": "Transitional stub \u2014 gamification removed; returns a static zero-state.",
+        "description": "Transitional stub - gamification removed; returns a static zero-state.",
         "operationId": "get_gamification_api_v1_user_gamification_get",
         "responses": {
           "200": {
@@ -5261,7 +5261,7 @@
           "User Data"
         ],
         "summary": "Update Gamification",
-        "description": "Transitional stub \u2014 accepts any body, persists nothing, returns zero-state.",
+        "description": "Transitional stub - accepts any body, persists nothing, returns zero-state.",
         "operationId": "update_gamification_api_v1_user_gamification_put",
         "responses": {
           "200": {
@@ -5713,7 +5713,7 @@
           "User Data"
         ],
         "summary": "Create Tool Group",
-        "description": "Create a named tool group, optionally pre-filled with tools.\n\nIdempotent by name: if the user already has a group with this name, the\nexisting group is returned unchanged (200) \u2014 tool_ids are NOT merged in.\nThis keeps guest-adoption retries and double-clicked starter-kit cards\nfrom erroring or duplicating.",
+        "description": "Create a named tool group, optionally pre-filled with tools.\n\nIdempotent by name: if the user already has a group with this name, the\nexisting group is returned unchanged (200) - tool_ids are NOT merged in.\nThis keeps guest-adoption retries and double-clicked starter-kit cards\nfrom erroring or duplicating.",
         "operationId": "create_tool_group_api_v1_user_tool_groups_post",
         "requestBody": {
           "content": {
@@ -5760,7 +5760,7 @@
           "User Data"
         ],
         "summary": "Reorder Tool Groups",
-        "description": "Reorder the authenticated user's tool groups.\n\nGroups listed in `group_ids` get sort_order = array position; the user's\nremaining groups keep their relative order after the listed ones. Unknown\nand foreign ids are ignored. Idempotent \u2014 resending the same list is a\nno-op. Returns all groups in the new display order.",
+        "description": "Reorder the authenticated user's tool groups.\n\nGroups listed in `group_ids` get sort_order = array position; the user's\nremaining groups keep their relative order after the listed ones. Unknown\nand foreign ids are ignored. Idempotent - resending the same list is a\nno-op. Returns all groups in the new display order.",
         "operationId": "reorder_tool_groups_api_v1_user_tool_groups_order_put",
         "requestBody": {
           "content": {
@@ -6013,7 +6013,7 @@
           "User Data"
         ],
         "summary": "Set Tool Group Tools",
-        "description": "Replace a group's tools with an explicit ordered list.\n\nArray position becomes sort_order, so a single call covers drag-reorder,\nbulk add, and bulk remove. Duplicates keep their first position.\nIdempotent \u2014 resending the current list is a no-op.",
+        "description": "Replace a group's tools with an explicit ordered list.\n\nArray position becomes sort_order, so a single call covers drag-reorder,\nbulk add, and bulk remove. Duplicates keep their first position.\nIdempotent - resending the current list is a no-op.",
         "operationId": "set_tool_group_tools_api_v1_user_tool_groups__group_id__tools_put",
         "security": [
           {
@@ -6915,7 +6915,7 @@
           "Passes"
         ],
         "summary": "Verify Pass Payment",
-        "description": "Verify a Razorpay payment signature, then grant the purchased pass or credits.\n\nFulfillment is idempotent and exactly-once: this verify callback and the\nRazorpay webhook converge on a single ledger keyed by the payment id, so a\nreplayed body or a verify/webhook race grants the entitlement only once.\nTool scope and the paid amount are validated server-side against the order\nnotes and the catalog \u2014 the client-supplied ``tool_ids`` are ignored.",
+        "description": "Verify a Razorpay payment signature, then grant the purchased pass or credits.\n\nFulfillment is idempotent and exactly-once: this verify callback and the\nRazorpay webhook converge on a single ledger keyed by the payment id, so a\nreplayed body or a verify/webhook race grants the entitlement only once.\nTool scope and the paid amount are validated server-side against the order\nnotes and the catalog - the client-supplied ``tool_ids`` are ignored.",
         "operationId": "verify_pass_payment_api_v1_passes_verify_post",
         "requestBody": {
           "content": {
@@ -7183,7 +7183,7 @@
           "Subscription"
         ],
         "summary": "Razorpay Webhook",
-        "description": "Handle Razorpay webhook events for payments.\n\nSupports: payment.captured, payment.authorized, payment.failed,\nsubscription.cancelled, subscription.halted.\n\nIdempotent \u2014 duplicate events (same razorpay_event_id) are acknowledged\nbut not reprocessed.",
+        "description": "Handle Razorpay webhook events for payments.\n\nSupports: payment.captured, payment.authorized, payment.failed,\nsubscription.cancelled, subscription.halted.\n\nIdempotent - duplicate events (same razorpay_event_id) are acknowledged\nbut not reprocessed.",
         "operationId": "razorpay_webhook_api_v1_subscription_webhook_post",
         "responses": {
           "200": {
@@ -7478,7 +7478,7 @@
           "health"
         ],
         "summary": "Readiness Check",
-        "description": "Readiness probe \u2014 verifies Groq client is initialised.",
+        "description": "Readiness probe - verifies Groq client is initialised.",
         "operationId": "readiness_check_health_ready_get",
         "responses": {
           "200": {
@@ -8377,11 +8377,16 @@
               }
             ],
             "title": "Theme Skin"
+          },
+          "auto_run": {
+            "type": "boolean",
+            "title": "Auto Run",
+            "default": false
           }
         },
         "type": "object",
         "title": "PreferencesResponse",
-        "description": "Current user preference values.\n\n`persona` is transitional read-only legacy state (feature replaced by\ncustom tool groups 2026-07-14): stale deployed bundles still read it, and\nPreferencesUpdate no longer accepts it. Remove the field together with the\ncolumn drop migration."
+        "description": "Current user preference values.\n\n`persona` is transitional read-only legacy state (feature replaced by\ncustom tool groups 2026-07-14): stale deployed bundles still read it, and\nPreferencesUpdate no longer accepts it. Remove the field together with the\ncolumn drop migration.\n\n`auto_run` defaults to False: manual Run is the default execution mode, so\na stale bundle (or a user who never toggled it) gets the safe, quota-\npreserving behavior."
       },
       "PreferencesUpdate": {
         "properties": {
@@ -8408,11 +8413,22 @@
               }
             ],
             "title": "Theme Skin"
+          },
+          "auto_run": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Run"
           }
         },
         "type": "object",
         "title": "PreferencesUpdate",
-        "description": "Partial update for user preferences. All fields optional.\n\nA `persona` key sent by a stale bundle is silently ignored (pydantic\ndrops unknown fields) \u2014 deliberate transitional behavior."
+        "description": "Partial update for user preferences. All fields optional.\n\nA `persona` key sent by a stale bundle is silently ignored (pydantic\ndrops unknown fields) - deliberate transitional behavior."
       },
       "ShareCreate": {
         "properties": {
@@ -8496,6 +8512,32 @@
         ],
         "title": "SharedResultView",
         "description": "Public view of a shared result (no auth required)."
+      },
+      "SidebarChipItem": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "view",
+              "group",
+              "custom_group"
+            ],
+            "title": "Type"
+          },
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "id"
+        ],
+        "title": "SidebarChipItem",
+        "description": "One tool-panel sidebar chip: a smart view or a group filter.\n\n`view` ids are client-defined (all/pinned/recent/suggested), `group` ids\nare catalog TOOL_GROUPS ids, `custom_group` ids are user_tool_groups UUIDs.\nThe server stays structural - semantics (e.g. 'all' never removable) are\nenforced by the client that owns the vocabulary."
       },
       "SpinHistoryItem": {
         "properties": {
@@ -8738,7 +8780,7 @@
           "tool_ids"
         ],
         "title": "ToolGroupItemsUpdate",
-        "description": "Schema for replacing a group's tools with an explicit ordered list.\n\nThe array position IS the sort order \u2014 one call covers reorder, bulk add,\nand bulk remove (drag-and-drop sends the full list after every move)."
+        "description": "Schema for replacing a group's tools with an explicit ordered list.\n\nThe array position IS the sort order - one call covers reorder, bulk add,\nand bulk remove (drag-and-drop sends the full list after every move)."
       },
       "ToolGroupOrderUpdate": {
         "properties": {
@@ -8902,6 +8944,14 @@
             "type": "boolean",
             "title": "Onboarding Seen",
             "default": false
+          },
+          "sidebar_chips": {
+            "items": {
+              "$ref": "#/components/schemas/SidebarChipItem"
+            },
+            "type": "array",
+            "title": "Sidebar Chips",
+            "default": []
           }
         },
         "type": "object",
@@ -8956,6 +9006,21 @@
               }
             ],
             "title": "Onboarding Seen"
+          },
+          "sidebar_chips": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SidebarChipItem"
+                },
+                "type": "array",
+                "maxItems": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sidebar Chips"
           }
         },
         "type": "object",

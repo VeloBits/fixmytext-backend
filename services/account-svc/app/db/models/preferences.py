@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, text
+from sqlalchemy import Boolean, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +30,12 @@ class UserPreferences(Base):
     # once no deployed bundle reads it.
     persona: Mapped[str | None] = mapped_column(String(50), nullable=True)
     theme_skin: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Opt-in: re-run the active tool automatically after the typing debounce.
+    # Defaults to False - manual Run is the default execution mode so idle
+    # keystrokes never burn quota (2026-08-03).
+    auto_run: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()"), onupdate=datetime.now
     )
