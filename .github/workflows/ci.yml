@@ -405,7 +405,7 @@ jobs:
       - name: Validate docker-compose config
         # env_file: .env is required:true in compose, so synthesize a stub.
         # The interpolation-only vars get dummies to silence warnings.
-        # velobits-net is external (created by the velobits-infra stack) -
+        # velobits-proxy-net is external (created manually) -
         # `config` only renders, so the network doesn't need to exist here.
         run: |
           printf '%s\n' \

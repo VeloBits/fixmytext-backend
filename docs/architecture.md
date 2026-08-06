@@ -10,7 +10,7 @@ identity provider; auth/session handling lives in `account-svc`.
 
 Traefik and Keycloak are deployed from the
 [VeloBits/velobits-infra](https://github.com/VeloBits/velobits-infra) repo,
-which owns the shared `velobits-net` Docker network; Kong and `account-svc`
+which owns Kong and `account-svc`
 join that network to reach them.
 
 ```mermaid

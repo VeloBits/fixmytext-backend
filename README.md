@@ -29,7 +29,7 @@ Read the ADRs in numeric order for the full picture.
 The **Traefik edge proxy** and **Keycloak identity provider** (Velobits realms)
 live in the [VeloBits/velobits-infra](https://github.com/VeloBits/velobits-infra)
 repo (extracted from here with history preserved). That stack creates the
-shared `velobits-net` Docker network this compose file joins.
+shared `velobits-proxy-net` Docker network this compose file joins.
 
 ## Prerequisites
 
@@ -42,7 +42,7 @@ shared `velobits-net` Docker network this compose file joins.
 
 Auth (Keycloak) and the edge proxy (Traefik) run from the
 [velobits-infra](https://github.com/VeloBits/velobits-infra) stack, which also
-creates the shared `velobits-net` Docker network. **Start it first**:
+creates the shared `velobits-proxy-net` Docker network. **Start it first**:
 
 ```bash
 # 1. Infra stack (Traefik :80, Keycloak localhost:8080, creates velobits-net)
@@ -62,7 +62,7 @@ Everything is reachable on direct localhost ports — Kong (API) at
 map) is documented in the velobits-infra README.
 
 To run this stack without the infra repo (auth flows won't work), create the
-shared network manually first: `docker network create velobits-net`.
+shared network manually first: `docker network create velobits-proxy-net`.
 
 ### API docs (Swagger) in dev
 
@@ -171,7 +171,7 @@ backend/
 ├── gateway/kong/                      # Kong dbless config (Traefik + Keycloak → velobits-infra repo)
 ├── services/<svc>/migrations/         # per-service Alembic chains (account → payments)
 ├── Dockerfile.migrate                 # image that runs both migration chains in order
-└── docker-compose.yml                 # app stack: Postgres, Redis, services, Kong (joins velobits-net)
+└── docker-compose.yml                 # app stack: Postgres, Redis, services, Kong (joins velobits-proxy-net)
 ```
 
 ## Architecture

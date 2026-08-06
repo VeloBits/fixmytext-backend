@@ -9,14 +9,13 @@
 #
 # Shared infrastructure (Traefik edge proxy + Keycloak identity provider)
 # lives in the VeloBits/velobits-infra repo. That stack creates the external
-# `velobits-net` network this file joins - START IT FIRST:
+# `velobits-proxy-net` network this file joins — START IT FIRST:
 #   (velobits-infra)      docker compose up -d
 #   (this repo)           docker compose --profile dev up --build
 # App-only fallback without the infra stack (auth flows won't work):
-#   docker network create velobits-net
-#
-services:
+#   docker network create velobits-proxy-net
 
+services:
   # ══════════════════════════════════════════════════════════════════════════
   # PRODUCT DATABASES (velobits-dev-db Postgres instance)
   # Hosts fixmytext + chat + notes + futureapp databases. NEVER hosts
@@ -39,7 +38,7 @@ services:
       # First-init only: creates placeholder DBs for future products
       - ./infrastructure/db-init:/docker-entrypoint-initdb.d:ro
     networks:
-      - fixmytext-net
+      - fixmytext-backend-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fixmytext -d fixmytext"]
       interval: 5s
@@ -64,7 +63,7 @@ services:
     ports:
       - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     networks:
-      - fixmytext-net
+      - fixmytext-backend-net
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
       interval: 5s
@@ -99,7 +98,7 @@ services:
       db-service:
         condition: service_healthy
     networks:
-      - fixmytext-net
+      - fixmytext-backend-net
 
 
   # ══════════════════════════════════════════════════════════════════════════
@@ -130,7 +129,7 @@ services:
       db-service:
         condition: service_healthy
     networks:
-      - fixmytext-net
+      - fixmytext-backend-net
 
   # ══════════════════════════════════════════════════════════════════════════
   # AI-SVC  -  Groq-backed AI text transformation service (dev profile)
@@ -159,9 +158,7 @@ services:
       redis-service:
         condition: service_started
     networks:
-      - fixmytext-net
-      # Reaches keycloak-dev:8080 (JWKS) on the shared network.
-      - velobits-net
+      - fixmytext-backend-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -192,7 +189,7 @@ services:
       redis-service:
         condition: service_started
     networks:
-      - fixmytext-net
+      - fixmytext-backend-net
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import redis, os; redis.from_url(os.environ[\"REDIS_URL\"]).ping()'"]
       interval: 30s
@@ -223,9 +220,7 @@ services:
       - OTEL_SERVICE_NAME=fixmytext-text-svc
       - OTEL_EXPORTER_OTLP_ENDPOINT=
     networks:
-      - fixmytext-net
-      # Reaches keycloak-dev:8080 (JWKS) on the shared network.
-      - velobits-net
+      - fixmytext-backend-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -262,9 +257,7 @@ services:
       redis-service:
         condition: service_started
     networks:
-      - fixmytext-net
-      # Reaches keycloak-dev:8080 (JWKS) on the shared network.
-      - velobits-net
+      - fixmytext-backend-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -301,10 +294,10 @@ services:
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
       - SESSION_COOKIE_MAX_AGE=${SESSION_COOKIE_MAX_AGE:-604800}
       - SESSION_COOKIE_DOMAIN=${SESSION_COOKIE_DOMAIN:-}
-      # keycloak-dev resolves over velobits-net (velobits-infra stack).
-      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak-dev:8080}
+      # keycloak-dev resolves over velobits-proxy-net (velobits-infra stack).
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-https://auth-dev.velobits.dev}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits-Dev}
-      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/${KEYCLOAK_REALM:-Velobits-Dev}/protocol/openid-connect/certs}
+      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-https://auth-dev.velobits.dev/realms/${KEYCLOAK_REALM:-Velobits-Dev}/protocol/openid-connect/certs}
       - KEYCLOAK_SERVICE_ACCOUNT_ID=${KEYCLOAK_SERVICE_ACCOUNT_ID:-account-svc}
       - KEYCLOAK_SERVICE_ACCOUNT_SECRET=${KEYCLOAK_SERVICE_ACCOUNT_SECRET:-}
     depends_on:
@@ -313,9 +306,7 @@ services:
       redis-service:
         condition: service_started
     networks:
-      - fixmytext-net
-      # Reaches keycloak-dev:8080 (JWKS + Admin API) on the shared network.
-      - velobits-net
+      - fixmytext-backend-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -325,7 +316,7 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════
   # KONG  -  API gateway. Behind Traefik (velobits-infra stack); routes
-  # /api/v1/* to services. Joins velobits-net so Traefik can route
+  # /api/v1/* to services. Joins velobits-proxy-net so Traefik can route
   # api-dev.velobits.dev → kong:8000 and Keycloak can POST backchannel logouts.
   # ══════════════════════════════════════════════════════════════════════════
 
@@ -368,9 +359,8 @@ services:
       account-svc:
         condition: service_started
     networks:
-      - fixmytext-net
-      # Published as `kong` on the shared network for Traefik + Keycloak SLO.
-      - velobits-net
+      - fixmytext-backend-net
+      - velobits-proxy-net
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 10s
@@ -381,12 +371,11 @@ services:
 
 # ── Networks ──────────────────────────────────────────────────────────────────
 networks:
-  fixmytext-net:
+  fixmytext-backend-net:
+    name: fixmytext-backend-net
     driver: bridge
-  # Shared platform network created by the velobits-infra stack. Kong joins it
-  # so Traefik can route api-dev.velobits.dev → kong:8000 and Keycloak can POST
-  # backchannel logouts; account-svc joins it to reach keycloak-dev:8080.
-  velobits-net:
+  velobits-proxy-net:
+    name: velobits-proxy-net
     external: true
 
 # ── Volumes ───────────────────────────────────────────────────────────────────
