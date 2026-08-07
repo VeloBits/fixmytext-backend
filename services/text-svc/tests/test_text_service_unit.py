@@ -166,7 +166,7 @@ def test_toggle_smart_quotes_straight_to_smart():
 
 
 def test_toggle_smart_quotes_smart_to_straight():
-    assert ts.toggle_smart_quotes("“Hi” ‘there’ -") == "\"Hi\" 'there' --"
+    assert ts.toggle_smart_quotes("“Hi” ‘there’ —") == "\"Hi\" 'there' --"
 
 
 def test_toggle_smart_quotes_single_quote_pair():
