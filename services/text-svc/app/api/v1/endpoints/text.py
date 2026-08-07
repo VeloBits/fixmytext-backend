@@ -9,7 +9,7 @@ Design decisions:
   ``/internal/v1/check-access`` before running the tool; rate limiting (Redis,
   ``rl:text``) runs first so a throttled request never consumes quota.
 - No tool discovery recording (no DB).
-- Optional auth — requests are accepted with or without a JWT. When a valid
+- Optional auth - requests are accepted with or without a JWT. When a valid
   token is present the caller is an authenticated user, else an anonymous
   visitor (each has its own quota).
 - Sync handlers run in a worker thread via ``asyncio.to_thread`` under a hard
@@ -130,7 +130,7 @@ async def _execute_tool(
     """Execute a LOCAL text transformation tool by *tool_id*.
 
     Order of guards: rate limit first (cheap, Redis), then the per-tool
-    entitlement check against payments-svc (a DB write) — so a throttled request
+    entitlement check against payments-svc (a DB write) - so a throttled request
     never consumes quota. Both run before the handler executes.
     """
     tool = get_tool(tool_id)
@@ -139,7 +139,7 @@ async def _execute_tool(
 
     ip = client_ip(request)
 
-    # 1) Rate limit — key by user when authenticated, else by client IP (H-4).
+    # 1) Rate limit - key by user when authenticated, else by client IP (H-4).
     rl_key = user.id if user is not None else f"visitor:{ip}"
     await text_limiter.check(request, user_id=rl_key)
 
@@ -172,7 +172,7 @@ async def _execute_tool(
         )
         raise HTTPException(
             status_code=400,
-            detail="Input too expensive to process — please reduce its size.",
+            detail="Input too expensive to process - please reduce its size.",
         ) from exc
 
     except RegexTimeoutError as exc:

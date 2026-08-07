@@ -6,7 +6,7 @@ The cookie is HttpOnly, host-only (no Domain attribute), and signed with a
 server-side secret. It carries the user's identity claims after a successful
 OIDC token exchange and stays valid until ``exp``.
 
-This is the **per-app session cookie** (FIXMYTEXT_SESSION) — distinct from
+This is the **per-app session cookie** (FIXMYTEXT_SESSION) - distinct from
 Keycloak's SSO cookie which is scoped to ``.velobits.dev``.
 """
 
@@ -87,7 +87,7 @@ def verify_session(token: str, secret: str) -> SessionClaims | None:
     ):
         return None
 
-    # Expiry check — 5-second leeway matches the JWKS RS256 verifier tolerance.
+    # Expiry check - 5-second leeway matches the JWKS RS256 verifier tolerance.
     _LEEWAY = 5
     exp = claims.get("exp")
     if not isinstance(exp, int) or exp < int(time.time()) - _LEEWAY:

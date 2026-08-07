@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 
 from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
 
-# Observability — must init before framework imports so SDK can patch httpx
+# Observability - must init before framework imports so SDK can patch httpx
 from app.core.sentry import init_sentry
 
 init_sentry()
@@ -109,7 +109,7 @@ async def lifespan(app: FastAPI):
     """Initialize/cleanup shared clients on startup/shutdown."""
     init_logs_otel()
 
-    # Fail fast in prod if a security-critical setting is unset — never silently
+    # Fail fast in prod if a security-critical setting is unset - never silently
     # run with audience/issuer verification or cookie signing disabled
     # (M-6, BE-AUTH-01, BE-AUTH-04).
     from fixmytext_shared.config.validation import assert_required_in_prod
@@ -150,7 +150,7 @@ async def lifespan(app: FastAPI):
             "Set it to the Kong/proxy internal subnet CIDR (e.g. '10.0.0.0/8')."
         )
 
-    # SESSION_COOKIE_SECURE must be True in production — cookies sent over plain
+    # SESSION_COOKIE_SECURE must be True in production - cookies sent over plain
     # HTTP allow session theft on the network.
     if is_production_like(settings.ENVIRONMENT) and not settings.SESSION_COOKIE_SECURE:
         raise RuntimeError(
@@ -203,7 +203,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Visitor-Id", "X-Request-ID"],
 )
 
-# ── Proxy headers — must be outermost so real client IP is visible to all ─────
+# ── Proxy headers - must be outermost so real client IP is visible to all ─────
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.TRUSTED_PROXY_HOSTS)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ async def health_check():
 
 @app.get("/health/ready", tags=["health"])
 async def readiness_check():
-    """Readiness probe — verifies DB connectivity."""
+    """Readiness probe - verifies DB connectivity."""
     from app.db.session import engine
 
     try:

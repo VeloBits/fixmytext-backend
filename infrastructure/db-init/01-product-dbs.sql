@@ -1,9 +1,9 @@
--- Sprint 5b — Multi-product database scaffolding.
+-- Sprint 5b - Multi-product database scaffolding.
 --
 -- The `velobits-dev-db` Postgres instance hosts ALL VeloBits product
 -- databases (one per product). This script creates placeholder databases
 -- for future products (Chat, Notes, ...). It runs ONLY on first init
--- (when the data volume is empty) — Postgres handles that gating.
+-- (when the data volume is empty) - Postgres handles that gating.
 --
 -- Architectural principle (see docs/SPRINT-5.md decision row 20):
 --   - Keycloak's identity database lives on a SEPARATE Postgres instance

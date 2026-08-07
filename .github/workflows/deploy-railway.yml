@@ -1,7 +1,7 @@
-# Deploy to Railway (build from source) — CI-GATED.
+# Deploy to Railway (build from source) - CI-GATED.
 #
 # Runs ONLY after the "Backend Test & Build" workflow completes successfully on
-# main or develop — never on a raw push. This is the in-repo enforcement of H-7:
+# main or develop - never on a raw push. This is the in-repo enforcement of H-7:
 # a red CI (failing tests, coverage gate, or the Trivy image scan) blocks the
 # deploy. Railway's own per-service branch auto-deploy MUST be DISABLED in the
 # dashboard so this workflow is the only path to an environment.
@@ -9,8 +9,8 @@
 # Branch -> environment:  develop -> development,  main -> production.
 #
 # Required GitHub secrets (Settings -> Secrets and variables -> Actions):
-#   RAILWAY_TOKEN_DEV   — project token scoped to the Railway *development* env
-#   RAILWAY_TOKEN_PROD  — project token scoped to the Railway *production* env
+#   RAILWAY_TOKEN_DEV   - project token scoped to the Railway *development* env
+#   RAILWAY_TOKEN_PROD  - project token scoped to the Railway *production* env
 # Each service's railway.toml (services/<svc>/railway.toml) supplies the Dockerfile
 # path + start command; set each service's Config-as-Code path + Root Directory (/)
 # in the Railway dashboard. Service names in the matrix below must match the

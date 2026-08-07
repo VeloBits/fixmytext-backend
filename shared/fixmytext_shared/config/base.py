@@ -2,7 +2,7 @@
 
 Service-specific Settings classes extend BaseSharedSettings and add their
 own fields (DB URLs, secrets, third-party API keys). The shared base
-holds observability, Redis, CORS, and rate-limit env vars — the things
+holds observability, Redis, CORS, and rate-limit env vars - the things
 that look identical across every service.
 """
 
@@ -37,7 +37,7 @@ class BaseSharedSettings(BaseSettings):
     INTERNAL_SHARED_SECRET: str = ""
 
     # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    ALLOWED_ORIGINS: str = "http://localhost:3100,http://127.0.0.1:3100"
 
     # Rate limiting
     RATE_LIMIT_MAX_REQUESTS: int = 25
@@ -46,7 +46,7 @@ class BaseSharedSettings(BaseSettings):
     # Keycloak (shared across all services)
     KEYCLOAK_REALM: str = "Velobits-Dev"
     KEYCLOAK_AUDIENCE: str = "fixmytext-backend"
-    # Expected token issuer (Keycloak realm URL). REQUIRED in prod — empty
+    # Expected token issuer (Keycloak realm URL). REQUIRED in prod - empty
     # disables issuer checks (dev only).
     KEYCLOAK_ISSUER: str = ""
     KEYCLOAK_JWKS_URL: str = ""

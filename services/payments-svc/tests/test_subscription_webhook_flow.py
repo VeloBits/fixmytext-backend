@@ -309,7 +309,7 @@ async def test_webhook_captured_pro_amount_mismatch_blocks_fulfillment(
 ):
     """A tampered amount for an UNKNOWN user (no keycloak_sub resolvable, so
     no refund ledger row is possible) → 400, event failed, no grant.
-    Known-user validation failures take the auto-refund path instead — see
+    Known-user validation failures take the auto-refund path instead - see
     test_webhook_captured_validation_failure_auto_refunds."""
     user_id = uuid.uuid4()
     db = _mock_db([_result(first=None)])
@@ -540,7 +540,7 @@ async def test_webhook_unhandled_event_type_acknowledged(async_client, app):
     assert pe.status == "processed"
 
 
-# ── payment.captured — auto-refund of unfulfillable captured payments ─────────
+# ── payment.captured - auto-refund of unfulfillable captured payments ─────────
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,7 @@
 """
 Integration tests for text-svc endpoints.
 
-Uses httpx AsyncClient against the FastAPI app directly — no mocks needed
+Uses httpx AsyncClient against the FastAPI app directly - no mocks needed
 because text transforms are pure stdlib functions.
 """
 
@@ -99,7 +99,7 @@ async def test_whitespace_only_rejected_on_parameterized_schema(client):
 
 @pytest.mark.asyncio
 async def test_blank_text_never_consumes_entitlement(client):
-    """Blank input must be rejected BEFORE the quota gate — no free use burned."""
+    """Blank input must be rejected BEFORE the quota gate - no free use burned."""
     from unittest.mock import AsyncMock, patch
 
     with patch(
@@ -113,7 +113,7 @@ async def test_blank_text_never_consumes_entitlement(client):
 
 @pytest.mark.asyncio
 async def test_surrounding_whitespace_preserved(client):
-    """Real content keeps its surrounding whitespace — the input is not trimmed."""
+    """Real content keeps its surrounding whitespace - the input is not trimmed."""
     resp = await client.post("/api/v1/text/uppercase", json={"text": "  hi  "})
     assert resp.status_code == 200
     assert resp.json()["result"] == "  HI  "

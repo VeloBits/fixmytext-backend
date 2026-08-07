@@ -1,4 +1,4 @@
-"""UserToolStats ORM model — lifetime per-tool usage totals per user."""
+"""UserToolStats ORM model - lifetime per-tool usage totals per user."""
 
 import uuid
 from datetime import datetime

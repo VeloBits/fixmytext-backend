@@ -10,8 +10,8 @@ class ClaimSchema:
 
     Tokens issued by Keycloak (RS256) carry ``email``, ``email_verified``,
     ``roles``, plus standard OIDC claims (``iss``, ``aud``). The legacy HS256
-    path only carries ``sub``, ``exp``, ``iat``, ``type`` — it is no longer
-    used in normal operation. ``org_id`` is the B2B-ready hook — None today.
+    path only carries ``sub``, ``exp``, ``iat``, ``type`` - it is no longer
+    used in normal operation. ``org_id`` is the B2B-ready hook - None today.
     """
 
     sub: str

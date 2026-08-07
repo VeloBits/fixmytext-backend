@@ -1,5 +1,5 @@
 """
-API v1 router — aggregates passes and subscription sub-routers.
+API v1 router - aggregates passes and subscription sub-routers.
 """
 
 from fastapi import APIRouter

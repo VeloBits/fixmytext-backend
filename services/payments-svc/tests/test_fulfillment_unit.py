@@ -1,6 +1,6 @@
 """Unit tests for fulfillment_service: Pro expiry/renewal and auto-refunds.
 
-Mocked-session twins of the real-DB tests in test_fulfillment.py — these run
+Mocked-session twins of the real-DB tests in test_fulfillment.py - these run
 without TEST_DATABASE_URL and pin the branch logic:
 
   * a fresh Pro purchase stamps expires_at = now + PRO_DURATION_DAYS,

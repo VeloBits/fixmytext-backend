@@ -25,7 +25,7 @@ class PreferencesUpdate(BaseModel):
     """Partial update for user preferences. All fields optional.
 
     A `persona` key sent by a stale bundle is silently ignored (pydantic
-    drops unknown fields) — deliberate transitional behavior.
+    drops unknown fields) - deliberate transitional behavior.
     """
 
     theme: str | None = Field(None, max_length=10)
@@ -74,7 +74,7 @@ class SidebarChipItem(BaseModel):
 
     `view` ids are client-defined (all/pinned/recent/suggested), `group` ids
     are catalog TOOL_GROUPS ids, `custom_group` ids are user_tool_groups UUIDs.
-    The server stays structural — semantics (e.g. 'all' never removable) are
+    The server stays structural - semantics (e.g. 'all' never removable) are
     enforced by the client that owns the vocabulary.
     """
 
@@ -83,7 +83,7 @@ class SidebarChipItem(BaseModel):
 
 
 def _dedupe_chips(chips: list[SidebarChipItem]) -> list[SidebarChipItem]:
-    """Order-preserving dedupe by (type, id) — makes PUT retries idempotent."""
+    """Order-preserving dedupe by (type, id) - makes PUT retries idempotent."""
     seen: set[tuple[str, str]] = set()
     out: list[SidebarChipItem] = []
     for chip in chips:
@@ -186,7 +186,7 @@ class ToolGroupUpdate(BaseModel):
 class ToolGroupItemsUpdate(BaseModel):
     """Schema for replacing a group's tools with an explicit ordered list.
 
-    The array position IS the sort order — one call covers reorder, bulk add,
+    The array position IS the sort order - one call covers reorder, bulk add,
     and bulk remove (drag-and-drop sends the full list after every move).
     """
 

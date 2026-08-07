@@ -7,7 +7,7 @@ Create Date: 2026-07-22
 Adds the ordered tool-panel chip-row config as a JSONB list column:
 [{"type": "view" | "group" | "custom_group", "id": str}, ...].
 
-[] (the default) means "never customized" — the client renders its default
+[] (the default) means "never customized" - the client renders its default
 row (All / Pinned / Recent / Suggested). No backfill: every existing user
 gets the default row, which replaces the removed USE_CASE_TABS category tabs.
 

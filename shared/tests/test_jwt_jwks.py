@@ -131,7 +131,7 @@ class TestVerifyJwtJWKS:
             )
 
     async def test_rejects_wrong_issuer(self, patched_jwk_fetch):
-        """Issuer is verified when passed — cross-realm tokens are rejected (BE-AUTH-01)."""
+        """Issuer is verified when passed - cross-realm tokens are rejected (BE-AUTH-01)."""
         private_pem, _ = patched_jwk_fetch
         token = _make_token(private_pem, _base_payload())
         with pytest.raises(jwt.InvalidIssuerError):
@@ -211,7 +211,7 @@ class TestVerifyJwtJWKS:
         """
         private_pem, _ = patched_jwk_fetch
         now = datetime.now(UTC)
-        # Token expired 20 seconds ago — within the 30 s leeway window.
+        # Token expired 20 seconds ago - within the 30 s leeway window.
         payload = _base_payload()
         payload["exp"] = int((now - timedelta(seconds=20)).timestamp())
         payload["iat"] = int((now - timedelta(minutes=5)).timestamp())

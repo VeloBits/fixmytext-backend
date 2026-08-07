@@ -7,8 +7,8 @@ causing the DB to reject the row with a cryptic 500.
 
   PaymentEvent.status  must allow 'failed' (webhook error paths) and must NOT
                        allow 'error' (which was mistakenly used and violates
-                       the DB check constraint — C-1).
-  Subscription.status  must allow 'halted' (subscription.halted webhook — C-2).
+                       the DB check constraint - C-1).
+  Subscription.status  must allow 'halted' (subscription.halted webhook - C-2).
 """
 
 from sqlalchemy import CheckConstraint

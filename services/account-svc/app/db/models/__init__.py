@@ -1,4 +1,4 @@
-"""ORM models package — re-exports all models used by account-svc."""
+"""ORM models package - re-exports all models used by account-svc."""
 
 from app.db.models.operation_history import OperationHistory
 from app.db.models.preferences import UserPreferences

@@ -90,7 +90,7 @@ async def test_unreachable_billable_fails_closed_503(monkeypatch):
 
 async def test_unreachable_always_free_is_served(monkeypatch):
     _patch(monkeypatch, exc=httpx.ConnectError("refused"))
-    # 'compare' is in the always-free allowlist — served even with the gate down.
+    # 'compare' is in the always-free allowlist - served even with the gate down.
     assert (
         await ec.check_access(
             tool_id="compare", tool_type="local", request=_req(), user=None

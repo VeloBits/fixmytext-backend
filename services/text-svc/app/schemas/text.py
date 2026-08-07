@@ -14,7 +14,7 @@ class NonBlankTextMixin(BaseModel):
     """Reject ``text`` that is empty after stripping whitespace.
 
     Whitespace-only input satisfies ``min_length=1`` but produces a useless
-    transform — and validation must fail here, at request-parse time, so the
+    transform - and validation must fail here, at request-parse time, so the
     entitlement gate never consumes a free use for it. The text itself is NOT
     trimmed: leading/trailing whitespace is meaningful input for several tools.
     """
@@ -116,7 +116,7 @@ class FilterRequest(NonBlankTextMixin):
         default=False,
         description="If true, treat pattern as a regular expression.",
     )
-    # Pre-compiled pattern — populated by the validator below; excluded from
+    # Pre-compiled pattern - populated by the validator below; excluded from
     # serialisation so it never appears in API responses or OpenAPI schema.
     # Typed as Any to accommodate the `regex` library's Pattern type while
     # keeping Pydantic's schema generation happy.
@@ -127,7 +127,7 @@ class FilterRequest(NonBlankTextMixin):
         """Compile and validate the regex pattern eagerly at request-parse time.
 
         Uses the third-party `regex` library so that .search() supports a
-        per-call `timeout` argument — the runtime ReDoS guard lives in
+        per-call `timeout` argument - the runtime ReDoS guard lives in
         text_service._line_matches.
         """
         if self.use_regex:

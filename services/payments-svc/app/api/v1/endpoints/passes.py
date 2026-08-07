@@ -225,7 +225,7 @@ async def create_pass_order(
             user.id,
         )
         raise HTTPException(
-            502, "Failed to start checkout — please try again later"
+            502, "Failed to start checkout - please try again later"
         ) from None
     return RazorpayOrderResponse(
         order_id=order["id"],
@@ -289,7 +289,7 @@ async def create_credit_order(
             user.id,
         )
         raise HTTPException(
-            502, "Failed to start checkout — please try again later"
+            502, "Failed to start checkout - please try again later"
         ) from None
     return RazorpayOrderResponse(
         order_id=order["id"],
@@ -316,7 +316,7 @@ async def verify_pass_payment(
     Razorpay webhook converge on a single ledger keyed by the payment id, so a
     replayed body or a verify/webhook race grants the entitlement only once.
     Tool scope and the paid amount are validated server-side against the order
-    notes and the catalog — the client-supplied ``tool_ids`` are ignored.
+    notes and the catalog - the client-supplied ``tool_ids`` are ignored.
     """
     # Verify signature and ownership via centralized payment service
     order = await verify_razorpay_payment(
@@ -330,7 +330,7 @@ async def verify_pass_payment(
     # fixed at creation time, NOT from req.tool_ids; amount is reconciled against
     # the catalog price for the charged currency. The signature above is VALID,
     # so a validation failure here means a real customer paid for an order we
-    # cannot fulfil (e.g. a legacy scoped-pass order with empty tool_ids) —
+    # cannot fulfil (e.g. a legacy scoped-pass order with empty tool_ids) -
     # auto-refund instead of stranding captured money.
     try:
         tool_ids, amount, currency = validate_order_scope_and_amount(
@@ -361,7 +361,7 @@ async def verify_pass_payment(
                 "Refund attempt failed (verify): payment=%s", safe_payment_id
             )
             raise HTTPException(
-                502, "Could not refund the payment — please contact support"
+                502, "Could not refund the payment - please contact support"
             ) from validation_error
         return {
             "status": "refunded",

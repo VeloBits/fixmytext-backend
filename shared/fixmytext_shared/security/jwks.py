@@ -1,6 +1,6 @@
 """RS256 + JWKS JWT adapter.
 
-Active in production — Keycloak issues RS256 tokens; all services verify
+Active in production - Keycloak issues RS256 tokens; all services verify
 them via this module. Fetches the JWKS document from the issuer's
 `.well-known` endpoint and caches public keys in-process. On `kid`
 cache-miss the limiter forces a refresh once before failing.
@@ -65,7 +65,7 @@ async def verify(
     if audience is None and require_audience:
         raise ValueError(
             "jwks.verify: audience verification is required (require_audience=True) "
-            "but no `audience` was provided — refusing to accept tokens for any "
+            "but no `audience` was provided - refusing to accept tokens for any "
             "audience. Set the audience (e.g. KEYCLOAK_AUDIENCE) or pass "
             "require_audience=False to opt out."
         )
@@ -73,10 +73,10 @@ async def verify(
     client = _get_jwk_client(jwks_url)
     try:
         # get_signing_key_from_jwt() may call urllib.request.urlopen() on cache
-        # miss — blocking network I/O that must not run on the event loop thread.
+        # miss - blocking network I/O that must not run on the event loop thread.
         signing_key = await asyncio.to_thread(client.get_signing_key_from_jwt, token)
     except jwt.exceptions.PyJWKClientError:
-        # kid not found in cache — drop cached client and retry once.
+        # kid not found in cache - drop cached client and retry once.
         # Lock prevents multiple concurrent coroutines from all racing to
         # recreate the client simultaneously (thundering herd on key rotation).
         async with _JWK_CACHE_LOCK:
@@ -97,7 +97,7 @@ async def verify(
     else:
         # Production safety is enforced by the require_audience=True + ValueError path above.
         # When audience=None is intentional (e.g. backchannel logout tokens whose aud is
-        # client_id, not the resource-server audience), this is an explicit opt-out — log at
+        # client_id, not the resource-server audience), this is an explicit opt-out - log at
         # DEBUG to avoid polluting production logs with false-alarm warnings.
         logger.debug(
             "jwks.verify: audience verification skipped (audience=None, require_audience=False)"

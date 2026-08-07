@@ -1,4 +1,4 @@
-"""VisitorToolUsage ORM model — per-visitor per-tool per-day counter for anonymous users."""
+"""VisitorToolUsage ORM model - per-visitor per-tool per-day counter for anonymous users."""
 
 import uuid
 from datetime import date

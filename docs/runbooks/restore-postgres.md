@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| Service | fix-my-text-repos backend |
+| Service | Velobits-Projects backend |
 | RPO | 24 hours (daily cron backup) |
 | RTO | ~2 hours |
 | Last reviewed | — |
@@ -115,7 +115,7 @@ Run alembic against the scratch DB and confirm the revision matches HEAD.
 
 ```bash
 # From the backend/ repo root
-cd /home/dev/Documents/ME/fix-my-text-repos/backend
+cd /home/dev/Documents/ME/Velobits-Projects/FixMyText-backend
 
 DATABASE_URL="${SCRATCH_DB_URL}" alembic current
 DATABASE_URL="${SCRATCH_DB_URL}" alembic heads

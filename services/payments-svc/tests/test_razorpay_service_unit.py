@@ -1,7 +1,7 @@
 """Unit tests for app.services.razorpay_service.
 
 Covers both backends: the in-memory fake (PAYMENTS_BACKEND=fake, used by E2E
-tests) and the real client path with a mocked razorpay.Client — order
+tests) and the real client path with a mocked razorpay.Client - order
 creation with idempotent receipt reuse, receipt truncation (B-5), order
 fetch, and payment/webhook signature verification.
 """

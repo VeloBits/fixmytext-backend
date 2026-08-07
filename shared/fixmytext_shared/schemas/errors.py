@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class ErrorResponse(BaseModel):
-    """Single error item — machine-readable code + human-readable message."""
+    """Single error item - machine-readable code + human-readable message."""
 
     code: str
     message: str

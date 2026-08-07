@@ -1,4 +1,4 @@
-"""CorrelationIdMiddleware — sets/echoes X-Request-ID on every request."""
+"""CorrelationIdMiddleware - sets/echoes X-Request-ID on every request."""
 
 import uuid
 

@@ -1,4 +1,4 @@
-"""ORM models package — re-exports all models used by payments-svc."""
+"""ORM models package - re-exports all models used by payments-svc."""
 
 from app.db.models.billing_catalog import (
     CreditPackCatalog,

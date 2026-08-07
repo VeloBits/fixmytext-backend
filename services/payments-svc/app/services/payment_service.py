@@ -48,7 +48,7 @@ async def verify_razorpay_payment(
     if not verify_payment_signature(
         razorpay_order_id, razorpay_payment_id, razorpay_signature
     ):
-        raise HTTPException(400, "Payment verification failed — invalid signature")
+        raise HTTPException(400, "Payment verification failed - invalid signature")
 
     # 2. Fetch order details from Razorpay
     try:
@@ -61,7 +61,7 @@ async def verify_razorpay_payment(
         ) from e
 
     # 3. Verify ownership using the JWT-authenticated user, not order notes.
-    #    The notes are included for audit/debugging only — trust the JWT identity.
+    #    The notes are included for audit/debugging only - trust the JWT identity.
     notes = order.get("notes", {})
     if notes.get("user_id") != str(user.id):
         raise HTTPException(400, "Order does not belong to this user")

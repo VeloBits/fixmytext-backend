@@ -2,7 +2,7 @@
 
 
 class AuthError(Exception):
-    """Authentication failure — invalid/expired token, missing claims, etc."""
+    """Authentication failure - invalid/expired token, missing claims, etc."""
 
 
 class RateLimitError(Exception):
@@ -10,4 +10,4 @@ class RateLimitError(Exception):
 
 
 class ConfigError(Exception):
-    """Misconfiguration — missing required env var, invalid setting."""
+    """Misconfiguration - missing required env var, invalid setting."""

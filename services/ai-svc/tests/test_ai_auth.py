@@ -40,7 +40,7 @@ async def test_job_status_no_token_returns_401(client):
 
 @pytest.mark.asyncio
 async def test_job_status_wrong_owner_returns_403(client):
-    """GET /jobs/{id} — job owned by a different user → 403 (IDOR fix H3)."""
+    """GET /jobs/{id} - job owned by a different user → 403 (IDOR fix H3)."""
     from app.api.v1.endpoints.ai import get_current_user
     from main import app
 
@@ -76,7 +76,7 @@ async def test_job_status_wrong_owner_returns_403(client):
 
 @pytest.mark.asyncio
 async def test_job_status_correct_owner_returns_status(client):
-    """GET /jobs/{id} — job owned by the requesting user → 200 with status."""
+    """GET /jobs/{id} - job owned by the requesting user → 200 with status."""
     from app.api.v1.endpoints.ai import get_current_user
     from main import app
 
@@ -124,7 +124,7 @@ async def test_job_status_correct_owner_returns_status(client):
 
 @pytest.mark.asyncio
 async def test_job_status_failed_job_reports_failed(client):
-    """GET /jobs/{id} — result() re-raises the failed job's exception; the
+    """GET /jobs/{id} - result() re-raises the failed job's exception; the
     endpoint confirms failure from metadata and reports status=failed."""
     from app.api.v1.endpoints.ai import get_current_user
     from main import app

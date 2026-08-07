@@ -1,8 +1,8 @@
-# Railway config-as-code for payments-svc — build from source.
+# Railway config-as-code for payments-svc - build from source.
 #
 # Dashboard setup for this Railway service:
 #   • Config-as-Code path : services/payments-svc/railway.toml
-#   • Root Directory      : /   (repo root — the Dockerfile COPYs shared/ and
+#   • Root Directory      : /   (repo root - the Dockerfile COPYs shared/ and
 #                                 services/payments-svc/, so it needs repo-root context)
 #   • Branch auto-deploy  : DISABLED. Deploys are driven only by the CI-gated
 #                           GitHub Actions workflow (.github/workflows/deploy-railway.yml)

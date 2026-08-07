@@ -1,6 +1,6 @@
 """Unit tests for core helpers: Redis lifecycle, optional JWT auth, rate limit.
 
-Redis is never contacted for real — the client class is replaced with mocks so
+Redis is never contacted for real - the client class is replaced with mocks so
 the connect / ping-failure / close paths run deterministically. Auth tests call
 ``get_optional_user`` directly with a patched ``verify_jwt_raw``.
 """

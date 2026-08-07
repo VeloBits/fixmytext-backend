@@ -1,4 +1,4 @@
-"""RequestLoggingMiddleware — logs method, path, status, duration, request_id."""
+"""RequestLoggingMiddleware - logs method, path, status, duration, request_id."""
 
 import logging
 import time

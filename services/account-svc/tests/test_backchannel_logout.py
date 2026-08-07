@@ -88,7 +88,7 @@ async def test_valid_logout_token_revokes_correct_sub(async_client):
 
 
 # ---------------------------------------------------------------------------
-# Invalid token — JWT verification failure
+# Invalid token - JWT verification failure
 # ---------------------------------------------------------------------------
 
 
@@ -203,7 +203,7 @@ async def test_missing_jwks_url_returns_400(async_client):
 
 
 # ---------------------------------------------------------------------------
-# Redis unavailable — fail-open
+# Redis unavailable - fail-open
 # ---------------------------------------------------------------------------
 
 

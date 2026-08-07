@@ -4,7 +4,7 @@ Application settings for the text-svc service.
 Inherits cross-cutting fields (observability, Redis, CORS, rate limits, the
 internal shared secret) from ``fixmytext_shared.config.base.BaseSharedSettings``.
 text-svc has no DB; it rate-limits via Redis (``rl:text``) and calls payments-svc
-for the per-tool entitlement check. Auth is optional — a Keycloak JWT is decoded
+for the per-tool entitlement check. Auth is optional - a Keycloak JWT is decoded
 only to distinguish an authenticated user from an anonymous visitor.
 """
 

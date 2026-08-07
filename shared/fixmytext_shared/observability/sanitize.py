@@ -34,7 +34,7 @@ def sanitize_log_value(value: object) -> str:
     with a space so attackers cannot forge new log entries.
     """
     # The replace() chain is redundant with the regex below, but it is the
-    # exact pattern CodeQL's py/log-injection query recognizes as a sanitizer —
+    # exact pattern CodeQL's py/log-injection query recognizes as a sanitizer -
     # without it, call sites wrapping user input in this helper stay flagged.
     text = str(value).replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
     return _CONTROL_CHAR_RE.sub(" ", text)
@@ -74,7 +74,7 @@ class PiiRedactionFilter(logging.Filter):
         # is still detected and redacted.
         try:
             interpolated = record.getMessage().lower()
-        except Exception:  # noqa: BLE001 — malformed record, don't crash
+        except Exception:  # noqa: BLE001 - malformed record, don't crash
             interpolated = str(record.msg).lower()
 
         for key in _PII_PATTERN_KEYS:

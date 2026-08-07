@@ -1,6 +1,6 @@
 """Unit tests for the arq worker tasks (app.worker.tasks).
 
-The Groq layer is fully mocked — ``ai_service.run_ai_tool`` never makes a
+The Groq layer is fully mocked - ``ai_service.run_ai_tool`` never makes a
 real API call here.
 """
 

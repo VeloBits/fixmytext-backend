@@ -1,4 +1,4 @@
-"""OTel logs init — thin shim over fixmytext_shared.
+"""OTel logs init - thin shim over fixmytext_shared.
 
 Re-exports the shared implementation and pre-binds text-svc's ``settings``
 so existing call sites keep their zero-argument signatures.

@@ -28,7 +28,7 @@ def make_user_class(base: type[DeclarativeBase], auth_schema: str) -> type:
     """Return a User ORM class registered with *base* under *auth_schema*.
 
     Service-specific relationships (e.g. subscriptions, payment_events) are
-    intentionally omitted — each service adds them after calling this factory
+    intentionally omitted - each service adds them after calling this factory
     if needed:
 
         User = make_user_class(Base, settings.DB_SCHEMA_AUTH)

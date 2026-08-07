@@ -1,4 +1,4 @@
-"""UserDiscoveredTool ORM model — tracks when a user first used each tool."""
+"""UserDiscoveredTool ORM model - tracks when a user first used each tool."""
 
 import uuid
 from datetime import datetime

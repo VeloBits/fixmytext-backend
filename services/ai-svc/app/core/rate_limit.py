@@ -1,8 +1,8 @@
-"""Rate limiter for ai-svc — thin shim over fixmytext_shared.
+"""Rate limiter for ai-svc - thin shim over fixmytext_shared.
 
 Uses the same shared ``create_limiter`` factory as the monolith and shares
 the same Redis instance (``REDIS_URL``). The rate-limit key prefix is
-``rl:ai`` — identical to the monolith — so the quota is enforced
+``rl:ai`` - identical to the monolith - so the quota is enforced
 cross-service (same ``rl:ai:<user_id>`` key in Redis).
 """
 

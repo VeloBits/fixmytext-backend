@@ -39,7 +39,7 @@ class RegexTimeoutError(Exception):
 # tool-specific separator (e.g. snake_case turns spaces into '_'). When
 # applied naively to multi-line input they collapse `\n` into the same
 # separator, fusing all lines into one. That's almost never what users
-# want — each line should be transformed as its own independent string.
+# want - each line should be transformed as its own independent string.
 #
 # `_per_line` enforces that uniformly: split on '\n' (NOT generic
 # whitespace, which is what `text.split()` would do), run the inner
@@ -102,7 +102,7 @@ def _split_identifier_words(text: str) -> list[str]:
        (``XMLHttp`` → ``XML`` + ``Http``, ``ChatGPT`` → ``Chat`` + ``GPT``).
 
     The acronym rule is what makes ``ChatGPT`` come out as ``[Chat, GPT]``
-    instead of ``[ChatGPT]`` — without it, train-case / snake-case can't
+    instead of ``[ChatGPT]`` - without it, train-case / snake-case can't
     distinguish ``GPT`` as its own word.
     """
     # Insert a sentinel `\x00` at every word boundary, then split on it +
@@ -291,7 +291,7 @@ def _path_case_line(text: str) -> str:
 
 
 def _flat_case_line(text: str) -> str:
-    # All collapsed into a single lowercase token — no acronym preservation
+    # All collapsed into a single lowercase token - no acronym preservation
     # because the convention IS to be flat (e.g. ``chatgpt``).
     return "".join(w.lower() for w in _split_identifier_words(text))
 
@@ -688,7 +688,7 @@ def brainfuck_decode(code: str) -> str:
         raise ValueError(f"Unmatched '[' at position {stack[-1]}")
 
     # Bound CPU per request: a short nested-loop program can otherwise burn
-    # many seconds. Cap both total steps and wall-clock — the VM runs in a
+    # many seconds. Cap both total steps and wall-clock - the VM runs in a
     # worker thread that cannot be force-cancelled, so it must self-limit (H-5).
     max_steps = 1_000_000
     deadline = time.monotonic() + _BRAINFUCK_MAX_SECONDS
@@ -847,19 +847,19 @@ def _line_matches(
         search_text = line if len(line) <= 2_000 else line[:2_000]
         # Per-call wall-clock cap. Patterns produced by FilterRequest are
         # `regex.Pattern` objects whose .search() accepts a `timeout=`
-        # argument — this is the ReDoS guard. Stdlib `re.Pattern` objects
+        # argument - this is the ReDoS guard. Stdlib `re.Pattern` objects
         # (used by older internal callers and some tests) don't accept
         # `timeout=`, so we fall back to plain .search() for those.
         try:
             return bool(compiled.search(search_text, timeout=USER_REGEX_TIMEOUT_S))
         except TypeError:
-            # stdlib re.Pattern — no timeout support; trust the 200-char
+            # stdlib re.Pattern - no timeout support; trust the 200-char
             # pattern cap + 2000-char line cap to bound runtime.
             return bool(compiled.search(search_text))
         except TimeoutError as exc:
             raise RegexTimeoutError(
                 f"Pattern execution exceeded {int(USER_REGEX_TIMEOUT_S * 1000)}ms "
-                "budget — try simplifying or removing nested quantifiers."
+                "budget - try simplifying or removing nested quantifiers."
             ) from exc
     if case_sensitive:
         return pattern in line
@@ -1332,7 +1332,7 @@ def xml_to_json(text: str) -> str:
         if not children:
             return {**attrs, "#text": text} if text else attrs
 
-        # Group children by tag — repeated tags collapse to a list.
+        # Group children by tag - repeated tags collapse to a list.
         grouped: dict = {}
         for child in children:
             value = node_to_obj(child)
@@ -1356,7 +1356,7 @@ def xml_to_json(text: str) -> str:
         # XML requires a single root, but users often paste several sibling
         # documents in one go. Wrap them in a synthetic root, parse, then
         # emit each top-level child as its own JSON object separated by a
-        # blank line — preserving the "one document per input" mental model
+        # blank line - preserving the "one document per input" mental model
         # rather than merging them into a single combined object.
         try:
             wrapper = ET.fromstring(f"<root>{stripped}</root>")

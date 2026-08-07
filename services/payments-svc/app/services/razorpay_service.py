@@ -49,7 +49,7 @@ def init_razorpay():
 def get_client() -> razorpay.Client:
     """Return the Razorpay client instance."""
     if not _client:
-        raise RuntimeError("Razorpay not initialized — set RAZORPAY_KEY_ID in .env")
+        raise RuntimeError("Razorpay not initialized - set RAZORPAY_KEY_ID in .env")
     return _client
 
 
@@ -140,7 +140,7 @@ def refund_payment(payment_id: str, *, notes: dict | None = None) -> dict:
     """Issue a FULL refund for a captured payment.
 
     Used when a captured payment turns out to be unfulfillable (order
-    validation fails at verify/webhook time) — the customer must never pay
+    validation fails at verify/webhook time) - the customer must never pay
     for nothing. Raises on Razorpay API failure so callers can surface a
     retryable error (Razorpay will re-deliver webhooks).
     """

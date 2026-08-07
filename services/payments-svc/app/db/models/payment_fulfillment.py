@@ -21,7 +21,7 @@ from app.db.session import Base
 class PaymentFulfillment(Base):
     __tablename__ = "payment_fulfillments"
     __table_args__ = (
-        # Idempotency guard — exactly one fulfillment per Razorpay payment id.
+        # Idempotency guard - exactly one fulfillment per Razorpay payment id.
         Index(
             "uq_payment_fulfillments_payment_id",
             "razorpay_payment_id",

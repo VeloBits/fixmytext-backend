@@ -1,4 +1,4 @@
-# Grafana Alert Rule Stubs — fix-my-text-repos backend
+# Grafana Alert Rule Stubs - Velobits-Projects backend
 # Generated: 2026-06-17
 #
 # TODO: set datasource UID and notification channel before activating.
@@ -51,7 +51,7 @@ groups:
             The payment webhook error rate has been above 2 % for the last 10 minutes.
             SLO target: < 1 % (rolling 7 d). Check payments-svc logs in Loki and
             verify Stripe dashboard for delivery failures.
-            Runbook: docs/DR.md — Failure Scenarios table, row "Webhook delivery failure".
+            Runbook: docs/DR.md - Failure Scenarios table, row "Webhook delivery failure".
 
       - uid: fmt-pay-5xx-rate
         title: service-5xx-rate (payments-svc)
@@ -139,7 +139,7 @@ groups:
           - refId: A
             datasourceUid: <DATASOURCE_UID>
             model:
-              # PromQL placeholder — replace with actual Postgres exporter metric.
+              # PromQL placeholder - replace with actual Postgres exporter metric.
               # Common metric: pg_stat_activity_count / pg_settings_max_connections
               expr: |
                 (
@@ -213,7 +213,7 @@ groups:
             ai-svc Groq upstream p95 latency has been above 45 s for 5 minutes.
             SLO target: p95 < 30 s (rolling 28 d).
             Check Groq status page and ai-svc error logs. If Groq is degraded,
-            see docs/DR.md — Failure Scenarios, row "Groq / AI provider outage".
+            see docs/DR.md - Failure Scenarios, row "Groq / AI provider outage".
 
 # Notification policy stub
 # contactPoints:

@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 
 from app.core.observability_logs import init_logs_otel, shutdown_logs_otel
 
-# Observability — must init before framework imports so SDK can patch httpx
+# Observability - must init before framework imports so SDK can patch httpx
 from app.core.sentry import init_sentry
 
 init_sentry()
@@ -128,7 +128,7 @@ async def lifespan(app: FastAPI):
         RAZORPAY_KEY_SECRET=settings.RAZORPAY_KEY_SECRET,
         RAZORPAY_WEBHOOK_SECRET=settings.RAZORPAY_WEBHOOK_SECRET,
     )
-    # BE-PAY-09: the fake backend bypasses Razorpay signature verification —
+    # BE-PAY-09: the fake backend bypasses Razorpay signature verification -
     # it must never run in a production environment.
     if (
         is_production_like(settings.ENVIRONMENT)
@@ -136,7 +136,7 @@ async def lifespan(app: FastAPI):
     ):
         raise RuntimeError(
             "Refusing to start: PAYMENTS_BACKEND=fake in a production environment "
-            "(bypasses payment signature verification — BE-PAY-09)."
+            "(bypasses payment signature verification - BE-PAY-09)."
         )
 
     init_razorpay()
@@ -188,7 +188,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Visitor-Id", "X-Request-ID"],
 )
 
-# ── Proxy headers — must be outermost so real client IP is visible to all ─────
+# ── Proxy headers - must be outermost so real client IP is visible to all ─────
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
@@ -209,7 +209,7 @@ async def health_check():
 
 @app.get("/health/ready", tags=["health"])
 async def readiness_check():
-    """Readiness probe — verifies DB connectivity."""
+    """Readiness probe - verifies DB connectivity."""
     from app.db.session import engine
 
     try:

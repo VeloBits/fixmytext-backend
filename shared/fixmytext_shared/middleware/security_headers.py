@@ -1,4 +1,4 @@
-"""SecurityHeadersMiddleware — adds standard security headers to every response.
+"""SecurityHeadersMiddleware - adds standard security headers to every response.
 
 HSTS is conditionally enabled via the ``is_production`` constructor argument
 so the middleware doesn't need to read settings directly.

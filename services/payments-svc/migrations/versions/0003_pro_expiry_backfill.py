@@ -3,7 +3,7 @@
 Pro used to be granted forever: fulfillment never wrote expires_at and no
 query filtered on it, so one payment meant lifetime access. Access is now
 gated on ``status IN ('active','cancelled') AND expires_at > now()``, so
-every legacy pro row needs a concrete expiry — 30 days from activation,
+every legacy pro row needs a concrete expiry - 30 days from activation,
 matching what those customers actually paid for.
 
 Revision ID: 0003

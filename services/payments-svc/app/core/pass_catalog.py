@@ -1,5 +1,5 @@
 """
-Pass catalog — all pass definitions, credit packs, regional pricing, and reward tables.
+Pass catalog - all pass definitions, credit packs, regional pricing, and reward tables.
 
 Prices are stored in smallest currency unit: paise (IN), cents (US/EU), pence (GB).
 """

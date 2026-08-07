@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# backup-postgres.sh — Production pg_dump to S3 for fix-my-text-repos backend
+# backup-postgres.sh - Production pg_dump to S3 for Velobits-Projects backend
 #
 # Usage:
 #   ./scripts/backup-postgres.sh
@@ -53,7 +53,7 @@ S3_URI="s3://${S3_BUCKET}/${S3_KEY}"
 # ---------------------------------------------------------------------------
 # Run backup
 # ---------------------------------------------------------------------------
-echo "INFO: Starting backup — ${TIMESTAMP}"
+echo "INFO: Starting backup - ${TIMESTAMP}"
 echo "INFO: Destination: ${S3_URI}"
 
 pg_dump "${DATABASE_URL}" \
@@ -62,7 +62,7 @@ pg_dump "${DATABASE_URL}" \
       --content-type "application/gzip" \
       --storage-class STANDARD_IA
 
-echo "INFO: Backup complete — ${S3_URI}"
+echo "INFO: Backup complete - ${S3_URI}"
 
 # ---------------------------------------------------------------------------
 # Prune backups older than RETENTION_DAYS days

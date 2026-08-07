@@ -2,9 +2,9 @@
 
 Proves BE-DATA-01 (pass uses), BE-DATA-02 (credit balance) and BE-PAY-06: under
 concurrent requests the per-tool consumption never exceeds the cap and the credit
-balance never goes negative — the read-modify-write races are gone.
+balance never goes negative - the read-modify-write races are gone.
 
-DB-backed — requires a throwaway Postgres. Set ``TEST_DATABASE_URL``.
+DB-backed - requires a throwaway Postgres. Set ``TEST_DATABASE_URL``.
 """
 
 import asyncio

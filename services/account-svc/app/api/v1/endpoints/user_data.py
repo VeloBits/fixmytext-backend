@@ -113,7 +113,7 @@ async def update_preferences(
 # stubs exist ONLY so stale cached SPA bundles (pre-soft-delete) don't hit
 # 404s and surface error toasts. The auth dependency is deliberately kept so
 # the routes don't become anonymous probes. Every hit logs a WARNING
-# ("stale_gamification_call") — delete both stubs in a later release once
+# ("stale_gamification_call") - delete both stubs in a later release once
 # logs show zero hits.
 
 _GAMIFICATION_ZERO_STATE = {
@@ -132,7 +132,7 @@ _GAMIFICATION_ZERO_STATE = {
 
 @router.get("/gamification")
 async def get_gamification(user: User = Depends(get_current_user)) -> dict:
-    """Transitional stub — gamification removed; returns a static zero-state."""
+    """Transitional stub - gamification removed; returns a static zero-state."""
     logger.warning(
         "stale_gamification_call: route=%s sub=%s",
         "GET /user/gamification",
@@ -143,10 +143,10 @@ async def get_gamification(user: User = Depends(get_current_user)) -> dict:
 
 @router.put("/gamification")
 async def update_gamification(
-    request: Request,  # noqa: ARG001 — accepts (and ignores) any body
+    request: Request,  # noqa: ARG001 - accepts (and ignores) any body
     user: User = Depends(get_current_user),
 ) -> dict:
-    """Transitional stub — accepts any body, persists nothing, returns zero-state."""
+    """Transitional stub - accepts any body, persists nothing, returns zero-state."""
     logger.warning(
         "stale_gamification_call: route=%s sub=%s",
         "PUT /user/gamification",
@@ -435,7 +435,7 @@ async def create_tool_group(
     """Create a named tool group, optionally pre-filled with tools.
 
     Idempotent by name: if the user already has a group with this name, the
-    existing group is returned unchanged (200) — tool_ids are NOT merged in.
+    existing group is returned unchanged (200) - tool_ids are NOT merged in.
     This keeps guest-adoption retries and double-clicked starter-kit cards
     from erroring or duplicating.
     """
@@ -487,7 +487,7 @@ async def create_tool_group(
     return _group_to_response(result.scalar_one())
 
 
-# NOTE: registered before the /{group_id} routes — "order" must not be parsed
+# NOTE: registered before the /{group_id} routes - "order" must not be parsed
 # as a group_id UUID (FastAPI matches routes in declaration order).
 @router.put("/tool-groups/order", response_model=ToolGroupsResponse)
 async def reorder_tool_groups(
@@ -499,7 +499,7 @@ async def reorder_tool_groups(
 
     Groups listed in `group_ids` get sort_order = array position; the user's
     remaining groups keep their relative order after the listed ones. Unknown
-    and foreign ids are ignored. Idempotent — resending the same list is a
+    and foreign ids are ignored. Idempotent - resending the same list is a
     no-op. Returns all groups in the new display order.
     """
     result = await db.execute(
@@ -623,7 +623,7 @@ async def set_tool_group_tools(
 
     Array position becomes sort_order, so a single call covers drag-reorder,
     bulk add, and bulk remove. Duplicates keep their first position.
-    Idempotent — resending the current list is a no-op.
+    Idempotent - resending the current list is a no-op.
     """
     group = await _get_owned_group(db, group_id, user.id)
 

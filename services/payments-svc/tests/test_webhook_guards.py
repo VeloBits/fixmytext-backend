@@ -1,4 +1,4 @@
-"""Tests for webhook hardening changes — body size limit (M-4) and duplicate
+"""Tests for webhook hardening changes - body size limit (M-4) and duplicate
 PaymentEvent audit trail after AlreadyFulfilled rollback (M-3).
 
 Pure-logic / unit tests; no live DB or Razorpay connection required.
@@ -14,7 +14,7 @@ def test_webhook_max_body_bytes_present_in_config():
     from app.core.config import settings
 
     assert hasattr(settings, "WEBHOOK_MAX_BODY_BYTES"), (
-        "settings.WEBHOOK_MAX_BODY_BYTES missing — add it to config.py (M-4)"
+        "settings.WEBHOOK_MAX_BODY_BYTES missing - add it to config.py (M-4)"
     )
     assert settings.WEBHOOK_MAX_BODY_BYTES > 0
 
@@ -76,7 +76,7 @@ def test_pass_service_uses_utc_date_not_local_date():
 
     src = inspect.getsource(pass_service)
     assert "date.today()" not in src, (
-        "pass_service still contains date.today() — replace with "
+        "pass_service still contains date.today() - replace with "
         "datetime.now(UTC).date() so limits reset at UTC midnight (M-1)"
     )
     assert "datetime.now(UTC).date()" in src or "now.date()" in src, (
@@ -144,7 +144,7 @@ def test_order_rate_limit_per_minute_in_config():
     from app.core.config import settings
 
     assert hasattr(settings, "ORDER_RATE_LIMIT_PER_MINUTE"), (
-        "settings.ORDER_RATE_LIMIT_PER_MINUTE missing — add it to config.py (M-2)"
+        "settings.ORDER_RATE_LIMIT_PER_MINUTE missing - add it to config.py (M-2)"
     )
     assert settings.ORDER_RATE_LIMIT_PER_MINUTE > 0
 
@@ -179,7 +179,7 @@ def test_webhook_content_length_guard_handles_non_numeric_values():
     src = inspect.getsource(sub_ep.razorpay_webhook)
     assert "except ValueError" in src, (
         "razorpay_webhook Content-Length guard must catch ValueError from int() "
-        "conversion — a non-numeric value must return 413 not 500 (B-1)"
+        "conversion - a non-numeric value must return 413 not 500 (B-1)"
     )
 
 
@@ -226,7 +226,7 @@ def test_webhook_pass_fulfillment_guards_against_empty_tool_ids():
 
 
 def test_passes_catalog_endpoint_no_longer_imports_default_region():
-    """DEFAULT_REGION import removed from passes.py endpoint — it was dead code
+    """DEFAULT_REGION import removed from passes.py endpoint - it was dead code
     because detect_region() always returns a REGIONS-valid value (M-5)."""
     import ast
     import pathlib

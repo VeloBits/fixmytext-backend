@@ -1,4 +1,4 @@
-"""OpenTelemetry Logs SDK init — ships log records over OTLP HTTP to a Loki backend."""
+"""OpenTelemetry Logs SDK init - ships log records over OTLP HTTP to a Loki backend."""
 
 import logging
 from urllib.parse import unquote
@@ -21,7 +21,7 @@ _logger_provider: LoggerProvider | None = None
 def attach_log_sanitizers(handler: logging.Handler) -> None:
     """Attach secret-sanitization + PII-redaction filters to a log handler.
 
-    The stdout StreamHandler must get these too — not only the OTLP handler —
+    The stdout StreamHandler must get these too - not only the OTLP handler -
     or secrets/PII passed as query params reach Docker logs unredacted (M-9).
     """
     handler.addFilter(LogSanitizationFilter())

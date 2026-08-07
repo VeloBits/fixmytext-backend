@@ -31,7 +31,7 @@ async def jit_provision_user[T](
     payments-svc each create their own via ``make_user_class``).
 
     Handles the IntegrityError race condition where two simultaneous
-    first-requests both attempt to insert — the second request rolls back and
+    first-requests both attempt to insert - the second request rolls back and
     re-queries for the row the first request committed.
 
     Returns the newly created or race-recovered User.
@@ -40,7 +40,7 @@ async def jit_provision_user[T](
     email = payload.get("email", "").strip()
     if not email:
         logger.warning(
-            "auth: JIT rejected — no email claim in JWT for keycloak_id=%s", keycloak_id
+            "auth: JIT rejected - no email claim in JWT for keycloak_id=%s", keycloak_id
         )
         raise HTTPException(status_code=401, detail="Not authenticated")
     logger.info("auth: JIT provisioning user keycloak_id=%s", keycloak_id)

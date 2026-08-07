@@ -43,17 +43,17 @@ class Settings(BaseSharedSettings):
     RAZORPAY_WEBHOOK_SECRET: str = ""
     FREE_USES_PER_TOOL_PER_DAY: int = 3
     DAILY_LOGIN_BONUS: int = 1
-    FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URL: str = "http://localhost:3100"
     PAYMENTS_BACKEND: str = "razorpay"
 
     # Anti-abuse: max referral payouts a single referrer can earn (M-10).
     REFERRAL_MAX_PER_REFERRER: int = 20
 
-    # Webhook body size cap — Razorpay payloads are well under 16 KB;
+    # Webhook body size cap - Razorpay payloads are well under 16 KB;
     # 64 KB gives ample headroom while blocking memory-exhaustion attacks.
     WEBHOOK_MAX_BODY_BYTES: int = 65536
 
-    # Order-creation rate limit — max Razorpay order calls per user per minute.
+    # Order-creation rate limit - max Razorpay order calls per user per minute.
     ORDER_RATE_LIMIT_PER_MINUTE: int = 10
 
     # One-time credit gift granted on a user's first purchase (0 disables it).

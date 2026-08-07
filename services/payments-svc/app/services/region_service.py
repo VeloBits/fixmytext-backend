@@ -99,7 +99,7 @@ async def detect_region(ip_address: str) -> str:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             if is_local:
-                # Local dev — detect region from server's public IP
+                # Local dev - detect region from server's public IP
                 resp = await client.get("http://ip-api.com/json/?fields=countryCode")
             else:
                 resp = await client.get(
@@ -124,7 +124,7 @@ async def resolve_user_region(
     explicit_region: str = "",
 ) -> str:
     """Resolve region: explicit param > user.region > IP detection.
-    Updates user.region if changed (but does NOT commit — caller controls transaction).
+    Updates user.region if changed (but does NOT commit - caller controls transaction).
     """
     from app.core.pass_catalog import REGIONS
 

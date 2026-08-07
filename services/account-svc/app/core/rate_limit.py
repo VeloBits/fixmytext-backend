@@ -1,4 +1,4 @@
-"""Rate limiters for account-svc — thin shim over fixmytext_shared.
+"""Rate limiters for account-svc - thin shim over fixmytext_shared.
 
 Backed by the same Redis instance (``REDIS_URL``) as the other services so the
 limit holds across replicas; falls back to in-memory when Redis is absent.
@@ -16,7 +16,7 @@ def _get_redis():
     return _gr()
 
 
-# Verification-email resend: authenticated but email-amplification-abusable —
+# Verification-email resend: authenticated but email-amplification-abusable -
 # each call makes Keycloak send a real email. Keyed per user, prefix
 # ``rl:resend-verification``. (Signup itself is Keycloak-hosted and not proxied
 # through this service, so there is no registration limiter here.)

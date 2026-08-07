@@ -2,7 +2,7 @@
 
 Verifies that a brand-new Keycloak user who hits a share endpoint with a
 valid Bearer JWT gets JIT-provisioned so their share is linked to their
-account — not created anonymously.
+account - not created anonymously.
 
 Prior to the B1 fix, get_optional_user discarded jwt_payload and never
 called jit_provision_user, so any user whose first request was POST /share

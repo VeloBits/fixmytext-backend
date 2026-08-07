@@ -3,7 +3,7 @@ AI text transformation endpoints.
 
 Serves ``POST /api/v1/ai/{tool_id}`` and ``POST /api/v1/ai/{tool_id}/stream``.
 
-Auth: RS256 JWT verified via Keycloak JWKS — no DB lookup (stateless).
+Auth: RS256 JWT verified via Keycloak JWKS - no DB lookup (stateless).
 Rate limiting: shared ``rl:ai`` prefix in Redis (cross-service with monolith).
 """
 
@@ -44,7 +44,7 @@ class NonBlankTextMixin(BaseModel):
 
     Mirrors text-svc's schema rule: blank input must fail at request-parse
     time so the entitlement gate never consumes a credit for it. The text is
-    NOT trimmed — surrounding whitespace can be meaningful to the model.
+    NOT trimmed - surrounding whitespace can be meaningful to the model.
     """
 
     text: str = Field(..., min_length=1, max_length=50_000)
@@ -86,7 +86,7 @@ class TextResponse(BaseModel):
 class AuthenticatedUser:
     """Lightweight user identity extracted from a verified Keycloak JWT.
 
-    ai-svc has no database — identity is JWT-only.
+    ai-svc has no database - identity is JWT-only.
     """
 
     id: str  # Keycloak sub (UUID string)
@@ -279,7 +279,7 @@ async def stream_ai_tool(
                 yield f"data: {token}\n\n"
             yield "data: [DONE]\n\n"
         except Exception:
-            # Do not expose exc (stack trace) to the client — log it server-side only.
+            # Do not expose exc (stack trace) to the client - log it server-side only.
             logger.exception("Stream error for tool=%s", _sanitize_for_log(tool_id))
             yield "data: [ERROR] Internal server error\n\n"
 
@@ -383,7 +383,7 @@ async def get_job_status(
         return JobStatusResponse(job_id=job_id, status="not_found")
 
     # Fetch job metadata first to verify ownership before returning any data.
-    # args layout: (tool_id, text, user_id, options) — set by enqueue_ai_tool.
+    # args layout: (tool_id, text, user_id, options) - set by enqueue_ai_tool.
     info = await job.info()
     if info is None:
         return JobStatusResponse(job_id=job_id, status="not_found")
@@ -395,11 +395,11 @@ async def get_job_status(
         job_result = await job.result(timeout=0.1, poll_delay=0.05)
         return JobStatusResponse(job_id=job_id, status="complete", result=job_result)
     except (TimeoutError, ResultNotFound):
-        # Not done yet — fall through to metadata-derived status below.
+        # Not done yet - fall through to metadata-derived status below.
         pass
     except Exception:
         # job.result() re-raises a failed job's own exception; metadata confirms
-        # those as "failed". Anything else is an arq/backend error — surface it.
+        # those as "failed". Anything else is an arq/backend error - surface it.
         fresh = await job.info()
         if fresh is not None and fresh.finish_ms is not None and fresh.success is False:
             return JobStatusResponse(job_id=job_id, status="failed")

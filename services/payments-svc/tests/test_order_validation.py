@@ -1,6 +1,6 @@
 """Unit tests for server-side order scope/amount validation (H-3, BE-PAY-03).
 
-Pure-logic tests — no database. They prove that:
+Pure-logic tests - no database. They prove that:
   * tool scope is taken from server-set order notes and the tool count is
     enforced (a client cannot widen a 1-tool pass into N tools),
   * the paid amount is reconciled against the catalog price for the *charged
@@ -132,7 +132,7 @@ def test_unsupported_currency_rejected():
 
 
 def test_valid_pro_amount_passes():
-    validate_pro_amount(39900, "INR")  # ₹399 — must not raise
+    validate_pro_amount(39900, "INR")  # ₹399 - must not raise
 
 
 def test_pro_amount_mismatch_rejected():
@@ -180,7 +180,7 @@ def test_check_passes_consumes_soonest_expiring_pass_first():
     """_check_passes must ORDER BY expires_at ASC so a 1-day pass is consumed
     before a 30-day pass when both cover the same tool (H-2).
 
-    Source-level check (no DB) — the atomicity of the actual query ordering is
+    Source-level check (no DB) - the atomicity of the actual query ordering is
     exercised by the integration test in test_entitlement_atomic.py at runtime.
     """
     import inspect

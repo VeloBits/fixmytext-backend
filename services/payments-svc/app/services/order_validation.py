@@ -2,7 +2,7 @@
 
 Used by both the synchronous verify callbacks and the webhook to guarantee the
 paid amount matches the catalog price for the *charged currency* and that the
-granted tool scope comes from the server-set order notes — never the client
+granted tool scope comes from the server-set order notes - never the client
 request body. Fixes scope/quantity and amount tampering (H-3, BE-PAY-03).
 """
 
@@ -33,7 +33,7 @@ def validate_tool_selection(pass_def: dict, tool_ids: list[str]) -> list[str]:
 
     Raises ``HTTPException(400)`` with a user-facing message otherwise. This is
     the order-time twin of the fulfillment check in
-    :func:`validate_order_scope_and_amount` — rejecting here means money never
+    :func:`validate_order_scope_and_amount` - rejecting here means money never
     moves for an unfulfillable selection.
     """
     if pass_def["tools"] == -1:
@@ -50,7 +50,7 @@ def validate_tool_selection(pass_def: dict, tool_ids: list[str]) -> list[str]:
             raise HTTPException(400, f"Invalid tool id: {tool_id[:64]!r}")
         if tool_id in ALWAYS_FREE_TOOL_IDS:
             raise HTTPException(
-                400, f"'{tool_id}' is always free — pick a tool that uses your pass"
+                400, f"'{tool_id}' is always free - pick a tool that uses your pass"
             )
 
     required = pass_def["tools"]
@@ -95,7 +95,7 @@ def validate_order_scope_and_amount(
         or notes.get("item_type") != expected_item_type
     ):
         raise HTTPException(
-            400, "Order details do not match — item_id or item_type mismatch"
+            400, "Order details do not match - item_id or item_type mismatch"
         )
 
     amount = order.get("amount")
@@ -114,7 +114,7 @@ def validate_order_scope_and_amount(
         if not pass_def:
             raise HTTPException(400, f"Unknown pass: {expected_item_id}")
         if pass_def["tools"] == -1:
-            # All-tools pass — scope is always the wildcard, regardless of notes.
+            # All-tools pass - scope is always the wildcard, regardless of notes.
             tool_ids = ["*"]
         else:
             raw = notes.get("tool_ids", "") or ""

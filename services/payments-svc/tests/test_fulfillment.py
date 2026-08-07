@@ -5,7 +5,7 @@ double-verify → 500) are fixed: both client callbacks and the webhook converge
 on a single ``payment_fulfillments`` ledger keyed by ``razorpay_payment_id``, so
 a replay or a race grants the entitlement exactly once.
 
-DB-backed — requires a throwaway Postgres. Set ``TEST_DATABASE_URL`` e.g.::
+DB-backed - requires a throwaway Postgres. Set ``TEST_DATABASE_URL`` e.g.::
 
     TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:55432/postgres
 

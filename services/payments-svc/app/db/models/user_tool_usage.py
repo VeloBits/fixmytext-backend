@@ -1,4 +1,4 @@
-"""UserToolUsage ORM model — per-user per-tool per-day usage counter."""
+"""UserToolUsage ORM model - per-user per-tool per-day usage counter."""
 
 import uuid
 from datetime import date

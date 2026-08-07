@@ -367,7 +367,7 @@ async def test_cancel_without_active_pro_returns_400(async_client, app):
 
 @pytest.mark.asyncio
 async def test_cancel_active_pro_marks_subscription_cancelled(async_client, app):
-    """Cancel keeps access until the paid period ends — the response carries
+    """Cancel keeps access until the paid period ends - the response carries
     access_until and the row flips to 'cancelled' (not deleted/downgraded)."""
     user = _make_user()
     expires = datetime.now(UTC) + timedelta(days=12)
@@ -427,7 +427,7 @@ async def test_cancel_already_cancelled_pro_is_idempotent(async_client, app):
     db.commit.assert_not_awaited()
 
 
-# ── GET /subscription/status — region resolution ─────────────────────────────
+# ── GET /subscription/status - region resolution ─────────────────────────────
 
 
 @pytest.mark.asyncio

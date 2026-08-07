@@ -1,4 +1,4 @@
-"""Sentry init — thin shim over fixmytext_shared.
+"""Sentry init - thin shim over fixmytext_shared.
 
 Re-exports the shared implementation and pre-binds payments-svc's
 ``settings`` so the ``init_sentry()`` call site in ``main.py`` keeps a

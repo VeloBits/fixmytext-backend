@@ -13,7 +13,7 @@ class CheckAccessRequest(BaseModel):
     user_id: str | None = None
     email: str | None = None
     email_verified: bool = False
-    # Anonymous principal — real client IP + UA, server-observed by the caller.
+    # Anonymous principal - real client IP + UA, server-observed by the caller.
     # The visitor quota key is derived from these server-side (never the
     # client-supplied X-Visitor-Id), closing the fingerprint-reset gap.
     ip_address: str | None = None

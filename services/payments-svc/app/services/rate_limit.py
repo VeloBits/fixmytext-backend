@@ -38,4 +38,4 @@ async def check_rate_limit(
     except HTTPException:
         raise
     except Exception:
-        logger.warning("Rate limit check failed for key=%s — allowing request", key)
+        logger.warning("Rate limit check failed for key=%s - allowing request", key)

@@ -1,15 +1,15 @@
-# fixmytext-backend — development compose file.
+# fixmytext-backend - development compose file.
 #
 # Profiles:
 #   dev   development stack  (hot reload, source volumes)
 #
-# There is no prod profile — production is deployed separately (identity side:
+# There is no prod profile - production is deployed separately (identity side:
 # velobits-infra docs/keycloak-production-setup.md, prod services fetch JWKS
 # from the public https://auth.velobits.dev URL, no shared network needed).
 #
 # Shared infrastructure (Traefik edge proxy + Keycloak identity provider)
 # lives in the VeloBits/velobits-infra repo. That stack creates the external
-# `velobits-net` network this file joins — START IT FIRST:
+# `velobits-net` network this file joins - START IT FIRST:
 #   (velobits-infra)      docker compose up -d
 #   (this repo)           docker compose --profile dev up --build
 # App-only fallback without the infra stack (auth flows won't work):
@@ -49,7 +49,7 @@ services:
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # REDIS  —  shared across profiles (optional, for distributed rate limiting)
+  # REDIS  -  shared across profiles (optional, for distributed rate limiting)
   # ══════════════════════════════════════════════════════════════════════════
 
   redis-service:
@@ -73,7 +73,7 @@ services:
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # PGBOUNCER  —  connection pooler in transaction mode (dev profile).
+  # PGBOUNCER  -  connection pooler in transaction mode (dev profile).
   # Services route through :6432 when PGBOUNCER_URL is set in .env.
   # Caps total server-side connections at PGBOUNCER_DEFAULT_POOL_SIZE=20 while
   # allowing up to 200 client-side connections, preventing Postgres
@@ -103,7 +103,7 @@ services:
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # MIGRATE  —  runs each service's own alembic chain once, then exits.
+  # MIGRATE  -  runs each service's own alembic chain once, then exits.
   # Order matters: account-svc owns auth.users; payments-svc billing/usage tables
   # keep cross-schema FKs into it, so account-svc must migrate FIRST.
   # ══════════════════════════════════════════════════════════════════════════
@@ -133,7 +133,7 @@ services:
       - fixmytext-net
 
   # ══════════════════════════════════════════════════════════════════════════
-  # AI-SVC  —  Groq-backed AI text transformation service (dev profile)
+  # AI-SVC  -  Groq-backed AI text transformation service (dev profile)
   # Kong routes /api/v1/ai/* here. Service is internal-only (Kong owns
   # the path-prefix seam; Traefik owns the subdomain seam).
   # ══════════════════════════════════════════════════════════════════════════
@@ -170,7 +170,7 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════
-  # AI-WORKER  —  arq worker that executes async Groq jobs enqueued by ai-svc.
+  # AI-WORKER  -  arq worker that executes async Groq jobs enqueued by ai-svc.
   # Runs the same Docker image as ai-svc but with the arq entrypoint.
   # ══════════════════════════════════════════════════════════════════════════
 
@@ -201,7 +201,7 @@ services:
       start_period: 10s
 
   # ══════════════════════════════════════════════════════════════════════════
-  # TEXT-SVC  —  local text transformation service (dev profile)
+  # TEXT-SVC  -  local text transformation service (dev profile)
   # Kong routes /api/v1/text/* here.
   # ══════════════════════════════════════════════════════════════════════════
 
@@ -234,7 +234,7 @@ services:
       start_period: 20s
 
   # ══════════════════════════════════════════════════════════════════════════
-  # PAYMENTS-SVC  —  billing: passes, credits, subscriptions, Razorpay (dev)
+  # PAYMENTS-SVC  -  billing: passes, credits, subscriptions, Razorpay (dev)
   # Kong routes /api/v1/passes/* and /api/v1/subscription/* here.
   # ══════════════════════════════════════════════════════════════════════════
 
@@ -273,7 +273,7 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════
-  # ACCOUNT-SVC  —  user data, history, share, session cookie (dev profile)
+  # ACCOUNT-SVC  -  user data, history, share, session cookie (dev profile)
   # Kong routes /api/v1/auth/*, /api/v1/user/*, /api/v1/history/*,
   # /api/v1/share/* here.
   # ══════════════════════════════════════════════════════════════════════════
@@ -324,7 +324,7 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════
-  # KONG  —  API gateway. Behind Traefik (velobits-infra stack); routes
+  # KONG  -  API gateway. Behind Traefik (velobits-infra stack); routes
   # /api/v1/* to services. Joins velobits-net so Traefik can route
   # api-dev.velobits.dev → kong:8000 and Keycloak can POST backchannel logouts.
   # ══════════════════════════════════════════════════════════════════════════

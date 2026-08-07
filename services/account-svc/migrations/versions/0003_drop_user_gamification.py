@@ -8,7 +8,7 @@ The gamification feature (XP, streaks, achievements, daily quests) was removed
 on 2026-07-13. The frontend soft-delete is already deployed, and the two
 /user/gamification endpoints are now DB-free no-op stubs kept only as a shield
 for stale cached SPA bundles. The reward economy (spin wheel, daily-login
-bonus) is NOT affected — its tables are owned elsewhere and untouched.
+bonus) is NOT affected - its tables are owned elsewhere and untouched.
 
 Data loss is deliberate: downgrade() recreates the table and its three indexes
 with the exact structure from 0001_baseline, but the dropped rows are NOT

@@ -36,5 +36,5 @@ repos:
         args: ['--maxkb=500']
       - id: check-merge-conflict
 
-  # NOTE: pytest smoke tests removed from pre-commit — this is CI's job.
+  # NOTE: pytest smoke tests removed from pre-commit - this is CI's job.
   # Run tests with: pytest services/<svc>/tests -q

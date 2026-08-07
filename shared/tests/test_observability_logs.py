@@ -15,7 +15,7 @@ from fixmytext_shared.observability.sanitize import (
 
 
 class _FakeExporter(LogExporter):
-    """Stand-in for OTLPLogExporter — records kwargs, never hits the network."""
+    """Stand-in for OTLPLogExporter - records kwargs, never hits the network."""
 
     instances: list["_FakeExporter"] = []
 

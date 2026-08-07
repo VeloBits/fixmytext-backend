@@ -19,7 +19,7 @@ async def init_redis() -> None:
     """Open the Redis connection pool (called from FastAPI lifespan)."""
     global _pool  # noqa: PLW0603
     if not settings.REDIS_URL:
-        logger.info("REDIS_URL not set — Redis features disabled")
+        logger.info("REDIS_URL not set - Redis features disabled")
         return
     try:
         _pool = Redis.from_url(
@@ -31,7 +31,7 @@ async def init_redis() -> None:
         logger.info("Redis connected: %s", settings.REDIS_URL)
     except Exception:
         logger.warning(
-            "Redis connection failed — falling back to in-memory", exc_info=True
+            "Redis connection failed - falling back to in-memory", exc_info=True
         )
         _pool = None
 

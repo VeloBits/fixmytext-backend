@@ -9,7 +9,7 @@ These tests pin both halves of the fix:
 
   1. The service-layer writers (grant_pass, grant_credits, fulfill_payment)
      populate keycloak_sub from the User row.
-  2. PaymentEvent.keycloak_sub is nullable — webhook events can reference an
+  2. PaymentEvent.keycloak_sub is nullable - webhook events can reference an
      unknown user or none at all (user_id is nullable by design), so the
      audit insert must not require a subject.
 """
@@ -65,7 +65,7 @@ def test_entitlement_tables_require_keycloak_sub():
 
 def test_payment_event_keycloak_sub_is_nullable():
     """Webhook events may have no resolvable user (malformed notes, deleted
-    user) — matching the nullable user_id — so the audit row must be
+    user) - matching the nullable user_id - so the audit row must be
     insertable without a subject (migration 0002)."""
     from app.db.models.billing_subscription import PaymentEvent
 

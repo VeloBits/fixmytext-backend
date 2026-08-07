@@ -62,7 +62,7 @@ async def check_access(
 
             user = await db.scalar(select(User).where(User.keycloak_id == keycloak_id))
             if user is None:
-                # JIT provisioning — mirror deps.get_current_user so first-time
+                # JIT provisioning - mirror deps.get_current_user so first-time
                 # users are tracked. Placeholder email keeps the UNIQUE intact.
                 # IntegrityError handling covers the race where two simultaneous
                 # first-requests both attempt to insert the same keycloak_id.

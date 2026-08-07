@@ -1,4 +1,4 @@
-"""UserSpinLog ORM model — one spin per ISO week per user (enforced by composite PK)."""
+"""UserSpinLog ORM model - one spin per ISO week per user (enforced by composite PK)."""
 
 import uuid
 from datetime import date, datetime

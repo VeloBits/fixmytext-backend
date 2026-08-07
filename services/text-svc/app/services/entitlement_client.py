@@ -1,7 +1,7 @@
 """Client for the payments-svc entitlement gate.
 
 Calls ``POST /internal/v1/check-access`` before running a tool. Fails CLOSED for
-non-free tools when the gate is unreachable (the M-4 lesson — a silent fail-open
+non-free tools when the gate is unreachable (the M-4 lesson - a silent fail-open
 re-opens the H-1 bypass): a gate outage degrades billable tools (503) but still
 serves always-free tools from a local allowlist.
 """
@@ -18,7 +18,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Degraded-mode allowlist used ONLY when the gate is unreachable. Source of
-# truth is payments-svc app/core/pass_catalog.py::ALWAYS_FREE_TOOL_IDS — keep in
+# truth is payments-svc app/core/pass_catalog.py::ALWAYS_FREE_TOOL_IDS - keep in
 # sync. When the gate IS reachable it makes the always-free decision itself.
 ALWAYS_FREE_TOOL_IDS = frozenset(
     {"find_replace", "compare", "random_text", "password", "regex_test"}
@@ -26,7 +26,7 @@ ALWAYS_FREE_TOOL_IDS = frozenset(
 
 _TIMEOUT = httpx.Timeout(1.5, connect=0.5)
 
-# Shared persistent client — reuses TCP connections across requests.
+# Shared persistent client - reuses TCP connections across requests.
 # Initialized by init_http_client() in the FastAPI lifespan.
 _HTTP_CLIENT: httpx.AsyncClient | None = None
 
@@ -65,13 +65,13 @@ def _fail_closed(tool_id: str, tool_type: str, reason: str) -> None:
     """Allow only always-free tools when the gate is unreachable; else 503."""
     if tool_id in ALWAYS_FREE_TOOL_IDS or tool_type == "drawer":
         logger.warning(
-            "entitlement gate unavailable (%s) — serving free tool %s",
+            "entitlement gate unavailable (%s) - serving free tool %s",
             sanitize_log_value(reason),
             sanitize_log_value(tool_id),
         )
         return
     logger.error(
-        "entitlement gate unavailable (%s) — blocking billable tool %s",
+        "entitlement gate unavailable (%s) - blocking billable tool %s",
         sanitize_log_value(reason),
         sanitize_log_value(tool_id),
     )

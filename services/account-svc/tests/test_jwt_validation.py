@@ -1,7 +1,7 @@
 """Tests for JWT validation in the ``get_current_user`` dependency.
 
 Each test exercises a distinct JWT failure mode against ``GET /api/v1/auth/me``
-using ``app.core.deps.verify_jwt_raw`` as the mock target — that is the name
+using ``app.core.deps.verify_jwt_raw`` as the mock target - that is the name
 bound in the deps module after ``from fixmytext_shared.security.jwt import
 verify_jwt_raw``.
 """

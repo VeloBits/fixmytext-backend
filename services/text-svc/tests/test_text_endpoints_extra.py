@@ -4,7 +4,7 @@ Complements test_text_endpoints.py: covers every request model that carries
 extra arguments (shift, key, rails, delimiter, ...) plus the 400/404 error
 handling in the central ``_execute_tool`` dispatcher.
 
-The rate limiter is patched out for the whole module — these tests add enough
+The rate limiter is patched out for the whole module - these tests add enough
 requests to exhaust the shared in-memory visitor window otherwise.
 """
 

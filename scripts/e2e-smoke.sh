@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-# e2e-smoke.sh — Automated endpoint smoke test for the FixMyText dev stack.
+# e2e-smoke.sh - Automated endpoint smoke test for the FixMyText dev stack.
 #
 # Usage:
 #   TEST_USER=you@example.com TEST_PW=YourPass ./scripts/e2e-smoke.sh
@@ -78,7 +78,7 @@ TEST_USER="${TEST_USER:-}"
 TEST_PW="${TEST_PW:-}"
 
 if [ -z "$TEST_USER" ] || [ -z "$TEST_PW" ]; then
-  echo "  TEST_USER / TEST_PW not set — skipping authenticated endpoint tests."
+  echo "  TEST_USER / TEST_PW not set - skipping authenticated endpoint tests."
   echo "  Set TEST_USER=you@example.com TEST_PW=yourpass to test auth-gated endpoints."
   TOKEN=""
 else
@@ -94,7 +94,7 @@ else
     --data-urlencode "scope=openid email profile" \
     2>/dev/null | jq -r '.access_token // empty' 2>/dev/null || echo "")
   if [ -z "$TOKEN" ]; then
-    echo "  WARNING: Failed to acquire token — authenticated tests will be skipped."
+    echo "  WARNING: Failed to acquire token - authenticated tests will be skipped."
     echo "  Make sure TEST_USER is registered in Keycloak at ${KEYCLOAK}/realms/${REALM}"
   else
     echo "  Token acquired (first 20 chars): ${TOKEN:0:20}..."
@@ -142,7 +142,7 @@ check "GET /health/ready (via Kong)"         GET "${KONG}/health/ready"   200
 check "Keycloak realm discovery"             GET "${KEYCLOAK}/realms/${REALM}/.well-known/openid-configuration" 200
 
 echo ""
-echo "=== text-svc — local text tools ==="
+echo "=== text-svc - local text tools ==="
 check "POST /api/v1/text/uppercase"          POST "${KONG}/api/v1/text/uppercase"      200  '{"text":"hello world"}'
 check "POST /api/v1/text/lowercase"          POST "${KONG}/api/v1/text/lowercase"      200  '{"text":"HELLO WORLD"}'
 check "POST /api/v1/text/reverse"            POST "${KONG}/api/v1/text/reverse"        200  '{"text":"hello"}'
@@ -151,13 +151,13 @@ check "POST /api/v1/text/base64-encode"      POST "${KONG}/api/v1/text/base64-en
 check "POST /api/v1/text/nonexistent-tool"   POST "${KONG}/api/v1/text/nonexistent"    404  '{"text":"x"}'
 
 echo ""
-echo "=== ai-svc — AI tools (auth required) ==="
+echo "=== ai-svc - AI tools (auth required) ==="
 check "POST /api/v1/ai/generate-hashtags (no auth → 401)" POST "${KONG}/api/v1/ai/generate-hashtags" 401 '{"text":"test"}'
 check "POST /api/v1/ai/generate-hashtags (with auth)"     POST "${KONG}/api/v1/ai/generate-hashtags" 200 '{"text":"A text about software engineering"}' yes
 check "POST /api/v1/ai/nonexistent-tool (with auth → 404)" POST "${KONG}/api/v1/ai/nonexistent" 404 '{"text":"x"}' yes
 
 echo ""
-echo "=== payments-svc — passes & subscription ==="
+echo "=== payments-svc - passes & subscription ==="
 check "GET /api/v1/passes/catalog (public)"             GET  "${KONG}/api/v1/passes/catalog"            200
 check "GET /api/v1/passes/active (no auth → 401)"       GET  "${KONG}/api/v1/passes/active"             401
 check "GET /api/v1/passes/active (with auth)"           GET  "${KONG}/api/v1/passes/active"             200  "" yes
@@ -166,7 +166,7 @@ check "GET /api/v1/subscription/status (no auth → 401)" GET  "${KONG}/api/v1/s
 check "GET /api/v1/subscription/status (with auth)"     GET  "${KONG}/api/v1/subscription/status"       200  "" yes
 
 echo ""
-echo "=== account-svc — user data, history, share, auth ==="
+echo "=== account-svc - user data, history, share, auth ==="
 check "GET /api/v1/auth/me (no auth → 401)"             GET  "${KONG}/api/v1/auth/me"                   401
 check "GET /api/v1/auth/me (with auth)"                  GET  "${KONG}/api/v1/auth/me"                   200  "" yes
 check "GET /api/v1/user/preferences (no auth → 401)"    GET  "${KONG}/api/v1/user/preferences"          401
@@ -196,7 +196,7 @@ echo "════════════════════════�
 
 if [ "$FAIL" -gt 0 ]; then
   echo ""
-  echo "❌ $FAIL test(s) failed — investigate before merging to main."
+  echo "❌ $FAIL test(s) failed - investigate before merging to main."
   exit 1
 else
   echo ""

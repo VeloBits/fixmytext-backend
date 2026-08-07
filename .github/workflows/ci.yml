@@ -8,7 +8,7 @@
 #
 # A successful run of this workflow is what gates the Railway deploy
 # (.github/workflows/deploy-railway.yml, workflow_run on "Backend Test &
-# Build") — a red job here blocks the deploy (H-7).
+# Build") - a red job here blocks the deploy (H-7).
 #
 # Branch protection note: the *-check summary jobs exist to keep the legacy
 # required-status-check names ("Lint & Format Check", "Tests & Coverage",
@@ -124,7 +124,7 @@ jobs:
             cov_threshold: 95
             # arq is intentionally absent from requirements.txt (its redis<6
             # pin conflicts with the pinned redis); the Dockerfile installs it
-            # with --no-deps — mirror that here or test collection fails on
+            # with --no-deps - mirror that here or test collection fails on
             # `import arq` in app/worker/tasks.py.
             extra_install: pip install --no-deps arq==0.28.0
           - service: payments-svc
@@ -135,7 +135,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/testdb
       SECRET_KEY: test-secret-key-at-least-32-characters-long-for-ci
       DEBUG: "true"
-      ALLOWED_ORIGINS: '["http://localhost:3000"]'
+      ALLOWED_ORIGINS: '["http://localhost:3100"]'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -195,7 +195,7 @@ jobs:
           cache-dependency-path: shared/pyproject.toml
 
       - name: Install shared package + test deps
-        # pytest-cov is installed explicitly — the [test] extra doesn't carry it.
+        # pytest-cov is installed explicitly - the [test] extra doesn't carry it.
         run: |
           python -m pip install --upgrade pip
           pip install -e './shared[test]' pytest-cov
@@ -252,7 +252,7 @@ jobs:
           - service: account-svc
           - service: ai-svc
             # arq ships in the production image via --no-deps (see
-            # services/ai-svc/Dockerfile) — install it here too so the audit
+            # services/ai-svc/Dockerfile) - install it here too so the audit
             # covers everything the image actually runs.
             extra_install: pip install --no-deps arq==0.28.0
           - service: payments-svc
@@ -280,8 +280,8 @@ jobs:
         run: ${{ matrix.extra_install }}
 
       - name: Audit dependencies for known vulnerabilities
-        # PYSEC-2025-183 (PyJWT) is ignored — no fix version exists upstream yet.
-        # Track: https://github.com/jpadilla/pyjwt/issues — remove once patched.
+        # PYSEC-2025-183 (PyJWT) is ignored - no fix version exists upstream yet.
+        # Track: https://github.com/jpadilla/pyjwt/issues - remove once patched.
         run: pip-audit --strict --vulnerability-service osv --ignore-vuln PYSEC-2025-183
 
   # Branch protection may require "Security Scan" (the old single-job name).
@@ -308,7 +308,7 @@ jobs:
     permissions:
       contents: read
       security-events: write
-    # Every Dockerfile in the repo. All builds use the repo root as context —
+    # Every Dockerfile in the repo. All builds use the repo root as context -
     # each Dockerfile COPYs shared/ (and the migrate image copies two service
     # trees), so a service-dir context would break the build.
     strategy:
@@ -405,7 +405,7 @@ jobs:
       - name: Validate docker-compose config
         # env_file: .env is required:true in compose, so synthesize a stub.
         # The interpolation-only vars get dummies to silence warnings.
-        # velobits-net is external (created by the velobits-infra stack) —
+        # velobits-net is external (created by the velobits-infra stack) -
         # `config` only renders, so the network doesn't need to exist here.
         run: |
           printf '%s\n' \
