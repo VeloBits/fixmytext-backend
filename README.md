@@ -28,8 +28,13 @@ Read the ADRs in numeric order for the full picture.
 
 The **Traefik edge proxy** and **Keycloak identity provider** (Velobits realms)
 live in the [VeloBits/velobits-infra](https://github.com/VeloBits/velobits-infra)
-repo (extracted from here with history preserved). That stack creates the
-shared `velobits-proxy-net` Docker network this compose file joins.
+repo (extracted from here with history preserved). That stack **creates** the
+shared `velobits-proxy-net` Docker network this stack joins as external, so it
+starts first. Every service that validates a token is on that network — JWKS is
+fetched from Keycloak container-to-container.
+
+Deployments go to an Oracle VM via Octopus Deploy — see
+[docs/octopus-deployment.md](docs/octopus-deployment.md).
 
 ## Prerequisites
 
@@ -45,7 +50,7 @@ Auth (Keycloak) and the edge proxy (Traefik) run from the
 creates the shared `velobits-proxy-net` Docker network. **Start it first**:
 
 ```bash
-# 1. Infra stack (Traefik :80, Keycloak localhost:8080, creates velobits-net)
+# 1. Infra stack (Traefik :80/:443, Keycloak localhost:8080, creates velobits-proxy-net)
 cd velobits-infra
 cp .env.example .env       # fill in KEYCLOAK_DEV_* passwords
 docker compose up -d
@@ -57,9 +62,22 @@ docker compose --profile dev up --build
 ```
 
 Everything is reachable on direct localhost ports — Kong (API) at
-`http://localhost:8000`, Keycloak at `http://localhost:8080`. Optional
-`*.velobits.dev` subdomain routing via Traefik (`/etc/hosts` setup, subdomain
-map) is documented in the velobits-infra README.
+`http://localhost:8000`, Keycloak at `http://localhost:8080`.
+
+Optionally reach the API through Traefik on its real hostname instead. Add the
+`/etc/hosts` entry and generate the mkcert certificate as described in
+[velobits-infra/traefik/README.md](https://github.com/VeloBits/velobits-infra/blob/main/traefik/README.md),
+then use `https://api-dev.fixmytext.velobits.dev`.
+
+| Environment | API hostname | Frontend |
+|---|---|---|
+| local | `http://localhost:8000` | `http://localhost:3100` |
+| dev | `https://api-dev.fixmytext.velobits.dev` | `https://fixmytext-dev.velobits.dev` |
+| prod | `https://api.fixmytext.velobits.dev` | `https://fixmytext.velobits.dev` |
+
+Product APIs are second-level names (`api[-dev].<app>.velobits.dev`) so each
+product owns its own API namespace; the convention and its DNS/certificate
+consequences live in the infra repo's Traefik README.
 
 To run this stack without the infra repo (auth flows won't work), create the
 shared network manually first: `docker network create velobits-proxy-net`.
@@ -171,7 +189,9 @@ backend/
 ├── gateway/kong/                      # Kong dbless config (Traefik + Keycloak → velobits-infra repo)
 ├── services/<svc>/migrations/         # per-service Alembic chains (account → payments)
 ├── Dockerfile.migrate                 # image that runs both migration chains in order
-└── docker-compose.yml                 # app stack: Postgres, Redis, services, Kong (joins velobits-proxy-net)
+├── octopus/                           # deploy assets: deploy.sh, env templates, dev override
+├── docker-compose.yml                 # dev stack: Postgres, Redis, services, Kong (joins velobits-proxy-net)
+└── docker-compose-prod.yml            # prod stack: remote DB, no published ports, Kong as kong-prod
 ```
 
 ## Architecture
@@ -330,3 +350,40 @@ pre-commit run --all-files     # optional: run against the whole tree once
 `pytest` must resolve to the project venv (so `tests/core` imports work) —
 activate `.venv` before committing, or run commits from a shell where it's on
 PATH. The frontend's Husky hook lives in `frontend/.git` and is unaffected.
+
+## Deployment
+
+Deploys go to an Oracle Cloud VM through **Octopus Deploy**, on the same
+instance and target as [velobits-infra](https://github.com/VeloBits/velobits-infra).
+Full runbook: [docs/octopus-deployment.md](docs/octopus-deployment.md).
+
+```
+Actions "Deploy via Octopus"  →  Octopus release  →  Oracle VM (Tentacle)
+   (manual, any branch,               │                    │
+    gated on green CI)                │                    ├─ Development: docker-compose.yml
+                                      │                    │    + octopus/docker-compose.deploy.yml
+                                      └── main → promotable └─ Production:  docker-compose-prod.yml
+```
+
+- **Manual, any-branch.** Run the workflow from the Actions tab. Feature
+  branches can only reach Development; only `main` produces a release that is
+  promotable to Production, from the Octopus portal.
+- **CI-gated (H-7).** The workflow refuses to ship a commit whose
+  "Backend Test & Build" run is not green — a missing run counts as a failure.
+- **Built on the VM.** The target is arm64 and this repo publishes no images
+  (`cd.yml` is a build/scan gate only), so `octopus/deploy.sh` builds from the
+  packaged sources natively.
+- **Remote database.** Both environments use a managed Postgres with a database
+  per environment; the in-compose Postgres is parked behind a `local-db`
+  profile on deploys, so the VM stores no product data.
+- **Gated on reality.** A deploy only reports success once every service is
+  healthy *and* Kong has routed a live request to one of them. Migrations run
+  before any new container serves traffic.
+- **Secrets** live in Octopus sensitive variables and are rendered into a
+  mode-600 `.env` per deploy; GitHub authenticates via OIDC, so no API key is
+  stored. `octopus/env.*.template` holds variable names only.
+
+Configuration that differs per environment lives in
+`octopus/env.dev.template` / `octopus/env.prod.template` — those are the
+authoritative list of what a deployed environment needs, and
+`scripts/check-env-templates.sh` (run in CI) keeps them honest.

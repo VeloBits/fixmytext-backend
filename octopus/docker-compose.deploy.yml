@@ -1,0 +1,90 @@
+# Octopus deploy-time override for the DEVELOPMENT stack — applied by
+# octopus/deploy.sh on the VM:
+#
+#   docker compose --profile dev \
+#     -f docker-compose.yml -f octopus/docker-compose.deploy.yml up -d
+#
+# Because deploy.sh always passes -f explicitly, docker-compose.override.yml
+# (the local Swagger port mappings) is NOT auto-merged — deployed services are
+# reachable only through Kong.
+#
+# What this changes about the dev stack:
+#
+# 1. db-service + pgbouncer move behind the `local-db` profile. Deployed
+#    environments use a REMOTE managed Postgres (Aiven) via DATABASE_URL, so the
+#    VM stores no product data. Every service that depended on db-service gets
+#    `required: false` — without it compose refuses to start over the now-absent
+#    service.
+# 2. DATABASE_URL is repointed from db-service to the rendered .env value. The
+#    base file hardcodes the in-compose host, which no longer exists here.
+# 3. The private network gets a PINNED subnet so TRUSTED_PROXY_HOSTS can name
+#    it. Services accept X-Forwarded-For only from Kong's range; on a public VM
+#    the local-compose "*" default would let any upstream spoof a client IP.
+#    172.29/16 deliberately differs from the prod stack's 172.28/16.
+# 4. Redis stops publishing to the host — nothing outside the stack needs it.
+#
+# ENVIRONMENT stays `development` here (matching velobits-infra, whose deployed
+# Development runs Keycloak in start-dev): this environment exists to exercise
+# the deploy path and integration, not to be production-strict. The values that
+# actually matter for safety on a public host — proxy trust, cookie Secure flag,
+# issuer — are still set properly by octopus/env.dev.template.
+
+services:
+
+  db-service:
+    profiles: ["local-db"]
+
+  pgbouncer:
+    # !override, not a plain value: compose APPENDS sequences on merge, so
+    # `profiles: ["local-db"]` alone would leave the base file's "dev" in the
+    # list and pgbouncer would still start under --profile dev.
+    profiles: !override ["local-db"]
+    depends_on:
+      db-service:
+        condition: service_healthy
+        required: false
+
+  migrate-dev:
+    # Parked behind `migrate` so `up` never starts it: deploy.sh runs migrations
+    # as an explicit gated step instead. Without this, --force-recreate would
+    # re-run the whole alembic chain on every redeploy. !override because
+    # compose appends sequences on merge (the base file has "dev").
+    profiles: !override ["migrate"]
+    environment:
+      - DATABASE_URL=${DATABASE_URL:?set DATABASE_URL in .env (rendered by Octopus from octopus/env.dev.template)}
+    depends_on:
+      db-service:
+        condition: service_healthy
+        required: false
+
+  payments-svc:
+    environment:
+      - DATABASE_URL=${DATABASE_URL:?set DATABASE_URL in .env (rendered by Octopus from octopus/env.dev.template)}
+    depends_on:
+      # Conditions are restated from the base file — the compose schema requires
+      # `condition` whenever an entry is present, so `required: false` alone is
+      # not a valid partial override.
+      db-service:
+        condition: service_healthy
+        required: false
+      redis-service:
+        condition: service_started
+
+  account-svc:
+    environment:
+      - DATABASE_URL=${DATABASE_URL:?set DATABASE_URL in .env (rendered by Octopus from octopus/env.dev.template)}
+    depends_on:
+      db-service:
+        condition: service_healthy
+        required: false
+      redis-service:
+        condition: service_started
+
+  redis-service:
+    ports: !reset []
+
+networks:
+  fixmytext-backend-net:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16

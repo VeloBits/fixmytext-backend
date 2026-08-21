@@ -1,0 +1,28 @@
+# Line-ending policy. Most of this repo is edited on Windows, where
+# core.autocrlf hands out CRLF working copies. The files below are consumed by
+# Linux at build or deploy time, where a stray \r is a real failure — not a
+# cosmetic one — so pin them to LF regardless of local git config.
+
+# Executed on the Oracle VM by the Octopus Tentacle, and inside containers.
+# A CRLF here fails as: bad interpreter: /usr/bin/env bash^M
+*.sh text eol=lf
+
+# Rendered into the runtime .env on the Linux VM by Octopus. A CRLF would put a
+# trailing \r INSIDE every secret value — passwords and URLs would be subtly
+# wrong with no parse error to point at it.
+octopus/env.*.template text eol=lf
+
+# Parsed by docker compose on the VM, including the !override / !reset tags.
+octopus/docker-compose.deploy.yml text eol=lf
+docker-compose-prod.yml text eol=lf
+
+# CRLF in a Dockerfile appends \r to RUN/CMD arguments; images are built on the
+# VM from the deployment package, so this has to hold there too.
+Dockerfile* text eol=lf
+**/Dockerfile text eol=lf
+
+# Bind-mounted into the Kong container as its declarative config.
+gateway/kong/*.yml text eol=lf
+
+# Alembic and application sources run in Linux containers.
+*.py text eol=lf

@@ -6,9 +6,12 @@
 # gateway config validation (Kong, docker-compose). Traefik and Keycloak
 # validation moved to the VeloBits/velobits-infra repo with the configs.
 #
-# A successful run of this workflow is what gates the Railway deploy
-# (.github/workflows/deploy-railway.yml, workflow_run on "Backend Test &
-# Build") - a red job here blocks the deploy (H-7).
+# A successful run of this workflow is what gates deployment:
+# .github/workflows/deploy-octopus.yml checks the latest "Backend Test & Build"
+# conclusion for the commit it is asked to ship, so a red job here blocks the
+# deploy (H-7). The retired Railway pipeline enforced the same rule via
+# workflow_run; the check moved into the deploy workflow when deploys became
+# manual/any-branch.
 #
 # Branch protection note: the *-check summary jobs exist to keep the legacy
 # required-status-check names ("Lint & Format Check", "Tests & Coverage",
@@ -352,8 +355,8 @@ jobs:
           category: ci-image-scan-${{ matrix.image }}
 
       # ── Gate: fail the build on any CRITICAL/HIGH (fixable) vuln (M-12).
-      # A red CI here blocks the CI-gated Railway deploy
-      # (.github/workflows/deploy-railway.yml) from ever shipping the image.
+      # A red CI here blocks the CI-gated Octopus deploy
+      # (.github/workflows/deploy-octopus.yml) from ever shipping the image.
       - name: Trivy gate (${{ matrix.image }})
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
@@ -405,15 +408,49 @@ jobs:
       - name: Validate docker-compose config
         # env_file: .env is required:true in compose, so synthesize a stub.
         # The interpolation-only vars get dummies to silence warnings.
-        # velobits-proxy-net is external (created manually) -
+        # velobits-proxy-net is external (created by velobits-infra) -
         # `config` only renders, so the network doesn't need to exist here.
+        #
+        # All deployable permutations are validated, because a broken merge
+        # otherwise only surfaces mid-deploy:
+        #   dev            what a laptop runs
+        #   dev + deploy   what Octopus runs in Development (needs compose
+        #                  >= 2.24 for the !override tag)
+        #   prod           what Octopus runs in Production
         run: |
-          printf '%s\n' \
-            'POSTGRES_PASSWORD=ci-stub' \
-            'SESSION_COOKIE_SECRET=ci-stub' \
-            'REDIS_PASSWORD=ci-stub' > .env
+          cat > .env <<'EOF'
+          POSTGRES_PASSWORD=ci-stub
+          SESSION_COOKIE_SECRET=ci-stub
+          REDIS_PASSWORD=ci-stub
+          SECRET_KEY=ci-stub
+          INTERNAL_SHARED_SECRET=ci-stub
+          DATABASE_URL=postgresql+asyncpg://u:p@db.example:5432/d?ssl=require
+          REDIS_URL=redis://:ci-stub@redis-service:6379/0
+          KEYCLOAK_REALM=Velobits-Prod
+          KEYCLOAK_AUDIENCE=fixmytext-backend
+          KEYCLOAK_URL=http://velobits-auth:8080
+          KEYCLOAK_JWKS_URL=http://velobits-auth:8080/realms/Velobits-Prod/protocol/openid-connect/certs
+          KEYCLOAK_ISSUER=https://auth.velobits.dev/realms/Velobits-Prod
+          KEYCLOAK_SERVICE_ACCOUNT_SECRET=ci-stub
+          TRUSTED_PROXY_HOSTS=172.28.0.0/16
+          FRONTEND_URL=https://fixmytext.velobits.dev
+          EOF
+
           docker compose --profile dev config -q
+          docker compose --profile dev -f docker-compose.yml -f octopus/docker-compose.deploy.yml config -q
+          docker compose -f docker-compose-prod.yml config -q
+          docker compose -f docker-compose-prod.yml --profile migrate --profile local-db config -q
           rm -f .env
+
+      - name: Validate Octopus deploy assets
+        # deploy.sh runs unattended on the VM as root via the Tentacle, and the
+        # env templates are the only source of a deployed .env - a defect in
+        # either is a production incident, not a style nit.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck octopus/deploy.sh scripts/check-env-templates.sh
+          bash scripts/check-env-templates.sh
 
   # ── Sentry release ─────────────────────────────────────────────────────────
 

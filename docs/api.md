@@ -4,12 +4,17 @@
 
 ## Base URL
 
-```
-http://localhost:8000/api/v1
-```
+| Environment | Base URL |
+|---|---|
+| local | `http://localhost:8000/api/v1` |
+| dev | `https://api-dev.fixmytext.velobits.dev/api/v1` |
+| prod | `https://api.fixmytext.velobits.dev/api/v1` |
 
-- **Swagger UI:** http://localhost:8000/docs
-- **ReDoc:** http://localhost:8000/redoc
+All three are the same Kong gateway; only the edge differs (locally you hit the
+published port directly, deployed you go through Traefik).
+
+- **Swagger UI:** per-service and local only — Kong routes `/api/v1/*`, not
+  `/docs`. See the port table in the README (`:8011`–`:8014`).
 - **Health Check:** `GET /health` returns `{"status": "ok", "version": "0.1.0"}`
 
 ## Authentication
@@ -189,7 +194,10 @@ All endpoints: `POST /api/v1/text/{slug}` — accept `TextRequest`, return `Text
 | `/text/meta-descriptions` | Generate meta descriptions |
 | `/text/blog-outline` | Generate blog outline |
 
-> Full list of all 200+ endpoints available at http://localhost:8000/docs
+> Full list of all 200+ endpoints: each service publishes its own OpenAPI
+> schema on a loopback port in dev (`:8011` ai, `:8012` text, `:8013`
+> payments, `:8014` account — see the README). Kong on `:8000` routes
+> `/api/v1/*` only, not `/docs`.
 
 ### User Data
 

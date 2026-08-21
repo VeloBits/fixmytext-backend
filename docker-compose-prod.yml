@@ -1,0 +1,398 @@
+# fixmytext-backend — PRODUCTION stack (api.fixmytext.velobits.dev).
+#
+# Deployed to the Oracle VM by Octopus; see docs/octopus-deployment.md. Never
+# started with plain `docker compose up` — it has no docker-compose.override.yml
+# merge (octopus/deploy.sh always passes -f explicitly) and expects an .env
+# rendered from octopus/env.prod.template.
+#
+# Shape, and how it differs from docker-compose.yml (dev):
+#   - NO database container. The product Postgres is a remote managed instance
+#     (Aiven) reached over DATABASE_URL. The local pgvector service is kept
+#     behind the `local-db` profile purely as an escape hatch.
+#   - NO published ports at all. Traefik (velobits-infra prod stack) reaches
+#     Kong over velobits-proxy-net; nothing on this stack is bound to a host
+#     interface, so the VM exposes only Traefik's :80/:443.
+#   - Images are BUILT ON THE VM. The target is an Ampere A1 (arm64) and this
+#     repo publishes no images anywhere (cd.yml is a build/scan gate only), so
+#     building natively is both correct for the architecture and free.
+#   - Migrations run as an explicit, gated deploy step (`migrate` profile), not
+#     as a side effect of `up`.
+#
+# Public hostname: api.fixmytext.velobits.dev → kong-prod:8000, routed by
+# velobits-infra/traefik/rules-prod/fixmytext-prod.yml. That DNS record must
+# exist and be Cloudflare **DNS only** (grey cloud) before first deploy — the
+# free Universal SSL edge cert does not cover second-level subdomains, and
+# Traefik issues the Let's Encrypt cert itself.
+
+# ── Shared service definitions ────────────────────────────────────────────────
+# The four FastAPI services differ only in build context, name and a couple of
+# env vars, so the common parts live in anchors. Prod uses mapping-form
+# `environment:` (dev uses list form) because anchors can only merge mappings.
+
+x-svc-base: &svc-base
+  restart: unless-stopped
+  env_file:
+    - .env
+  networks:
+    - fixmytext-backend-net
+    # Required to resolve velobits-auth for JWKS — a service on the private
+    # network only cannot validate a token.
+    - velobits-proxy-net
+
+x-svc-healthcheck: &svc-healthcheck
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+
+# Every service gets these; `environment:` in a service merges on top.
+x-svc-env: &svc-env
+  HOST: 0.0.0.0
+  PORT: 8000
+  ENVIRONMENT: production
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  # ── Keycloak ──
+  # JWKS over the internal name (velobits-auth on velobits-proxy-net); the
+  # ISSUER is the browser-facing URL, because that is what Keycloak stamps into
+  # the token's `iss`. Both are REQUIRED here: with ENVIRONMENT=production each
+  # service's startup guard refuses to boot on an empty value rather than
+  # silently skipping validation.
+  KEYCLOAK_REALM: ${KEYCLOAK_REALM:?set KEYCLOAK_REALM in .env}
+  KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:?set KEYCLOAK_AUDIENCE in .env}
+  KEYCLOAK_JWKS_URL: ${KEYCLOAK_JWKS_URL:?set KEYCLOAK_JWKS_URL in .env}
+  KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:?set KEYCLOAK_ISSUER in .env}
+  # X-Forwarded-For is only trusted from Kong, which reaches services on
+  # fixmytext-backend-net — whose subnet is pinned at the bottom of this file so
+  # this value is deterministic. "*" is rejected outright in production.
+  TRUSTED_PROXY_HOSTS: ${TRUSTED_PROXY_HOSTS:?set TRUSTED_PROXY_HOSTS in .env}
+
+services:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # PRODUCT DATABASE  -  NOT started by default.
+  # Production uses a remote managed Postgres (Aiven) via DATABASE_URL, so the
+  # VM holds no product data. Enable only as a fallback:
+  #   docker compose -f docker-compose-prod.yml --profile local-db up -d
+  # and point DATABASE_URL at db-service:5432.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  db-service:
+    profiles: ["local-db"]
+    image: pgvector/pgvector:pg16
+    container_name: fixmytext-prod-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fixmytext}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-fixmytext}
+    volumes:
+      - fixmytext-prod-pgdata:/var/lib/postgresql/data
+    networks:
+      - fixmytext-backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fixmytext} -d ${POSTGRES_DB:-fixmytext}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # REDIS  -  rate-limit counters + the arq job queue.
+  # Stays on the VM: the counters are ephemeral and the free managed-Redis
+  # tiers add a network hop for no benefit. Not published, so it is reachable
+  # only from fixmytext-backend-net.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  redis-service:
+    image: redis:8-alpine
+    container_name: fixmytext-prod-redis
+    restart: unless-stopped
+    # $$ (not $) so compose passes the literal through and the shell inside the
+    # container expands it — keeps the password out of `docker inspect`.
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --save 60 1 --appendonly no"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    mem_limit: 256m
+    cpus: "0.25"
+    volumes:
+      - fixmytext-prod-redis:/data
+    networks:
+      - fixmytext-backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # MIGRATE  -  one-shot alembic runner, behind the `migrate` profile so it is
+  # never started as a side effect of `up`. octopus/deploy.sh runs it as an
+  # explicit, gated step before starting the services:
+  #   docker compose -f docker-compose-prod.yml run --rm migrate
+  # Order matters: account-svc owns auth.users and payments-svc keeps
+  # cross-schema FKs into it, so account-svc migrates FIRST.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  migrate:
+    profiles: ["migrate"]
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: fixmytext-prod-migrate
+    restart: "no"
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - >-
+        alembic -c services/account-svc/migrations/alembic.ini upgrade head &&
+        alembic -c services/payments-svc/migrations/alembic.ini upgrade head
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+    networks:
+      - fixmytext-backend-net
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # AI-SVC  -  Groq-backed AI text transformation. Kong routes /api/v1/ai/*.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  ai-svc:
+    <<: *svc-base
+    build:
+      context: .
+      dockerfile: services/ai-svc/Dockerfile
+    container_name: fixmytext-prod-ai-svc
+    mem_limit: 512m
+    cpus: "0.5"
+    expose:
+      - "8000"
+    environment:
+      <<: *svc-env
+      OTEL_SERVICE_NAME: fixmytext-ai-svc
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
+    depends_on:
+      redis-service:
+        condition: service_healthy
+    healthcheck: *svc-healthcheck
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # AI-WORKER  -  arq worker for async Groq jobs. Same image as ai-svc.
+  # Not on velobits-proxy-net: it validates no tokens, it only drains a queue.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  ai-worker:
+    build:
+      context: .
+      dockerfile: services/ai-svc/Dockerfile
+    container_name: fixmytext-prod-ai-worker
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: "0.25"
+    command: ["python", "-m", "arq", "app.worker.main.WorkerSettings"]
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: production
+      OTEL_SERVICE_NAME: fixmytext-ai-worker
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
+    depends_on:
+      redis-service:
+        condition: service_healthy
+    networks:
+      - fixmytext-backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import redis, os; redis.from_url(os.environ[\"REDIS_URL\"]).ping()'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # TEXT-SVC  -  local text transformation. Kong routes /api/v1/text/*.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  text-svc:
+    <<: *svc-base
+    build:
+      context: .
+      dockerfile: services/text-svc/Dockerfile
+    container_name: fixmytext-prod-text-svc
+    mem_limit: 256m
+    cpus: "0.25"
+    expose:
+      - "8000"
+    environment:
+      <<: *svc-env
+      OTEL_SERVICE_NAME: fixmytext-text-svc
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
+      INTERNAL_SHARED_SECRET: ${INTERNAL_SHARED_SECRET:?set INTERNAL_SHARED_SECRET in .env}
+    depends_on:
+      redis-service:
+        condition: service_healthy
+    healthcheck: *svc-healthcheck
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # PAYMENTS-SVC  -  passes, credits, subscriptions, Razorpay.
+  # Kong routes /api/v1/passes/* and /api/v1/subscription/*.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  payments-svc:
+    <<: *svc-base
+    build:
+      context: .
+      dockerfile: services/payments-svc/Dockerfile
+    container_name: fixmytext-prod-payments-svc
+    mem_limit: 256m
+    cpus: "0.25"
+    expose:
+      - "8000"
+    environment:
+      <<: *svc-env
+      OTEL_SERVICE_NAME: fixmytext-payments-svc
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
+      INTERNAL_SHARED_SECRET: ${INTERNAL_SHARED_SECRET:?set INTERNAL_SHARED_SECRET in .env}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+      # Conservative pools: the managed Postgres free plan caps total
+      # connections, and account-svc holds its own pool against the same
+      # instance. 2 services x (4 + 2) stays well inside it.
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-4}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-2}
+    depends_on:
+      redis-service:
+        condition: service_healthy
+    healthcheck: *svc-healthcheck
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # ACCOUNT-SVC  -  user data, history, share, session cookie.
+  # Kong routes /api/v1/auth/*, /api/v1/user/*, /api/v1/history/*, /share/*.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  account-svc:
+    <<: *svc-base
+    build:
+      context: .
+      dockerfile: services/account-svc/Dockerfile
+    container_name: fixmytext-prod-account-svc
+    mem_limit: 512m
+    cpus: "0.5"
+    expose:
+      - "8000"
+    environment:
+      <<: *svc-env
+      OTEL_SERVICE_NAME: fixmytext-account-svc
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
+      INTERNAL_SHARED_SECRET: ${INTERNAL_SHARED_SECRET:?set INTERNAL_SHARED_SECRET in .env}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-4}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-2}
+      # Admin API base — internal name, server-to-server only.
+      KEYCLOAK_URL: ${KEYCLOAK_URL:?set KEYCLOAK_URL in .env}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-fixmytext-backend}
+      KEYCLOAK_SERVICE_ACCOUNT_ID: ${KEYCLOAK_SERVICE_ACCOUNT_ID:-account-svc}
+      KEYCLOAK_SERVICE_ACCOUNT_SECRET: ${KEYCLOAK_SERVICE_ACCOUNT_SECRET:?set KEYCLOAK_SERVICE_ACCOUNT_SECRET in .env}
+      # Cookies are only ever sent over HTTPS here; the startup guard enforces it.
+      SESSION_COOKIE_SECRET: ${SESSION_COOKIE_SECRET:?set SESSION_COOKIE_SECRET in .env}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-fixmytext_session}
+      SESSION_COOKIE_SECURE: "true"
+      SESSION_COOKIE_MAX_AGE: ${SESSION_COOKIE_MAX_AGE:-604800}
+      # Host-only: the API and the frontend are different hosts, so a shared
+      # parent Domain would widen the cookie for no gain.
+      SESSION_COOKIE_DOMAIN: ""
+      FRONTEND_URL: ${FRONTEND_URL:?set FRONTEND_URL in .env}
+    depends_on:
+      redis-service:
+        condition: service_healthy
+    healthcheck: *svc-healthcheck
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # KONG  -  API gateway, fronted by the velobits-infra prod Traefik.
+  # Reachable as kong-prod:8000 on velobits-proxy-net; deliberately NOT
+  # published to a host port, so the only way in is through Traefik on :443.
+  # ══════════════════════════════════════════════════════════════════════════
+
+  kong:
+    image: kong:3.8-ubuntu
+    container_name: kong-prod
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: "0.50"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+      # Admin API bound to loopback INSIDE the container: it is unauthenticated
+      # in db-less mode, so it must never be reachable from any network.
+      KONG_ADMIN_LISTEN: "127.0.0.1:8001"
+      # Traefik terminates TLS and sets X-Forwarded-*; trust it so services see
+      # the real scheme and client IP.
+      KONG_TRUSTED_IPS: "0.0.0.0/0,::/0"
+      KONG_REAL_IP_HEADER: "X-Forwarded-For"
+      KONG_REAL_IP_RECURSIVE: "on"
+    volumes:
+      - ./gateway/kong/kong.yml:/etc/kong/kong.yml:ro
+    # Ephemeral runtime state: guarantees a clean socket dir on every start so a
+    # stale worker-events socket from an unclean shutdown cannot crash-loop the
+    # gateway (nginx: bind() Address already in use).
+    tmpfs:
+      - /usr/local/kong/sockets:size=1m
+    depends_on:
+      ai-svc:
+        condition: service_started
+      text-svc:
+        condition: service_started
+      payments-svc:
+        condition: service_started
+      account-svc:
+        condition: service_started
+    networks:
+      fixmytext-backend-net:
+      velobits-proxy-net:
+        aliases:
+          # The name velobits-infra's prod Traefik router dials
+          # (traefik/rules-prod/fixmytext-prod.yml -> http://kong-prod:8000).
+          # Pinned so renaming this compose service cannot silently 502 the API.
+          - kong-prod
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+# The private subnet is PINNED so TRUSTED_PROXY_HOSTS can name it: services
+# accept X-Forwarded-For only from this range (i.e. from Kong). Without a fixed
+# subnet Docker picks one at creation time and the value could not be set
+# ahead of the deploy.
+networks:
+  fixmytext-backend-net:
+    name: fixmytext-prod-backend-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+  # Created by the velobits-infra prod stack (Traefik + Keycloak). Start that
+  # stack first; octopus/deploy.sh creates the network if it is missing so
+  # deploy order cannot hard-fail.
+  velobits-proxy-net:
+    name: velobits-proxy-net
+    external: true
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  # Only used with --profile local-db. With the managed database, product data
+  # (and its backups) live on the provider's side.
+  fixmytext-prod-pgdata:
+  # Redis RDB snapshots — rate-limit counters and queued arq jobs survive a
+  # restart. Not a durability guarantee, just a convenience.
+  fixmytext-prod-redis:

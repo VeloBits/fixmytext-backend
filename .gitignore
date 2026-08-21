@@ -15,7 +15,18 @@ env/
 ENV/
 
 # ── Environment files (never commit secrets) ──────────────────────────────────
+# Env files. `.env.bak` and friends hold the same live secrets as `.env` —
+# a bare `.env` pattern does not cover them, and one `git add -A` is all it
+# takes. Ignore the whole family and re-include the committed example.
 .env
+.env.*
+!.env.example
+
+# Local agent/tooling scratch state (ruflo / ruvector containers + locks).
+agentdb.rvf
+agentdb.rvf.lock
+*.rvf
+*.rvf.lock
 
 # ── Distribution / packaging ──────────────────────────────────────────────────
 *.egg-info/

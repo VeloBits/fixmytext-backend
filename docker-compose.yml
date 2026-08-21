@@ -3,17 +3,39 @@
 # Profiles:
 #   dev   development stack  (hot reload, source volumes)
 #
-# There is no prod profile - production is deployed separately (identity side:
-# velobits-infra docs/keycloak-production-setup.md, prod services fetch JWKS
-# from the public https://auth.velobits.dev URL, no shared network needed).
+# Production is a SEPARATE FILE, not a profile here: docker-compose-prod.yml
+# (deployed by Octopus — docs/octopus-deployment.md). Do not add a prod profile;
+# the two stacks differ in more than service selection (no published ports, a
+# remote database, strict startup guards).
 #
 # Shared infrastructure (Traefik edge proxy + Keycloak identity provider)
-# lives in the VeloBits/velobits-infra repo. That stack creates the external
-# `velobits-proxy-net` network this file joins — START IT FIRST:
+# lives in the VeloBits/velobits-infra repo. That stack CREATES the
+# `velobits-proxy-net` network this file joins as external — START IT FIRST:
 #   (velobits-infra)      docker compose up -d
 #   (this repo)           docker compose --profile dev up --build
 # App-only fallback without the infra stack (auth flows won't work):
 #   docker network create velobits-proxy-net
+#
+# Public hostnames (routers live in velobits-infra/traefik/rules/, and
+# velobits-infra/traefik/README.md is the source of truth for the scheme):
+#   api-dev.fixmytext.velobits.dev   this stack's Kong  (prod: api.fixmytext…)
+#   auth-dev.velobits.dev            Keycloak           (prod: auth.velobits.dev)
+#   fixmytext-dev.velobits.dev       frontend           (prod: fixmytext.velobits.dev)
+# Kong is also on 127.0.0.1:8000 for browsers that skip the Traefik/hosts setup.
+#
+# ── Why Keycloak has TWO addresses in every service below ────────────────────
+# KEYCLOAK_URL / KEYCLOAK_JWKS_URL are server-to-server, so they use the
+# INTERNAL name keycloak-dev:8080 over velobits-proxy-net. The public
+# auth-dev.velobits.dev name is wrong for this: from inside a container it
+# resolves through public DNS to Cloudflare rather than to the local Traefik,
+# and its mkcert certificate is not in the service images' trust store.
+#   KEYCLOAK_ISSUER is the BROWSER-facing realm URL, because that is the value
+# Keycloak stamps into the token's `iss` claim. It is a different value on
+# purpose, not a duplicate. Left empty in dev: KC_HOSTNAME_STRICT=false makes
+# Keycloak derive the issuer per request, so it differs between
+# https://auth-dev.velobits.dev and http://localhost:8080, and an empty value
+# skips the check. Deployed environments set it — each service's startup guard
+# in main.py refuses to boot without it once ENVIRONMENT is not dev/test.
 
 services:
   # ══════════════════════════════════════════════════════════════════════════
@@ -154,11 +176,19 @@ services:
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-ai-svc
       - OTEL_EXPORTER_OTLP_ENDPOINT=
+      # Keycloak: internal JWKS host, browser-facing issuer. Two addresses on
+      # purpose — see "Why Keycloak has TWO addresses" in the file header.
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits}
+      - KEYCLOAK_AUDIENCE=${KEYCLOAK_AUDIENCE:-fixmytext-backend}
+      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/${KEYCLOAK_REALM:-Velobits}/protocol/openid-connect/certs}
+      - KEYCLOAK_ISSUER=${KEYCLOAK_ISSUER:-}
     depends_on:
       redis-service:
         condition: service_started
     networks:
       - fixmytext-backend-net
+      # Needed to resolve keycloak-dev for JWKS (see KEYCLOAK_JWKS_URL).
+      - velobits-proxy-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -219,8 +249,16 @@ services:
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-text-svc
       - OTEL_EXPORTER_OTLP_ENDPOINT=
+      # Keycloak: internal JWKS host, browser-facing issuer. Two addresses on
+      # purpose — see "Why Keycloak has TWO addresses" in the file header.
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits}
+      - KEYCLOAK_AUDIENCE=${KEYCLOAK_AUDIENCE:-fixmytext-backend}
+      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/${KEYCLOAK_REALM:-Velobits}/protocol/openid-connect/certs}
+      - KEYCLOAK_ISSUER=${KEYCLOAK_ISSUER:-}
     networks:
       - fixmytext-backend-net
+      # Needed to resolve keycloak-dev for JWKS (see KEYCLOAK_JWKS_URL).
+      - velobits-proxy-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -250,6 +288,12 @@ services:
       - PORT=8000
       - OTEL_SERVICE_NAME=fixmytext-payments-svc
       - OTEL_EXPORTER_OTLP_ENDPOINT=
+      # Keycloak: internal JWKS host, browser-facing issuer. Two addresses on
+      # purpose — see "Why Keycloak has TWO addresses" in the file header.
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits}
+      - KEYCLOAK_AUDIENCE=${KEYCLOAK_AUDIENCE:-fixmytext-backend}
+      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/${KEYCLOAK_REALM:-Velobits}/protocol/openid-connect/certs}
+      - KEYCLOAK_ISSUER=${KEYCLOAK_ISSUER:-}
       - DATABASE_URL=postgresql+asyncpg://fixmytext:${POSTGRES_PASSWORD}@db-service:5432/fixmytext
     depends_on:
       db-service:
@@ -258,6 +302,8 @@ services:
         condition: service_started
     networks:
       - fixmytext-backend-net
+      # Needed to resolve keycloak-dev for JWKS (see KEYCLOAK_JWKS_URL).
+      - velobits-proxy-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -294,10 +340,13 @@ services:
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
       - SESSION_COOKIE_MAX_AGE=${SESSION_COOKIE_MAX_AGE:-604800}
       - SESSION_COOKIE_DOMAIN=${SESSION_COOKIE_DOMAIN:-}
-      # keycloak-dev resolves over velobits-proxy-net (velobits-infra stack).
-      - KEYCLOAK_URL=${KEYCLOAK_URL:-https://auth-dev.velobits.dev}
-      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits-Dev}
-      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-https://auth-dev.velobits.dev/realms/${KEYCLOAK_REALM:-Velobits-Dev}/protocol/openid-connect/certs}
+      # Keycloak: account-svc also calls the Admin API, so KEYCLOAK_URL is the
+      # internal host too. Two addresses on purpose — see the file header.
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak-dev:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-Velobits}
+      - KEYCLOAK_AUDIENCE=${KEYCLOAK_AUDIENCE:-fixmytext-backend}
+      - KEYCLOAK_JWKS_URL=${KEYCLOAK_JWKS_URL:-http://keycloak-dev:8080/realms/${KEYCLOAK_REALM:-Velobits}/protocol/openid-connect/certs}
+      - KEYCLOAK_ISSUER=${KEYCLOAK_ISSUER:-}
       - KEYCLOAK_SERVICE_ACCOUNT_ID=${KEYCLOAK_SERVICE_ACCOUNT_ID:-account-svc}
       - KEYCLOAK_SERVICE_ACCOUNT_SECRET=${KEYCLOAK_SERVICE_ACCOUNT_SECRET:-}
     depends_on:
@@ -307,6 +356,8 @@ services:
         condition: service_started
     networks:
       - fixmytext-backend-net
+      # Needed to resolve keycloak-dev for JWKS + Admin API.
+      - velobits-proxy-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -317,7 +368,9 @@ services:
   # ══════════════════════════════════════════════════════════════════════════
   # KONG  -  API gateway. Behind Traefik (velobits-infra stack); routes
   # /api/v1/* to services. Joins velobits-proxy-net so Traefik can route
-  # api-dev.velobits.dev → kong:8000 and Keycloak can POST backchannel logouts.
+  # api-dev.fixmytext.velobits.dev → kong:8000 and Keycloak can POST
+  # backchannel logouts. The prod stack (docker-compose-prod.yml) publishes the
+  # same gateway as kong-prod:8000 for api.fixmytext.velobits.dev.
   # ══════════════════════════════════════════════════════════════════════════
 
   kong:
@@ -346,7 +399,8 @@ services:
     # Port 8000 is published to localhost only so the browser can reach Kong at
     # http://localhost:8000 (VITE_API_URL in local dev). Binding to 127.0.0.1
     # prevents Kong's proxy from being reachable on LAN/shared networks.
-    # Traefik also routes Host=api-dev.velobits.dev → this container on port 80.
+    # Traefik reaches the same port over velobits-proxy-net instead (no publish
+    # needed for Host=api-dev.fixmytext.velobits.dev).
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -359,8 +413,14 @@ services:
       account-svc:
         condition: service_started
     networks:
-      - fixmytext-backend-net
-      - velobits-proxy-net
+      fixmytext-backend-net:
+      # `kong` is the DNS name velobits-infra's Traefik router dials
+      # (traefik/rules/fixmytext-dev.yml -> http://kong:8000). Compose adds it
+      # implicitly from the service key, but the cross-repo contract must not
+      # break silently if this service is ever renamed — pin it.
+      velobits-proxy-net:
+        aliases:
+          - kong
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 10s

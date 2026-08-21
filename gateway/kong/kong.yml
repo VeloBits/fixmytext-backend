@@ -123,13 +123,29 @@ plugins:
       generator: uuid
       echo_downstream: true
 
-  # Single source of truth for CORS at the edge.
+  # Single source of truth for CORS at the edge. Origins follow the platform
+  # hostname convention (velobits-infra/traefik/README.md):
+  #   local   http://localhost:3100
+  #   dev     https://fixmytext-dev[-<app>].velobits.dev
+  #   prod    https://fixmytext[-<app>].velobits.dev
+  # Keep in sync with ALLOWED_ORIGINS in .env (the per-service FastAPI fallback
+  # for direct hits that bypass Kong, e.g. Swagger).
+  #
+  # NOTE: this one declarative file is mounted by BOTH the dev and the prod
+  # stack, so the list is the union of both environments — the prod API
+  # therefore also accepts the dev frontend origins. Acceptable while both are
+  # first-party and pre-launch; split into a prod-only declarative config
+  # before the prod frontend carries real user sessions.
   - name: cors
     config:
       origins:
         - http://localhost:3100
         - http://127.0.0.1:3100
-        - http://develop-fixmytext.velobits.dev
+        - https://fixmytext-dev.velobits.dev
+        - https://fixmytext-dev-editor.velobits.dev
+        - https://fixmytext-dev-analytics.velobits.dev
+        - https://fixmytext-dev-content.velobits.dev
+        - https://fixmytext-dev-shell.velobits.dev
         - https://fixmytext.velobits.dev
       methods:
         - GET

@@ -17,7 +17,13 @@ under the prefix `backups/fixmytext/` as gzip-compressed pg_dump files named
 `fixmytext-<YYYYMMDDTHHMMSSZ>.sql.gz`.
 
 This runbook covers a full point-in-time restore to a scratch database,
-verification, and promotion to production in Railway.
+verification, and promotion to production.
+
+Production runs on a **remote managed Postgres** (see
+[octopus-deployment.md](../octopus-deployment.md) Part 3) and the application
+runs on the Oracle VM, deployed by Octopus. Promotion therefore means pointing
+`DATABASE_URL` at the restored database and redeploying — the VM holds no
+product data, so there is nothing to restore *on* the host.
 
 ---
 
@@ -26,7 +32,9 @@ verification, and promotion to production in Railway.
 - **AWS CLI** configured with read access to `S3_BUCKET`
 - **psql** (v16 recommended) — or Docker available to run `postgres:16`
 - **alembic** installed in your local virtualenv (`pip install alembic`)
-- Railway CLI (`railway`) or access to the Railway dashboard
+- Access to the managed-database console (to create the scratch database and
+  read connection URIs) and to the Octopus portal (to change `DATABASE_URL` and
+  redeploy)
 - Environment variables set locally:
   ```
   export S3_BUCKET=<your-bucket-name>
@@ -159,45 +167,54 @@ same database.  Do not proceed to Step 7 until all health checks pass.
 
 ---
 
-## Step 7 — Promote in Railway
+## Step 7 — Promote
 
-> **Warning**: this step replaces production data. Confirm the restore and
-> smoke tests passed before continuing.
+> **Warning**: this step cuts production over to the restored data. Confirm the
+> restore and smoke tests passed before continuing.
 
-### 7a. Update DATABASE_URL in Railway
+### 7a. Point DATABASE_URL at the restored database
 
-1. Open the Railway dashboard for the backend service.
-2. Navigate to **Variables**.
-3. Update `DATABASE_URL` to point at the restored (or a new managed) database.
-   - If you are restoring into Railway Postgres: provision a new Railway
-     Postgres plugin, restore the dump into it (Steps 3-5 using the Railway
-     Postgres connection string), then set `DATABASE_URL` to the new plugin URL.
-   - If restoring into an external Postgres: set `DATABASE_URL` to that
-     connection string.
+1. Octopus → project `fixmytext-backend` → **Variables**.
+2. Edit `DATABASE_URL`, scoped to the **Production** environment, to the
+   restored database's connection string.
+3. Keep the SQLAlchemy + asyncpg form, and note asyncpg spells TLS `ssl=`, not
+   libpq's `sslmode=`:
+   ```
+   postgresql+asyncpg://<user>:<pass>@<host>:<port>/<restored_db>?ssl=require
+   ```
+4. Restrict the new database's allowed IP addresses to the VM's public IP if it
+   is a newly provisioned service.
 
-### 7b. Trigger a Restart
+### 7b. Redeploy
 
-Via Railway CLI:
+Octopus → project → **Releases** → the currently deployed release →
+**Deploy to Production**. Redeploying the *same* release is deliberate: it
+changes only the rendered `.env`, not the application version.
 
-```bash
-railway redeploy --service backend
-```
-
-Or via the dashboard: **Deployments → Redeploy latest**.
+`octopus/deploy.sh` will run `alembic upgrade head` against the restored
+database before starting any service. If the dump predates the current code, the
+outstanding migrations apply here — which is the intended path, but means the
+deploy fails (before serving traffic) if any of them cannot apply.
 
 ### 7c. Monitor
 
-Watch logs for startup errors:
+The deploy gates on health itself: it waits for every service to report healthy
+and then proves Kong routes a live request, so a green Octopus task already
+means the stack serves. To watch it directly on the VM:
 
 ```bash
-railway logs --service backend --tail
+docker compose -f docker-compose-prod.yml logs -f --tail 100
 ```
 
-Hit the production health endpoint once the deploy is live:
+Then confirm from outside:
 
 ```bash
-curl -sf https://<your-production-host>/health && echo "Production: OK"
+curl -sf https://api.fixmytext.velobits.dev/health && echo "Production: OK"
 ```
+
+If the deploy fails, the previous containers are still running against the OLD
+`DATABASE_URL` only if compose did not recreate them — assume it did, and treat
+a failed promotion as an outage: revert the variable and redeploy.
 
 ### 7d. Clean Up Scratch Resources
 
