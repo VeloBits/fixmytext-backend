@@ -22,7 +22,8 @@
 # both architecturally correct and free. Docker's layer cache makes unchanged
 # rebuilds near-instant.
 #
-# Full project setup: docs/octopus-deployment.md
+# One-time setup (Octopus project, variables, VM): docs/octopus-setup.md
+# Day-to-day operations and troubleshooting:      docs/octopus-deployment.md
 set -euo pipefail
 
 # Resolve the package root regardless of the caller's working directory.
@@ -74,7 +75,7 @@ echo "[deploy] environment: ${DEPLOY_ENV} — template: ${TEMPLATE}"
 # (Only the selected template matters; the other environment's template will
 # legitimately contain unbound tokens here.)
 if grep -n '#{' "$TEMPLATE"; then
-  echo "[deploy] ERROR: unbound Octopus variables above — define them as project variables scoped to the ${DEPLOY_ENV} environment (see docs/octopus-deployment.md)." >&2
+  echo "[deploy] ERROR: unbound Octopus variables above — define them as project variables scoped to the ${DEPLOY_ENV} environment (see docs/octopus-setup.md, Stage D)." >&2
   exit 1
 fi
 umask 077

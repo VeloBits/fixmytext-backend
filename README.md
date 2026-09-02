@@ -33,7 +33,8 @@ shared `velobits-proxy-net` Docker network this stack joins as external, so it
 starts first. Every service that validates a token is on that network — JWKS is
 fetched from Keycloak container-to-container.
 
-Deployments go to an Oracle VM via Octopus Deploy — see
+Deployments go to an Oracle VM via Octopus Deploy — first-time setup in
+[docs/octopus-setup.md](docs/octopus-setup.md), operations in
 [docs/octopus-deployment.md](docs/octopus-deployment.md).
 
 ## Prerequisites
@@ -312,7 +313,7 @@ service, which runs both chains in order.
 
 ## Adding a New Tool
 
-See [Adding a Tool Guide](../docs/adding-a-tool.md) for the full walkthrough.
+See [Adding a Tool Guide](docs/adding-a-tool.md) for the full walkthrough.
 
 **Quick summary for backend-only changes:**
 
@@ -355,7 +356,9 @@ PATH. The frontend's Husky hook lives in `frontend/.git` and is unaffected.
 
 Deploys go to an Oracle Cloud VM through **Octopus Deploy**, on the same
 instance and target as [velobits-infra](https://github.com/VeloBits/velobits-infra).
-Full runbook: [docs/octopus-deployment.md](docs/octopus-deployment.md).
+Setting it up for the first time: [docs/octopus-setup.md](docs/octopus-setup.md).
+Deploying, promoting, rolling back and troubleshooting:
+[docs/octopus-deployment.md](docs/octopus-deployment.md).
 
 ```
 Actions "Deploy via Octopus"  →  Octopus release  →  Oracle VM (Tentacle)

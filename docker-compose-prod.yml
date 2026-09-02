@@ -1,6 +1,7 @@
 # fixmytext-backend — PRODUCTION stack (api.fixmytext.velobits.dev).
 #
-# Deployed to the Oracle VM by Octopus; see docs/octopus-deployment.md. Never
+# Deployed to the Oracle VM by Octopus; see docs/octopus-setup.md (first-time
+# setup) and docs/octopus-deployment.md (operations). Never
 # started with plain `docker compose up` — it has no docker-compose.override.yml
 # merge (octopus/deploy.sh always passes -f explicitly) and expects an .env
 # rendered from octopus/env.prod.template.

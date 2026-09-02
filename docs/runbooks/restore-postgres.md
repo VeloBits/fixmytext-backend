@@ -20,7 +20,7 @@ This runbook covers a full point-in-time restore to a scratch database,
 verification, and promotion to production.
 
 Production runs on a **remote managed Postgres** (see
-[octopus-deployment.md](../octopus-deployment.md) Part 3) and the application
+[octopus-setup.md](../octopus-setup.md) Stage B1) and the application
 runs on the Oracle VM, deployed by Octopus. Promotion therefore means pointing
 `DATABASE_URL` at the restored database and redeploying — the VM holds no
 product data, so there is nothing to restore *on* the host.

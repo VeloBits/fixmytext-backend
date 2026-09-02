@@ -28,7 +28,7 @@
 #                                     OIDC identity, incl. immutable GitHub IDs:
 #                                     repo:VeloBits@146367091/fixmytext-backend@1192930434:ref:*)
 #   vars.OCTOPUS_SPACE                space name (defaults to "Default")
-# Full setup runbook: docs/octopus-deployment.md
+# One-time setup: docs/octopus-setup.md — day-to-day: docs/octopus-deployment.md
 name: Deploy via Octopus
 
 on:
